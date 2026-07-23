@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>alice blue</title>
+  <link rel="stylesheet" href="/static/style.css?v=studio-64">
+  <link rel="stylesheet" href="/static/sidecar.css?v=studio-64">
+  <link rel="stylesheet" href="/static/h5-compare.css?v=studio-48">
+  <script src="/static/icons.js?v=offline-5"></script>
+</head>
+<body>
+<div class="app-shell">
+  <header class="titlebar">
+    <div class="brand"><span class="brand-dot"></span><strong>alice blue</strong><span>DATA STUDIO</span></div>
+    <div class="dataset-title" id="titleDataset">未打开数据集</div>
+    <div class="spacer"></div>
+    <div class="service"><i id="serviceDot"></i><span id="serviceStatus">连接后端</span></div>
+    <button class="title-button" id="modelButton"><i data-lucide="box"></i>模型配置</button>
+  </header>
+
+  <nav class="ribbon-tabs" aria-label="功能区">
+    <button class="active" data-ribbon="home">主页</button>
+    <button data-ribbon="analysis">分析</button>
+    <button data-ribbon="export">导出</button>
+    <button data-ribbon="view">视图</button>
+  </nav>
+  <section class="ribbon">
+    <div class="ribbon-pane active" data-pane="home">
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button primary" id="openFolderButton"><i data-lucide="folder-open"></i><span>打开文件夹</span></button>
+        <button class="ribbon-button" id="refreshButton" disabled><i data-lucide="refresh-cw"></i><span>原地重扫</span></button>
+      </div><small>数据</small></div>
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button" data-view-target="dashboard"><i data-lucide="layout-dashboard"></i><span>概览</span></button>
+        <button class="ribbon-button" data-view-target="review"><i data-lucide="scan-line"></i><span>审阅</span></button>
+      </div><small>工作区</small></div>
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button" id="expandButton"><i data-lucide="chevrons-down"></i><span>全部展开</span></button>
+        <button class="ribbon-button" id="collapseButton"><i data-lucide="chevrons-up"></i><span>全部收起</span></button>
+      </div><small>文件树</small></div>
+    </div>
+    <div class="ribbon-pane" data-pane="analysis">
+      <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button primary" id="curationPipelineButton" disabled title="State / Action / Video 数据质量清洗"><i data-lucide="workflow"></i><span>数据清洗</span></button></div><small>八阶段质量管线</small></div>
+      <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button" id="videoSmoothButton" disabled title="光流稳像与清晰度增强"><i data-lucide="scan-line"></i><span>视频平滑</span></button></div><small>稳像与减轻模糊</small></div>
+      <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button" id="poseRecoveryButton" disabled title="SLAM / visual odometry pose recovery"><i data-lucide="scan-search"></i><span>SLAM 位姿恢复</span></button></div><small>位姿补全</small></div>
+      <div class="ribbon-group segment-tools-group">
+        <div class="ribbon-actions segment-tools-actions">
+          <div class="segment-tool"><button class="ribbon-button primary" id="manualRangeButton" disabled title="手动指定有效或无效时间区间"><i data-lucide="flag"></i><span>手动区间</span></button><small>人工</small></div>
+          <div class="segment-tool"><button class="ribbon-button primary" id="noActionTrimButton" disabled title="YOLOE object-hand proximity"><i data-lucide="scissors"></i><span>无动作剪切</span></button><small>YOLOE</small></div>
+          <div class="segment-tool"><button class="ribbon-button" id="qwenTrimButton" disabled title="Qwen-VLM valid / invalid segment review"><i data-lucide="sparkles"></i><span>Qwen 剪切</span></button><small>Qwen-VLM</small></div>
+        </div>
+        <small class="segment-tools-caption">有效 / 无效片段</small>
+      </div>
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button" id="analyzeSchemaButton" disabled title="再次调用 Qwen 理解数据结构与 Episode 归属"><i data-lucide="refresh-cw"></i><span>再次运行</span></button>
+      </div><small>数据结构</small></div>
+      <span class="analysis-thread-status" id="analysisThreadStatus">后台线程空闲</span>
+    </div>
+    <div class="ribbon-pane" data-pane="export">
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button primary" id="exportFolderButton" disabled><i data-lucide="folder-output"></i><span>导出到文件夹</span></button>
+        <button class="ribbon-button" id="downloadExport" disabled><i data-lucide="file-archive"></i><span>下载 ZIP</span></button>
+      </div><small>标注与清单</small></div>
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button" id="reviewChangesButton" disabled><i data-lucide="list-checks"></i><span>查看更改</span></button>
+        <button class="ribbon-button primary" id="applyChangesButton" disabled><i data-lucide="check-check"></i><span>应用更改</span></button>
+      </div><small>暂存更改</small></div>
+      <span class="change-status-badge" id="changeStatusBadge">无待应用更改</span>
+      <label class="ribbon-check"><input type="checkbox" id="includeMedia">复制原始媒体</label>
+    </div>
+    <div class="ribbon-pane" data-pane="view">
+      <div class="ribbon-group"><div class="ribbon-actions">
+        <button class="ribbon-button" id="themeButton"><i data-lucide="moon"></i><span>深色模式</span></button>
+        <button class="ribbon-button" id="detailButton"><i data-lucide="panel-right"></i><span>文件详情</span></button>
+      </div><small>界面</small></div>
+    </div>
+  </section>
+
+  <div class="progress-strip hidden" id="globalProgress"><span id="progressFill"></span><b id="progressText">处理中</b></div>
+
+  <main class="workspace">
+    <aside class="explorer">
+      <div class="panel-head"><strong><i data-lucide="folder-tree"></i>数据资源管理器</strong>
+        <div class="explorer-head-actions"><select id="treeMode" disabled><option value="episode">按 Episode</option><option value="category">按类别</option><option value="folder">按文件夹</option></select></div>
+      </div>
+      <div class="source-summary"><strong id="datasetName">未打开数据集</strong><span id="datasetPath">打开本地文件夹，文件不会上传或复制</span><span class="sidecar-path hidden" id="datasetSidecar"></span></div>
+      <label class="tree-search"><i data-lucide="search"></i><input id="treeSearch" placeholder="筛选文件" disabled></label>
+      <div class="episode-warning hidden" id="episodeWarning"></div>
+      <div class="tree" id="fileTree"><div class="empty"><i data-lucide="folder-open"></i><b>没有数据</b><span>点击“打开文件夹”开始</span></div></div>
+      <div class="explorer-actions"><span class="explorer-selection" id="treeSelectionHint">选择文件或 Episode</span><button class="explorer-remove-button" id="excludeFileButton" disabled title="从逻辑索引移出所选条目（不删除源文件）"><i data-lucide="file-minus"></i><span id="excludeFileLabel">移出</span></button></div>
+      <div class="explorer-foot"><span id="fileCount">0 个文件</span><span id="totalSize">0 B</span></div>
+    </aside>
+
+    <section class="workarea">
+      <div class="workspace-head"><strong id="workspaceTitle">数据集概览</strong><span id="workspaceMeta">等待数据</span></div>
+
+      <div class="view active" id="dashboardView">
+        <div class="kpi-grid">
+          <article><span>EPISODES</span><b id="episodeCount">0</b><i class="blue"></i></article>
+          <article><span>FILES</span><b id="dashboardFiles">0</b><i class="green"></i></article>
+          <article><span>FRAMES</span><b id="frameCount">0</b><i class="orange"></i></article>
+          <article><span>SIZE</span><b id="dashboardSize">0 B</b><i class="purple"></i></article>
+        </div>
+        <div class="dashboard-grid">
+          <section class="surface"><div class="surface-title">文件组成</div><div id="typeBreakdown" class="breakdown empty-copy">打开数据集后显示</div></section>
+          <section class="surface"><div class="surface-title">推理服务</div><div id="modelSummary" class="model-summary"></div></section>
+        </div>
+        <section class="surface schema-overview"><div class="surface-title"><span>Qwen 数据结构理解</span><span class="badge" id="schemaStatusBadge">未运行</span></div>
+          <div class="schema-busy hidden" id="schemaBusy" aria-live="polite"><i data-lucide="loader-circle"></i><div><b id="schemaBusyTitle">Qwen 正在理解数据集结构</b><span id="schemaBusyDetail">请求仍在运行，请保持页面打开</span></div><time id="schemaBusyElapsed">已等待 00:00</time></div>
+          <div id="schemaEmpty" class="empty-copy">导入后由真实文件清单生成候选流；配置 Qwen 后可审计 Vision、Joint、左右手和多传感器关系。</div>
+          <div id="schemaContent" class="hidden"><div class="schema-facts"><div><b id="schemaFormat">--</b><span>格式</span></div><div><b id="schemaConfidence">--</b><span>置信度</span></div><div><b id="inventoryFields">0</b><span>字段</span></div></div><p id="schemaSummary"></p><div class="stream-grid" id="streamList"></div><div class="association-list" id="associationList"></div><ul class="warnings" id="schemaWarnings"></ul></div>
+        </section>
+      </div>
+
+      <div class="view" id="reviewView">
+        <div class="review-toolbar" id="reviewToolbar">
+          <button class="icon-button joint-overlay-button" id="jointOverlayButton" disabled title="Joint overlay"><i data-lucide="waypoints"></i><span>Joint 叠加</span></button>
+          <button class="icon-button joint-overlay-button yolo-overlay-button" id="yoloOverlayButton" disabled aria-pressed="false" title="显示 YOLOE 剪切采样框"><i data-lucide="scan-search"></i><span>YOLO 框选</span></button>
+          <span class="joint-overlay-hint hidden" id="jointOverlayHint"></span><span class="yolo-overlay-hint hidden" id="yoloOverlayHint"></span>
+          <div class="segmented"><button class="active" data-display="overlay">叠加</button><button data-display="source">原图</button></div>
+          <button class="icon-button" id="zoomOut" disabled title="缩小"><i data-lucide="zoom-out"></i></button><span id="zoomValue">100%</span><button class="icon-button" id="zoomIn" disabled title="放大"><i data-lucide="zoom-in"></i></button>
+          <div class="spacer"></div><span class="badge native-preview-status hidden" id="previewProxyStatus">准备预览</span><span id="mediaInfo">-- x -- / -- FPS</span>
+        </div>
+        <div class="review-scroll">
+          <div id="mediaReview">
+          <section class="surface curation-result hidden" id="curationResult"><div class="surface-title"><span>数据质量清洗</span><span class="badge" id="curationRecommendation">--</span></div><div class="curation-summary" id="curationSummary"></div><div class="curation-stage-list" id="curationStageList"></div></section>
+          <div class="viewer" id="viewer"><video id="videoPlayer" class="hidden" preload="auto" playsinline muted></video><img id="frameImage" class="hidden" alt="数据集帧"><canvas id="yoloOverlayCanvas" class="yolo-overlay-canvas hidden" aria-hidden="true"></canvas><canvas id="jointOverlayCanvas" class="joint-overlay-canvas hidden" aria-hidden="true"></canvas><div class="viewer-empty" id="viewerEmpty"><i data-lucide="scan-line"></i><b>选择一个 Episode</b><span>从左侧文件树中选择包含视觉流的 EP</span></div><span class="frame-number hidden" id="frameNumber"></span><span class="invalid-label hidden" id="invalidLabel">NO VALID ACTION</span><button class="viewer-play" id="playButton" disabled><i data-lucide="play"></i></button></div>
+          <div class="transport"><button class="icon-button" id="prevFrame" disabled><i data-lucide="step-back"></i></button><button class="icon-button" id="transportPlay" disabled><i data-lucide="play"></i></button><button class="icon-button" id="nextFrame" disabled><i data-lucide="step-forward"></i></button><b id="currentTime">--:--.---</b><span id="totalTime">/ --:--.---</span><input type="range" id="frameSlider" min="0" max="0" value="0" disabled></div>
+          <section class="surface"><div class="surface-title"><span>操作与质量时间轴</span><span id="clipSummary">尚未分析</span></div><div id="timelineEmpty" class="empty-copy">分析完成后显示真实时序结果</div><div class="timeline hidden" id="timeline"><div class="track-label">动作状态</div><div class="segments" id="segmentTrack"></div><div class="trim-track-group hidden" id="trimTrackGroup"><div class="track-label">剪切状态</div><div class="segments trim-segments" id="trimTrack"></div></div><div class="curation-track-group hidden" id="curationTrackGroup"><div class="track-label"><span>质量标记</span><button type="button" id="clearCurationStageFilter">全部阶段</button></div><div class="segments audit-segments" id="curationTrack"></div></div><div class="track-label">运动强度</div><div class="motion-series" id="motionSeries"></div></div></section>
+          <section class="surface"><div class="surface-title">检测片段</div><div id="clipEmpty" class="empty-copy">没有分析结果</div><table id="clipTable" class="data-table hidden"><thead><tr><th>区间</th><th>判定</th><th>置信度</th><th>原因</th></tr></thead><tbody id="clipRows"></tbody></table></section>
+          </div>
+          <section class="file-preview hidden" id="filePreview">
+            <header><div><strong id="previewTitle">文件预览</strong><span id="previewPath"></span></div><span class="badge" id="previewMode">--</span></header>
+            <div class="preview-controls hidden" id="previewControls"><label>数据字段 <select id="previewField"></select></label><span id="previewShape"></span></div>
+            <div class="preview-notice hidden" id="previewNotice"></div>
+            <div class="preview-content" id="previewContent"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <aside class="inspector" id="inspector">
+      <div class="inspector-tabs"><button class="active" data-inspector="file">文件</button><button data-inspector="frame">当前帧</button><button data-inspector="behavior">VLM 行为</button></div>
+      <div class="inspector-panel active" id="fileInspector">
+        <div class="inspector-empty" id="fileEmpty">从左侧选择文件查看真实元数据</div>
+        <div id="fileDetail" class="hidden"></div>
+        <section class="frame-data hidden" id="frameDataInspector">
+          <div class="frame-data-head"><strong>逐帧查阅</strong><label><input type="checkbox" id="frameDataFollow" checked> 跟随媒体帧</label></div>
+          <label class="frame-data-field">数据字段<select id="frameDataField"></select></label>
+          <div class="frame-data-transport"><button type="button" id="frameDataPrev" title="上一帧">‹</button><input id="frameDataIndex" type="number" min="0" value="0"><span id="frameDataCount">/ --</span><button type="button" id="frameDataNext" title="下一帧">›</button></div>
+          <input class="frame-data-slider" id="frameDataSlider" type="range" min="0" max="0" value="0">
+          <div class="frame-data-meta" id="frameDataMeta">选择结构化文件后读取真实帧值</div>
+          <pre class="frame-data-value" id="frameDataValue"></pre>
+        </section>
+      </div>
+      <div class="inspector-panel" id="frameInspector"><div id="resultEmpty" class="inspector-empty">选择 EP 并运行分析</div><div id="resultBox" class="hidden"><div class="decision"><i data-lucide="hand"></i><div><b id="resultLabel">--</b><span id="resultDesc"></span></div><em id="frameConfidence">--</em></div><div class="metric"><label>运动强度 <b id="motionValue">--</b></label><span><i id="motionBar"></i></span></div><div class="metric"><label>物体接触 <b id="contactValue">--</b></label><span><i id="contactBar"></i></span></div><div class="metric"><label>判定置信度 <b id="intentValue">--</b></label><span><i id="intentBar"></i></span></div></div><section class="frame-audit hidden" id="frameAuditFindings"><strong>当前帧质量</strong><div id="frameAuditRows"></div></section></div>
+      <div class="inspector-panel behavior-inspector" id="behaviorInspector">
+        <div class="behavior-inspector-head"><div><strong>VLM 行为标注</strong><small>语义阶段与目标物体</small></div><button class="button primary" id="behaviorAnnotateButton" disabled title="选择 Episode 范围并运行 Qwen-VLM 行为标注"><i data-lucide="sparkles"></i><span>运行标注</span></button></div>
+        <div class="inspector-empty" id="behaviorInspectorEmpty">选择 Episode 后可运行 VLM 标注；已有结果会在这里显示。</div>
+        <section class="behavior-result hidden" id="behaviorResult">
+          <div class="behavior-result-title"><span>当前结果</span><span class="badge" id="behaviorConfidence">--</span></div>
+          <div class="behavior-summary"><div class="behavior-task-line"><small>高层任务</small><b id="behaviorLabel" title="高层任务">--</b><span id="behaviorDirection" class="behavior-direction"></span></div><p id="behaviorDescription"></p><div class="behavior-targets" id="behaviorTargets"></div></div>
+          <section class="behavior-remove-card"><div><strong>按动作去除</strong><small>将所选动作的全部区间标成无效，先写入 .alicePD</small></div><label>动作类型<select id="behaviorRemoveSelect" disabled><option value="">暂无可选动作</option></select></label><button class="button danger" id="behaviorRemoveButton" disabled><i data-lucide="scissors"></i><span>标记所选动作无效</span></button><p id="behaviorRemoveSummary">请选择一种动作</p></section>
+          <div class="behavior-segments-scroll hidden" id="behaviorSegments"><div class="behavior-segment-list" id="behaviorSegmentRows"></div></div>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusbar"><span id="statusText">就绪</span><span class="spacer"></span><span class="sensor-sync-status" id="sensorSyncStatus" title="打开数据集后自动检测各视频与传感器时钟">SYNC: --</span><span id="statusEpisode">EP: --</span><span id="statusModel">MODEL: --</span></footer>
+</div>
+
+ <div class="modal-backdrop hidden" id="modelModal"><div class="modal"><div class="modal-head"><strong>模型配置</strong><button class="icon-button modal-close"><i data-lucide="x"></i></button></div><div class="modal-body"><label>推理后端<select id="modelType"><option value="yolo">本地 YOLO / YOLOE Seg</option><option value="sam">本地 SAM</option><option value="qwen">Qwen-VLM API</option></select></label><div id="localModelFields"><label>模型路径<input id="modelPath" value="yoloe-26x-seg.pt"></label><label>运行设备<select id="device"><option value="auto">自动选择</option><option value="cpu">CPU</option><option value="0">CUDA:0</option></select></label></div><div id="qwenFields" class="hidden"><label>API Endpoint<input id="apiEndpoint" value="https://dashscope.aliyuncs.com/compatible-mode/v1"></label><label>API Key<input id="apiKey" type="password" autocomplete="off"></label><label>模型名<input id="qwenModel" value="qwen2.5-vl-72b-instruct"></label></div><p class="modal-status" id="modelModalStatus"></p></div><div class="modal-foot"><button class="button modal-close">取消</button><button class="button primary" id="saveModel">加载并验证</button></div></div></div>
+ <div class="modal-backdrop hidden" id="changeModal"><div class="modal change-modal"><div class="modal-head"><strong>更改记录</strong><button class="icon-button change-modal-close" title="关闭"><i data-lucide="x"></i></button></div><div class="modal-body"><div class="change-policy"><i data-lucide="shield-check"></i><span>源视频、H5、Parquet 和传感器文件保持只读。分析结果先写入 .alicePD，只有确认后才会激活。</span></div><div id="changeSummary" class="change-summary"></div><div id="changeList" class="change-list"></div><label class="change-confirm"><input type="checkbox" id="changeConfirm">我已核对选中的更改，确认应用</label></div><div class="modal-foot"><button class="button change-modal-close">返回</button><button class="button primary" id="confirmApplyChanges" disabled>应用选中更改</button></div></div></div>
+ <div class="modal-backdrop hidden" id="analysisScopeModal"><div class="modal analysis-scope-modal" role="dialog" aria-modal="true" aria-labelledby="analysisScopeTitle"><div class="modal-head"><strong id="analysisScopeTitle" tabindex="-1">选择分析范围</strong><button class="icon-button analysis-scope-close" title="关闭" aria-label="关闭分析范围"><i data-lucide="x"></i></button></div><div class="modal-body"><div class="analysis-scope-kind" id="analysisScopeKind"></div><div class="analysis-scope-options"><label class="analysis-scope-option"><input type="radio" name="analysisScope" value="single" checked><span><b>指定 Episode</b><small>只处理下方选择的一条数据</small></span></label><label class="analysis-scope-option"><input type="radio" name="analysisScope" value="all"><span><b>全部 Episode</b><small id="analysisAllDescription">按顺序处理整个数据集</small></span></label></div><label class="analysis-episode-field">Episode<select id="analysisEpisodeSelect"></select></label><label class="analysis-media-field hidden" id="analysisMediaField">视频流<select id="analysisMediaSelect"></select><small id="analysisMediaHint">必须明确指定用于处理的视频</small></label><div class="analysis-media-map hidden" id="analysisMediaMap"><div class="analysis-media-map-head"><span id="analysisMediaMapSummary"></span><button class="button" id="fillAnalysisMediaByName" type="button"><i data-lucide="list-checks"></i><span>按参考流名填充</span></button></div><div class="analysis-media-map-list" id="analysisMediaMapList"></div></div><section class="curation-plan hidden" id="curationPlan"><div class="curation-plan-head"><b>质量清洗八阶段</b><span id="curationPreflightSummary">正在检查先决条件</span></div><div class="curation-plan-stages" id="curationPlanStages"></div><details class="curation-settings" open><summary>本次清洗参数</summary><div class="curation-settings-grid"><label>突变 MAD 倍数<input id="curationSuddenSigma" type="number" min="3" max="12" step="0.5" value="6"></label><label>方向一致率阈值<input id="curationDaThreshold" type="number" min="0.5" max="0.85" step="0.01" value="0.65"></label><label>最大延迟（秒）<input id="curationMaxLag" type="number" min="0.1" max="3" step="0.1" value="0.5"></label><label>极值扩展 α<input id="curationOutlierAlpha" type="number" min="0" max="2" step="0.05" value="0.1"></label><label>视频采样 FPS<input id="curationVideoFps" type="number" min="0.5" max="8" step="0.5" value="2"></label><label>模糊阈值<input id="curationBlurThreshold" type="number" min="5" max="300" step="5" value="35"></label><label>黑帧亮度<input id="curationBlackThreshold" type="number" min="0" max="40" step="1" value="8"></label><label>静止时长（秒）<input id="curationStaticDuration" type="number" min="0.5" max="20" step="0.5" value="2"></label></div></details></section><details class="trim-settings hidden" id="trimSettings" open><summary><span>剪切参数</span><small id="trimSettingsSummary">仅影响本次任务</small></summary><section class="trim-settings-section hidden" id="yoloTrimSettings" aria-label="YOLOE 剪切参数"><div class="trim-settings-grid"><label>采样率（FPS）<input id="yoloTrimSampleFps" type="number" min="0.25" max="15" step="0.25" value="4"></label><label class="trim-range"><span>手与目标最大归一化距离 <output id="yoloProximityValue" for="yoloProximityThreshold">0.040</output></span><input id="yoloProximityThreshold" type="range" min="5" max="250" step="5" value="40"></label><label class="trim-range"><span>最大漏检填补时长 <output id="yoloMaxGapValue" for="yoloMaxGapSeconds">0.5 s</output></span><input id="yoloMaxGapSeconds" type="range" min="0" max="30" step="1" value="5"></label><label class="trim-range"><span>最短有效片段 <output id="yoloMinValidValue" for="yoloMinValidSeconds">0.3 s</output></span><input id="yoloMinValidSeconds" type="range" min="0" max="30" step="1" value="3"></label></div></section><section class="trim-settings-section hidden" id="qwenTrimSettings" aria-label="Qwen 剪切参数"><div class="trim-settings-grid"><label>采样率（FPS）<input id="qwenTrimSampleFps" type="number" min="0.1" max="4" step="0.05" value="0.75"></label><label>判定窗口（秒）<input id="qwenTrimWindowSeconds" type="number" min="0.25" max="6" step="0.25" value="1.5"></label><label>每窗口关键帧<select id="qwenTrimFramesPerWindow"><option value="2" selected>2 帧</option><option value="3">3 帧</option></select></label><label>每次 API 窗口数<input id="qwenTrimWindowsPerRequest" type="number" min="1" max="12" step="1" value="10"></label><label class="trim-range"><span>有效置信度阈值 <output id="qwenTrimConfidenceValue" for="qwenTrimConfidence">0.55</output></span><input id="qwenTrimConfidence" type="range" min="0" max="100" step="1" value="55"></label><label class="trim-range"><span>最大间断合并时长 <output id="qwenTrimMaxGapValue" for="qwenTrimMaxGapSeconds">1.5 s</output></span><input id="qwenTrimMaxGapSeconds" type="range" min="0" max="100" step="1" value="15"></label><label class="trim-range"><span>最短有效片段 <output id="qwenTrimMinValidValue" for="qwenTrimMinValidSeconds">0.75 s</output></span><input id="qwenTrimMinValidSeconds" type="range" min="0" max="200" step="1" value="15"></label></div></section></details><div class="analysis-scope-notice" id="analysisScopeNotice"></div></div><div class="modal-foot"><button class="button analysis-scope-close">取消</button><button class="button primary" id="startScopedAnalysis"><i data-lucide="play"></i><span>提交后台任务</span></button></div></div></div>
+ <div class="modal-backdrop hidden" id="manualRangeModal"><div class="modal manual-range-modal"><div class="modal-head"><strong>手动指定有效 / 无效区间</strong><button class="icon-button manual-range-close" title="关闭"><i data-lucide="x"></i></button></div><div class="modal-body"><div class="manual-range-context" id="manualRangeContext">请先选择视频</div><div class="analysis-scope-options manual-state-options"><label class="analysis-scope-option"><input type="radio" name="manualRangeState" value="valid"><span><b>有效操作</b><small>物体与手正在执行目标行为</small></span></label><label class="analysis-scope-option"><input type="radio" name="manualRangeState" value="invalid" checked><span><b>无效 / 无动作</b><small>不属于可用操作数据</small></span></label></div><div class="manual-range-grid"><label>开始时间（秒）<input id="manualRangeStart" type="number" min="0" step="0.001" value="0"></label><label>结束时间（秒）<input id="manualRangeEnd" type="number" min="0" step="0.001" value="0"></label></div><div class="manual-range-tools"><button class="button" id="manualStartCurrent"><i data-lucide="step-back"></i><span>起点取当前帧</span></button><button class="button" id="manualEndCurrent"><i data-lucide="step-forward"></i><span>终点取当前帧</span></button></div><label>标注原因<input id="manualRangeReason" value="人工指定区间" maxlength="500"></label><div class="manual-range-summary" id="manualRangeSummary">--</div></div><div class="modal-foot"><button class="button manual-range-close">取消</button><button class="button primary" id="saveManualRange"><i data-lucide="check"></i><span>暂存区间标注</span></button></div></div></div>
+ <div class="modal-backdrop hidden" id="excludeFileModal"><div class="modal exclude-file-modal"><div class="modal-head"><strong id="excludeFileModalTitle">移出数据集索引</strong><button class="icon-button exclude-file-close" title="关闭"><i data-lucide="x"></i></button></div><div class="modal-body"><div class="exclude-file-context" id="excludeFileContext"></div><div class="exclude-file-warning"><i data-lucide="shield-check"></i><span>只从 alice blue 当前数据集索引中移出，不删除、不移动源文件。以后重扫仍会遵守这条排除记录。</span></div><label>移出原因<input id="excludeFileReason" value="人工排除不符合条目" maxlength="500"></label></div><div class="modal-foot"><button class="button exclude-file-close">取消</button><button class="button primary danger" id="confirmExcludeFile"><i data-lucide="file-minus"></i><span id="confirmExcludeFileLabel">确认移出</span></button></div></div></div>
+  <div class="toast" id="toast"></div>
+  <script src="/static/app.js?v=studio-64"></script>
+</body>
+</html>

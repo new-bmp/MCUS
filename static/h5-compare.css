@@ -1,0 +1,241 @@
+.h5-compare {
+  border-top: 1px solid var(--line2);
+}
+
+.h5-compare-toolbar {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: auto 32px minmax(92px, 1fr) auto 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  background: #f4f7f9;
+  border-bottom: 1px solid var(--line2);
+  font-size: 11px;
+}
+
+.h5-compare-toolbar strong {
+  margin-right: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.h5-compare-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.h5-compare-toolbar input[type="number"] {
+  width: 78px;
+  height: 27px;
+  border: 1px solid var(--line);
+  padding: 0 6px;
+  font: 11px Consolas, monospace;
+}
+
+.h5-compare-toolbar button {
+  height: 27px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.h5-compare-toolbar input[type="range"] {
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.h5-compare-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+
+.h5-compare-grid article {
+  min-width: 0;
+  background: #fff;
+}
+
+.h5-compare-grid article > header {
+  min-height: 42px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  background: #f8fafb;
+  border-bottom: 1px solid var(--line2);
+}
+
+.h5-compare-grid article > header b {
+  font-size: 13px;
+}
+
+.h5-compare-grid article > header span {
+  color: var(--muted);
+  font: 10px Consolas, monospace;
+  word-break: break-all;
+}
+
+.h5-compare-grid pre {
+  margin: 0;
+  min-height: 260px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 12px;
+  background: #172027;
+  color: #dce7ed;
+  font: 11px/1.6 Consolas, "Cascadia Mono", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.h5-diff {
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
+.h5-diff > header {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  background: #f6f9fb;
+  border-bottom: 1px solid var(--line2);
+}
+
+.h5-diff > header div,
+.h5-diff > header strong,
+.h5-diff > header span {
+  display: block;
+}
+
+.h5-diff > header strong {
+  font-size: 13px;
+}
+
+.h5-diff > header span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.h5-diff > header > b {
+  padding: 5px 9px;
+  border-radius: 12px;
+  background: #fff2d8;
+  color: #8b5c0b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.h5-diff.same > header > b {
+  background: #e5f6ed;
+  color: #26744c;
+}
+
+.h5-diff-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line2);
+}
+
+.h5-diff-metrics div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid var(--line2);
+}
+
+.h5-diff-metrics span,
+.h5-diff-metrics b {
+  display: block;
+}
+
+.h5-diff-metrics span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.h5-diff-metrics b {
+  margin-top: 5px;
+  font: 13px Consolas, "Cascadia Mono", monospace;
+}
+
+.h5-diff > pre {
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+  padding: 12px;
+  background: #10191f;
+  color: #dce7ed;
+  font: 11px/1.65 Consolas, "Cascadia Mono", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 审阅区可读性：整体增加约 1–2px，不改变信息密度。 */
+.unified-reviewer .navigator-head strong { font-size: 12px; }
+.unified-reviewer .navigator-head span { font-size: 10px; }
+.unified-reviewer .navigator-search input { font-size: 11px; }
+.unified-reviewer .navigator-item { min-height: 40px; font-size: 11px; }
+.unified-reviewer .navigator-item small { font-size: 9px; }
+.unified-reviewer .document-header b { font-size: 15px; }
+.unified-reviewer .document-header span,
+.unified-reviewer .document-header code { font-size: 11px; }
+.unified-reviewer .document-section h3 { font-size: 13px; }
+.unified-reviewer .document-section > header span { font-size: 10px; }
+.unified-reviewer .dataset-facts b { font-size: 12px; }
+.unified-reviewer .dataset-facts span,
+.unified-reviewer .dataset-section summary { font-size: 10px; }
+.frame-data-head strong { font-size: 13px; }
+.frame-data-head label,
+.frame-data-field { font-size: 10px; }
+.frame-data-field select,
+.frame-data-transport span,
+.frame-data-meta,
+.frame-data-value { font-size: 11px; }
+
+body.dark .h5-compare-toolbar,
+body.dark .h5-compare-grid article,
+body.dark .h5-diff {
+  background: var(--panel);
+}
+
+body.dark .h5-compare-grid article > header,
+body.dark .h5-diff > header {
+  background: var(--panel2);
+}
+
+body.dark .h5-compare-toolbar button {
+  background: #1b252b;
+  color: var(--text);
+}
+
+body.dark .h5-compare-toolbar button:hover {
+  background: #30404a;
+}
+
+body.dark .h5-diff > header > b {
+  background: #443a20;
+  color: #f1d68d;
+}
+
+body.dark .h5-diff.same > header > b {
+  background: #203a30;
+  color: #a8dfc4;
+}
+
+@media (max-width: 850px) {
+  .h5-compare-toolbar {
+    grid-template-columns: auto 32px minmax(90px, 1fr) auto 32px;
+  }
+
+  .h5-compare-grid {
+    grid-template-columns: 1fr;
+  }
+}

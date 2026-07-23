@@ -1,0 +1,841 @@
+from __future__ import annotations
+
+import os
+import json
+import uuid
+from contextlib import asynccontextmanager
+from functools import lru_cache
+from pathlib import Path
+
+import cv2
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+
+from .analyzer import jobs
+from .annotation_edits import apply_behavior_phase_exclusion, apply_segment_override
+from .batch_jobs import batch_analysis_jobs
+from .behavior_annotator import behavior_jobs, load_behavior_annotation
+from .curation_pipeline import curation_jobs, curation_preflight, load_curation_report
+from .episode_resolver import build_episode_framework, validate_qwen_episode_plan
+from .file_preview import preview_file, preview_file_frame
+from .folder_dialog import choose_folder
+from .joint_overlay import draw_joint_overlay, joint_overlay_geometry, joint_overlay_status
+from .models import registry
+from .no_action_trim import load_no_action_trim
+from .pose_recovery import pose_recovery_status, recover_episode_pose
+from .preview_proxy import preview_proxy_manager
+from .qwen_trim import QwenTrimRequest, load_qwen_action_trim, qwen_trim_jobs
+from .schema_profiler import validate_understanding
+from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment, sensor_alignment_jobs
+from .schemas import AnalysisRequest, ApplyChangesRequest, BatchAnalysisRequest, BehaviorAnnotationRequest, BehaviorPhaseRemovalRequest, CurationJobRequest, ExcludeFilesRequest, ExportFolderRequest, LocalModelConfig, PathOpenRequest, SegmentUpdate, VLMModelConfig
+from .storage import (
+    ALICE_ANNOTATION_SCHEMA,
+    apply_changes,
+    ROOT,
+    dataset_cache_dir,
+    exclude_dataset_files,
+    episode_media,
+    export_dataset,
+    export_zip,
+    get_dataset_file,
+    get_dataset_file_path,
+    get_episode,
+    get_manifest,
+    list_manifests,
+    load_annotations,
+    load_invalid_frame_index,
+    list_changes,
+    is_frame_invalid,
+    manifest_registry_path,
+    read_frame,
+    save_annotations,
+    save_manifest,
+    scan_dataset,
+)
+
+
+def _default_model_path() -> Path | None:
+    configured = os.getenv("VLA_LOCAL_MODEL")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend([ROOT / "yoloe-26x-seg.pt", ROOT / "models" / "yoloe-26x-seg.pt"])
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+def _vlm_config_path() -> Path:
+    return ROOT / ".vla_lens" / "vlm-config.json"
+
+
+def _save_vlm_config(config: VLMModelConfig) -> None:
+    target = _vlm_config_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps({
+        "slot": "vlm", "kind": "qwen", "endpoint": config.endpoint,
+        "api_key": config.api_key, "model": config.model, "verify": False,
+    }, ensure_ascii=False), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(target)
+
+
+def _load_vlm_config() -> None:
+    target = _vlm_config_path()
+    if not target.is_file():
+        return
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["verify"] = False
+    registry.configure_vlm(VLMModelConfig.model_validate(payload))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    model_path = _default_model_path()
+    if model_path:
+        try:
+            registry.configure_local(LocalModelConfig(kind="yolo", model_path=str(model_path), device="auto", confidence=0.25))
+        except RuntimeError:
+            pass
+    try:
+        _load_vlm_config()
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError):
+        pass
+    manifests = list_manifests()
+    if manifests:
+        try:
+            sensor_alignment_jobs.submit(manifests[0]["id"])
+        except (KeyError, OSError, ValueError):
+            pass
+    yield
+
+
+app = FastAPI(title="alice blue API", version="1.0.0", lifespan=lifespan)
+
+
+def _understand_manifest(manifest: dict, require_vlm: bool = False) -> dict:
+    profile = manifest.get("schema_profile") or {}
+    if not registry.has_vlm:
+        if require_vlm:
+            raise RuntimeError("请先配置 Qwen-VLM，再理解数据集结构")
+        return manifest
+    try:
+        raw = registry.understand_dataset_schema(profile.get("inventory") or {})
+        understanding, warnings = validate_understanding(profile.get("inventory") or {}, raw)
+        episode_framework = build_episode_framework(manifest.get("files", []))
+        episode_raw = registry.resolve_episode_membership(episode_framework)
+        manifest["episode_resolution"] = validate_qwen_episode_plan(
+            episode_raw,
+            episode_framework,
+            manifest.get("files", []),
+            manifest.get("episodes", []),
+            registry.status().get("vlm", {}).get("model"),
+        )
+        profile.update({
+            "status": "completed",
+            "understanding": understanding,
+            "warnings": warnings,
+            "provider": registry.status()["vlm"],
+            "error": None,
+        })
+    except Exception as exc:
+        profile.update({"status": "error", "understanding": None, "error": str(exc)})
+        resolution = manifest.get("episode_resolution") or {}
+        resolution["status"] = "qwen_error"
+        resolution["requires_api"] = True
+        resolution["warnings"] = list(resolution.get("warnings", [])) + [f"Qwen episode audit failed: {exc}"]
+        manifest["episode_resolution"] = resolution
+        if require_vlm:
+            manifest["schema_profile"] = profile
+            save_manifest(manifest)
+            raise RuntimeError(f"Qwen 数据结构理解失败: {exc}") from exc
+    manifest["schema_profile"] = profile
+    save_manifest(manifest)
+    return manifest
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "service": "vla-lens", "version": app.version, "models": registry.status()}
+
+
+@app.get("/api/datasets")
+def datasets():
+    return {"items": list_manifests()}
+
+
+@app.post("/api/system/open-dataset-folder")
+def open_dataset_folder():
+    try:
+        selected = choose_folder()
+        if selected is None:
+            return {"cancelled": True, "dataset": None}
+        manifest = _understand_manifest(scan_dataset(selected))
+        return {"cancelled": False, "dataset": manifest}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}")
+def dataset_detail(dataset_id: str):
+    try:
+        return get_manifest(dataset_id)
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+
+
+@app.post("/api/datasets/{dataset_id}/rescan")
+def rescan_dataset(dataset_id: str):
+    try:
+        manifest = get_manifest(dataset_id)
+        return _understand_manifest(
+            scan_dataset(manifest["root_path"], manifest["name"], dataset_id=dataset_id)
+        )
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/files/{file_id}")
+def dataset_file_detail(dataset_id: str, file_id: str):
+    try:
+        _, detail = get_dataset_file(dataset_id, file_id)
+        return detail
+    except KeyError:
+        raise HTTPException(404, "文件不在当前数据集索引中")
+
+
+@app.post("/api/datasets/{dataset_id}/exclusions")
+def exclude_files(dataset_id: str, request: ExcludeFilesRequest):
+    try:
+        manifest = exclude_dataset_files(
+            dataset_id,
+            request.file_ids,
+            request.reason,
+            request.scope_type,
+            request.scope_label,
+        )
+        return {"dataset": manifest, "excluded_file_ids": request.file_ids}
+    except KeyError as exc:
+        raise HTTPException(404, f"文件不在当前数据集索引中: {exc.args[0]}")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/files/{file_id}/preview")
+def dataset_file_preview(dataset_id: str, file_id: str, field: str | None = None):
+    try:
+        _, detail, path = get_dataset_file_path(dataset_id, file_id)
+        return preview_file(path, detail["relative_path"], field)
+    except KeyError:
+        raise HTTPException(404, "文件不在当前数据集索引中")
+
+
+@app.get("/api/datasets/{dataset_id}/files/{file_id}/frame")
+def dataset_file_frame(
+    dataset_id: str,
+    file_id: str,
+    index: int = Query(0, ge=0),
+    field: str | None = None,
+):
+    try:
+        _, detail, path = get_dataset_file_path(dataset_id, file_id)
+        return preview_file_frame(path, detail["relative_path"], index, field)
+    except KeyError:
+        raise HTTPException(404, "文件不在当前数据集索引中")
+
+
+@app.post("/api/datasets/open-path")
+def open_path(request: PathOpenRequest):
+    try:
+        return _understand_manifest(scan_dataset(request.path, request.name))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/schema")
+def dataset_schema(dataset_id: str):
+    try:
+        return get_manifest(dataset_id).get("schema_profile") or {}
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episode-resolution")
+def dataset_episode_resolution(dataset_id: str):
+    try:
+        return get_manifest(dataset_id).get("episode_resolution") or {}
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+
+
+@app.post("/api/datasets/{dataset_id}/analyze-schema")
+def analyze_dataset_schema(dataset_id: str):
+    try:
+        manifest = _understand_manifest(get_manifest(dataset_id), require_vlm=True)
+        result = dict(manifest.get("schema_profile") or {})
+        result["episode_resolution"] = manifest.get("episode_resolution") or {}
+        return result
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/frame")
+def frame(
+    dataset_id: str,
+    episode_id: str,
+    index: int = Query(0, ge=0),
+    overlay: bool = False,
+    joint_overlay: bool = False,
+    media_file_id: str | None = None,
+):
+    try:
+        manifest, episode = get_episode(dataset_id, episode_id)
+        selected_media = episode_media(episode, media_file_id)
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+    primary_media_id = episode.get("primary_media_file_id")
+    if overlay and (not media_file_id or media_file_id == primary_media_id):
+        cache_dir = dataset_cache_dir(dataset_id, episode_id)
+        candidates = list(cache_dir.glob("*.jpg")) if cache_dir.exists() else []
+        if candidates:
+            target = min(candidates, key=lambda path: abs(int(path.stem) - index))
+            image = cv2.imread(str(target))
+        else:
+            image = read_frame(selected_media, index)
+    else:
+        image = read_frame(selected_media, index)
+    if image is None:
+        raise HTTPException(422, "无法读取指定帧")
+    if joint_overlay:
+        try:
+            image, _ = draw_joint_overlay(image, manifest, episode, index, selected_media)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    if not ok:
+        raise HTTPException(500, "帧编码失败")
+    return Response(encoded.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+def _preview_proxy_payload(dataset_id: str, episode_id: str, media_file_id: str | None, start: bool = False, force_proxy: bool = False) -> dict:
+    try:
+        _, episode = get_episode(dataset_id, episode_id)
+        selected_media = episode_media(episode, media_file_id)
+    except KeyError:
+        raise HTTPException(404, "Episode 或视频流不存在")
+    try:
+        payload = preview_proxy_manager.submit(dataset_id, episode_id, selected_media, force_proxy) if start else preview_proxy_manager.status(dataset_id, episode_id, selected_media)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc))
+    result = dict(payload)
+    if result.get("status") == "ready":
+        result["media_url"] = f"/api/datasets/{dataset_id}/episodes/{episode_id}/preview-media?media_file_id={selected_media.get('file_id') or ''}"
+        if result.get("delivery") == "proxy":
+            result["mapping_url"] = f"/api/datasets/{dataset_id}/episodes/{episode_id}/preview-mapping?media_file_id={selected_media.get('file_id') or ''}"
+    result.pop("mapping_path", None)
+    result["media_file_id"] = selected_media.get("file_id")
+    result["stream_name"] = selected_media.get("stream_name")
+    return result
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-proxy")
+def preview_proxy_status(dataset_id: str, episode_id: str, media_file_id: str | None = None):
+    return _preview_proxy_payload(dataset_id, episode_id, media_file_id)
+
+
+@app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-proxy")
+def prepare_preview_proxy(dataset_id: str, episode_id: str, media_file_id: str | None = None, force_proxy: bool = False):
+    return _preview_proxy_payload(dataset_id, episode_id, media_file_id, start=True, force_proxy=force_proxy)
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-media")
+def preview_media(dataset_id: str, episode_id: str, media_file_id: str | None = None):
+    try:
+        _, episode = get_episode(dataset_id, episode_id)
+        selected_media = episode_media(episode, media_file_id)
+        path, media_type = preview_proxy_manager.media_path(dataset_id, episode_id, selected_media)
+    except KeyError:
+        raise HTTPException(404, "Episode 或视频流不存在")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-mapping")
+def preview_mapping(dataset_id: str, episode_id: str, media_file_id: str | None = None):
+    try:
+        _, episode = get_episode(dataset_id, episode_id)
+        selected_media = episode_media(episode, media_file_id)
+        path = preview_proxy_manager.mapping_path(dataset_id, episode_id, selected_media)
+    except KeyError:
+        raise HTTPException(404, "Episode 或视频流不存在")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+    return FileResponse(path, media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/joint-overlay/status")
+def joint_overlay_availability(dataset_id: str, episode_id: str):
+    try:
+        manifest, episode = get_episode(dataset_id, episode_id)
+        return joint_overlay_status(manifest, episode)
+    except KeyError:
+        raise HTTPException(404, "Episode 涓嶅瓨鍦?")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/pose-recovery/status")
+def episode_pose_recovery_status(dataset_id: str, episode_id: str):
+    try:
+        manifest, episode = get_episode(dataset_id, episode_id)
+        return pose_recovery_status(dataset_id, manifest, episode)
+    except KeyError:
+        raise HTTPException(404, "Episode 涓嶅瓨鍦?")
+
+
+@app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/pose-recovery")
+def recover_episode_initial_pose(dataset_id: str, episode_id: str):
+    try:
+        get_episode(dataset_id, episode_id)
+        return batch_analysis_jobs.submit(
+            dataset_id,
+            BatchAnalysisRequest(operation="pose_recovery", episode_ids=[episode_id]),
+        )
+    except KeyError:
+        raise HTTPException(404, "Episode 涓嶅瓨鍦?")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/models/configure")
+def configure_model(config: dict):
+    try:
+        if config.get("slot") == "vlm" or config.get("kind") == "qwen":
+            validated = VLMModelConfig.model_validate(config)
+            status = registry.configure_vlm(validated)
+            _save_vlm_config(validated)
+            return status
+        return registry.configure_local(LocalModelConfig.model_validate(config))
+    except Exception as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/api/models/upload")
+def upload_model(file: UploadFile = File(...)):
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".pt", ".onnx", ".engine"}:
+        raise HTTPException(400, "仅支持 .pt、.onnx 或 .engine 模型文件")
+    models_dir = ROOT / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex[:8]}-{Path(file.filename or 'model.pt').name}"
+    target = models_dir / safe_name
+    size = 0
+    with target.open("wb") as output:
+        while chunk := file.file.read(1024 * 1024):
+            output.write(chunk)
+            size += len(chunk)
+    if size < 1024:
+        target.unlink(missing_ok=True)
+        raise HTTPException(400, "模型文件为空或不完整")
+    return {"ok": True, "path": str(target.relative_to(ROOT)), "size": size}
+
+
+@app.get("/api/models/status")
+def model_status():
+    return registry.status()
+
+
+@app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/analyze")
+def analyze(dataset_id: str, episode_id: str, request: AnalysisRequest):
+    try:
+        get_episode(dataset_id, episode_id)
+        return jobs.submit(dataset_id, episode_id, request)
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/joint-overlay/frame")
+def joint_overlay_frame(dataset_id: str, episode_id: str, index: int = Query(0, ge=0), media_file_id: str | None = None):
+    try:
+        manifest_path = manifest_registry_path(dataset_id)
+        manifest_revision = manifest_path.stat().st_mtime_ns if manifest_path.is_file() else 0
+        manifest, episode = _cached_joint_context(dataset_id, episode_id, manifest_revision)
+        selected_media = episode_media(episode, media_file_id)
+        width = int(selected_media.get("width") or episode.get("width") or 0)
+        height = int(selected_media.get("height") or episode.get("height") or 0)
+        if width <= 0 or height <= 0:
+            raise ValueError("视频尺寸无效")
+        return joint_overlay_geometry(manifest, episode, index, width, height, selected_media)
+    except KeyError:
+        raise HTTPException(404, "Episode 或视频流不存在")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@lru_cache(maxsize=128)
+def _cached_joint_context(dataset_id: str, episode_id: str, manifest_revision: int) -> tuple[dict, dict]:
+    return get_episode(dataset_id, episode_id)
+
+
+@app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/annotate-behavior")
+def annotate_behavior(dataset_id: str, episode_id: str, request: BehaviorAnnotationRequest):
+    try:
+        get_episode(dataset_id, episode_id)
+        return behavior_jobs.submit(dataset_id, episode_id, request)
+    except KeyError:
+        raise HTTPException(404, "Episode 涓嶅瓨鍦?")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/datasets/{dataset_id}/analysis-jobs")
+def submit_batch_analysis(dataset_id: str, request: BatchAnalysisRequest):
+    try:
+        return batch_analysis_jobs.submit(dataset_id, request)
+    except KeyError:
+        raise HTTPException(404, "Dataset or Episode not found")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/datasets/{dataset_id}/qwen-trim-jobs")
+def submit_qwen_trim(dataset_id: str, request: QwenTrimRequest):
+    try:
+        return qwen_trim_jobs.submit(dataset_id, request)
+    except KeyError:
+        raise HTTPException(404, "Dataset or Episode not found")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/datasets/{dataset_id}/curation-jobs")
+def submit_curation(dataset_id: str, request: CurationJobRequest):
+    try:
+        return curation_jobs.submit(dataset_id, request)
+    except KeyError:
+        raise HTTPException(404, "Dataset or Episode not found")
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/curation-jobs")
+def list_curation_jobs(dataset_id: str, active_only: bool = False):
+    try:
+        get_manifest(dataset_id)
+        return curation_jobs.list(dataset_id, active_only=active_only)
+    except KeyError:
+        raise HTTPException(404, "Dataset 不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/curation-preflight")
+def episode_curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | None = None):
+    try:
+        return curation_preflight(dataset_id, episode_id, media_file_id)
+    except KeyError:
+        raise HTTPException(404, "Dataset、Episode 或视频流不存在")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/curation")
+def episode_curation_result(dataset_id: str, episode_id: str):
+    try:
+        get_episode(dataset_id, episode_id)
+        payload = load_curation_report(dataset_id, episode_id)
+        if payload is None:
+            raise HTTPException(404, "尚无数据质量清洗报告")
+        return payload
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/qwen-trim-jobs")
+def list_qwen_trim_jobs(dataset_id: str, active_only: bool = False):
+    try:
+        get_manifest(dataset_id)
+        return {"items": qwen_trim_jobs.list(dataset_id, active_only=active_only)}
+    except KeyError:
+        raise HTTPException(404, "Dataset 不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/qwen-action-trim")
+def qwen_action_trim_result(dataset_id: str, episode_id: str):
+    try:
+        get_episode(dataset_id, episode_id)
+        payload = load_qwen_action_trim(dataset_id, episode_id)
+        if payload is None:
+            raise HTTPException(404, "尚无 Qwen 有效/无效片段结果")
+        return payload
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+
+
+@app.post("/api/datasets/{dataset_id}/sensor-alignment")
+def start_sensor_alignment(dataset_id: str, force: bool = False):
+    try:
+        return sensor_alignment_jobs.submit(dataset_id, force=force)
+    except KeyError:
+        raise HTTPException(404, "Dataset 不存在")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/sensor-alignment")
+def sensor_alignment_status(dataset_id: str):
+    try:
+        get_manifest(dataset_id)
+        return sensor_alignment_jobs.status(dataset_id)
+    except KeyError:
+        raise HTTPException(404, "Dataset 不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/sensor-alignment")
+def episode_sensor_alignment(dataset_id: str, episode_id: str):
+    try:
+        manifest, episode = get_episode(dataset_id, episode_id)
+        return load_sensor_alignment(manifest, episode_id) or scan_episode_sensor_alignment(manifest, episode)
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/behavior-annotation")
+def behavior_annotation(dataset_id: str, episode_id: str):
+    try:
+        get_episode(dataset_id, episode_id)
+        payload = load_behavior_annotation(dataset_id, episode_id)
+        if payload is None:
+            raise HTTPException(404, "尚无 VLM 行为标注")
+        return payload
+    except KeyError:
+        raise HTTPException(404, "Episode 涓嶅瓨鍦?")
+
+
+@app.get("/api/jobs/{job_id}")
+def job(job_id: str):
+    try:
+        return jobs.get(job_id)
+    except KeyError:
+        try:
+            return behavior_jobs.get(job_id)
+        except KeyError:
+            try:
+                return batch_analysis_jobs.get(job_id)
+            except KeyError:
+                try:
+                    return qwen_trim_jobs.get(job_id)
+                except KeyError:
+                    try:
+                        return sensor_alignment_jobs.get(job_id)
+                    except KeyError:
+                        try:
+                            return curation_jobs.get(job_id)
+                        except KeyError:
+                            pass
+        raise HTTPException(404, "任务不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/annotations")
+def annotations(dataset_id: str, episode_id: str):
+    payload = load_annotations(dataset_id, episode_id)
+    if payload is None:
+        raise HTTPException(404, "尚无分析标注")
+    return payload
+
+
+@app.get("/api/datasets/{dataset_id}/changes")
+def changes(dataset_id: str):
+    try:
+        return list_changes(dataset_id)
+    except KeyError:
+        raise HTTPException(404, "Dataset not found")
+
+
+@app.post("/api/datasets/{dataset_id}/changes/apply")
+def apply_dataset_changes(dataset_id: str, request: ApplyChangesRequest):
+    if request.confirmation != "APPLY":
+        raise HTTPException(400, "Explicit confirmation is required")
+    try:
+        return apply_changes(dataset_id, request.change_ids)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/invalid-index")
+def invalid_frame_index(
+    dataset_id: str,
+    episode_id: str,
+    frame: int | None = Query(None, ge=0),
+):
+    try:
+        if frame is not None:
+            invalid, result = is_frame_invalid(dataset_id, episode_id, frame)
+            return {
+                "dataset_id": dataset_id,
+                "episode_id": episode_id,
+                "frame": result["frame"],
+                "frame_count": result["frame_count"],
+                "invalid": invalid,
+                "source": "alicePD_bitmap",
+            }
+        index = load_invalid_frame_index(dataset_id, episode_id)
+        if index is None:
+            raise KeyError(episode_id)
+        return index
+    except KeyError:
+        raise HTTPException(404, "该 Episode 尚无无效帧索引")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(422, str(exc))
+
+
+def _annotation_base_for_media(dataset_id: str, episode_id: str, media: dict) -> dict:
+    payload = load_annotations(dataset_id, episode_id)
+    trim_payload = load_no_action_trim(dataset_id, episode_id)
+    qwen_trim_payload = load_qwen_action_trim(dataset_id, episode_id)
+    if payload is None or not (payload.get("manual_edits") or []):
+        candidates = [item for item in (trim_payload, qwen_trim_payload) if item is not None]
+        candidates = [
+            item for item in candidates
+            if not item.get("source_video", {}).get("file_id")
+            or item.get("source_video", {}).get("file_id") == media.get("file_id")
+        ]
+        if candidates:
+            payload = max(candidates, key=lambda item: str(item.get("created_at") or ""))
+    return payload or {
+        "schema": ALICE_ANNOTATION_SCHEMA,
+        "dataset_id": dataset_id,
+        "episode_id": episode_id,
+        "summary": {},
+        "segments": [],
+        "samples": [],
+    }
+
+
+def _annotation_source_video(media: dict) -> dict:
+    return {
+        "file_id": media.get("file_id"),
+        "stream_name": media.get("stream_name"),
+        "relative_path": media.get("relative_path"),
+        "frame_count": media.get("frame_count"),
+        "fps": media.get("fps"),
+        "width": media.get("width"),
+        "height": media.get("height"),
+    }
+
+
+@app.patch("/api/datasets/{dataset_id}/episodes/{episode_id}/segments")
+def update_segment(dataset_id: str, episode_id: str, update: SegmentUpdate):
+    try:
+        _, episode = get_episode(dataset_id, episode_id)
+        media = episode_media(episode, update.media_file_id)
+    except KeyError:
+        raise HTTPException(404, "Episode 或视频流不存在")
+    payload = _annotation_base_for_media(dataset_id, episode_id, media)
+    try:
+        payload = apply_segment_override(
+            payload,
+            update.model_dump(exclude={"media_file_id"}),
+            int(media.get("frame_count", 0) or 0),
+            float(media.get("fps", 30.0) or 30.0),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    payload["source_video"] = _annotation_source_video(media)
+    save_annotations(dataset_id, episode_id, payload)
+    return payload
+
+
+@app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/behavior-removals")
+def remove_behavior_phase(dataset_id: str, episode_id: str, request: BehaviorPhaseRemovalRequest):
+    try:
+        _, episode = get_episode(dataset_id, episode_id)
+        media = episode_media(episode, request.media_file_id)
+    except KeyError:
+        raise HTTPException(404, "Episode 或视频流不存在")
+    behavior = load_behavior_annotation(dataset_id, episode_id)
+    if behavior is None:
+        raise HTTPException(409, "请先运行 VLM 行为标注，再按动作去除")
+    behavior_media_id = (behavior.get("source_video") or {}).get("file_id")
+    if behavior_media_id and media.get("file_id") and behavior_media_id != media.get("file_id"):
+        raise HTTPException(409, "VLM 行为标注属于另一个视频流，请先为当前视频重新运行")
+    payload = _annotation_base_for_media(dataset_id, episode_id, media)
+    try:
+        payload = apply_behavior_phase_exclusion(
+            payload,
+            behavior,
+            request.phase_label,
+            int(media.get("frame_count", 0) or 0),
+            float(media.get("fps", 30.0) or 30.0),
+            request.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    payload["source_video"] = _annotation_source_video(media)
+    save_annotations(dataset_id, episode_id, payload)
+    return payload
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/no-action-trim")
+def no_action_trim_result(dataset_id: str, episode_id: str):
+    try:
+        get_episode(dataset_id, episode_id)
+        payload = load_no_action_trim(dataset_id, episode_id)
+        if payload is None:
+            raise HTTPException(404, "尚无无动作剪切结果")
+        return payload
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/export.zip")
+def download_export(dataset_id: str, include_media: bool = False):
+    try:
+        path = export_zip(dataset_id, include_media=include_media)
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+    return FileResponse(path, media_type="application/zip", filename=path.name)
+
+
+@app.post("/api/datasets/{dataset_id}/export-folder")
+def write_export(dataset_id: str, request: ExportFolderRequest):
+    try:
+        path = export_dataset(dataset_id, Path(request.path), request.include_media)
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+    except OSError as exc:
+        raise HTTPException(422, f"导出失败: {exc}")
+    return {"ok": True, "path": str(path)}
+
+
+@app.post("/api/datasets/{dataset_id}/export-folder-dialog")
+def write_export_with_dialog(dataset_id: str, include_media: bool = False):
+    selected = choose_folder()
+    if selected is None:
+        return {"cancelled": True, "path": None}
+    try:
+        path = export_dataset(dataset_id, selected, include_media)
+    except KeyError:
+        raise HTTPException(404, "数据集不存在")
+    except OSError as exc:
+        raise HTTPException(422, f"导出失败: {exc}")
+    return {"cancelled": False, "path": str(path)}
+
+
+@app.get("/")
+def frontend():
+    return FileResponse(ROOT / "index.html", headers={"Cache-Control": "no-store, max-age=0"})
+
+
+app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")

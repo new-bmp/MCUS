@@ -1,0 +1,27 @@
+# Local runtime state and credentials
+.vla_lens/
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Model weights and generated artifacts
+*.pt
+*.onnx
+*.engine
+mobileclip2_b.ts
+exports/
+exports-ui-test/
+tmp/
+
+# Local logs and OS/editor files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
