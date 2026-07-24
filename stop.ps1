@@ -1,15 +1,16 @@
 $ErrorActionPreference = "Stop"
-$pidFile = Join-Path $PSScriptRoot ".vla_lens\server.json"
-if (-not (Test-Path $pidFile)) {
-    Write-Host "No launcher-managed alice blue process was found."
-    exit 0
+Set-Location $PSScriptRoot
+
+$candidates = @(
+    (Join-Path $PSScriptRoot ".venv\Scripts\python.exe"),
+    (Get-Command python -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+    (Get-Command python3 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+if (-not $candidates) {
+    Write-Host "Python was not found; no managed service could be stopped." -ForegroundColor Yellow
+    exit 1
 }
-$state = Get-Content $pidFile -Raw | ConvertFrom-Json
-$process = Get-CimInstance Win32_Process -Filter "ProcessId=$($state.pid)" -ErrorAction SilentlyContinue
-if ($process -and $process.CommandLine -match "uvicorn app\.main:app") {
-    Stop-Process -Id $state.pid
-    Write-Host "alice blue stopped." -ForegroundColor Green
-} else {
-    Write-Host "The recorded process is no longer running."
-}
-Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+
+& $candidates[0] -m app.cli stop
+exit $LASTEXITCODE

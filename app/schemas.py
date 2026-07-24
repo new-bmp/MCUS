@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class PathOpenRequest(BaseModel):
     path: str
     name: str | None = None
+    analyze_schema: bool = True
 
 
 class ExportFolderRequest(BaseModel):
@@ -66,6 +67,22 @@ class CurationJobRequest(BaseModel):
     static_difference_threshold: float = Field(default=1.5, ge=0.1, le=12.0)
     static_duration_seconds: float = Field(default=2.0, ge=0.5, le=20.0)
     quality_gap_merge_seconds: float = Field(default=0.3, ge=0.0, le=2.0)
+    vlm_sample_count: int = Field(default=18, ge=6, le=24)
+    force_vlm: bool = False
+    full_pipeline: bool = False
+    full_action_profile_id: str | None = Field(default=None, min_length=1, max_length=80)
+    full_action_source_hand: Literal["left", "right"] = "right"
+    full_action_coordinate_frame: Literal["camera", "world"] = "camera"
+    full_action_horizon_frames: int = Field(default=3, ge=1, le=30)
+
+
+class ActionMappingRequest(BaseModel):
+    episode_ids: list[str] = Field(default_factory=list, min_length=1)
+    profile_id: str = Field(default="generic_bimanual_pose", min_length=1, max_length=80)
+    source_hand: Literal["left", "right"] = "right"
+    coordinate_frame: Literal["camera", "world"] = "camera"
+    horizon_frames: int = Field(default=3, ge=1, le=30)
+    force: bool = False
 
 
 class BatchAnalysisRequest(BaseModel):

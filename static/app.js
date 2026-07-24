@@ -1,7 +1,7 @@
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const state = { dataset: null, episode: null, media: null, file: null, treeSelection: null, annotations: null, curation: null, curationStageFilter: null, curationPreflightToken: 0, reviewSelectionToken: 0, changes: null, models: null, pendingSourcePaths: new Set(), analysisOperation: null, analysisJobs: new Map(), analysisMonitors: new Set(), analysisReturnFocus: null, sensorAlignmentToken: 0, sensorAlignmentJob: null, frame: 0, zoom: 1, playing: false, jointOverlay: false, jointOverlayAvailable: false, yoloOverlay: false, yoloOverlayReport: null, yoloOverlaySamples: [], yoloOverlayLoadToken: 0, yoloOverlaySampleFrame: -1, timer: null, playbackToken: 0, playbackStartedAt: 0, playbackStartFrame: 0, frameImageToken: 0, frameImageResolve: null, frameImageTimeout: null, frameAbortController: null, frameObjectUrl: null, nativePreview: null, previewPollToken: 0, nativeFrameCallback: null, nativePresentedFrame: -1, nativePresentedFrames: 0, nativeMediaTime: null, jointGeometryAbortController: null, jointGeometryLastAt: 0, jointGeometryFrame: -1, jointGeometryDesiredFrame: -1, jointGeometryInFlightFrame: -1, jointGeometryPendingFrame: null, jointGeometryRequestToken: 0, jointGeometryTimer: null, view: "dashboard", treeMode: "episode", frameData: { fileId: null, field: null, index: 0, count: 0, mode: null, follow: true, requestToken: 0, timer: null, pendingIndex: 0, lastRequestAt: 0 }, h5Compare: { index: 0, field: null, count: 0, requestToken: 0, timer: null, pendingIndex: 0 } };
+  const state = { dataset: null, datasetCollection: null, datasetCache: new Map(), datasetLoadToken: 0, episode: null, media: null, file: null, fileById: new Map(), episodeById: new Map(), treeGroups: new Map(), treeExpanded: new Set(), treeCollapsed: new Set(), treeAutoCollapse: false, treeSearchTimer: null, treeSelection: null, annotations: null, curation: null, curationStageFilter: null, curationPreflightToken: 0, reviewSelectionToken: 0, changes: null, models: null, pendingSourcePaths: new Set(), analysisOperation: null, analysisJobs: new Map(), analysisMonitors: new Set(), analysisReturnFocus: null, actionProfiles: [], actionMapping: null, actionMappingReturnFocus: null, sensorAlignmentToken: 0, sensorAlignmentJob: null, frame: 0, zoom: 1, playing: false, jointOverlay: false, jointOverlayAvailable: false, yoloOverlay: false, yoloOverlayReport: null, yoloOverlaySamples: [], yoloOverlayLoadToken: 0, yoloOverlaySampleFrame: -1, timer: null, playbackToken: 0, playbackStartedAt: 0, playbackStartFrame: 0, frameImageToken: 0, frameImageResolve: null, frameImageTimeout: null, frameAbortController: null, frameObjectUrl: null, nativePreview: null, previewPollToken: 0, nativeFrameCallback: null, nativePresentedFrame: -1, nativePresentedFrames: 0, nativeMediaTime: null, jointGeometryAbortController: null, jointGeometryLastAt: 0, jointGeometryFrame: -1, jointGeometryDesiredFrame: -1, jointGeometryInFlightFrame: -1, jointGeometryPendingFrame: null, jointGeometryRequestToken: 0, jointGeometryTimer: null, view: "dashboard", treeMode: "episode", frameData: { fileId: null, field: null, index: 0, count: 0, mode: null, follow: true, requestToken: 0, timer: null, pendingIndex: 0, lastRequestAt: 0 }, h5Compare: { index: 0, field: null, count: 0, requestToken: 0, timer: null, pendingIndex: 0 } };
   const esc = value => { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML; };
   const escAttr = value => esc(value).replaceAll('"', "&quot;");
   const qualityDisplayText = value => String(value ?? "").replaceAll("\u8bba\u6587\u5f0f", "").replaceAll("\u8bba\u6587", "").replace(/\s{2,}/g, " ").trim();
@@ -29,8 +29,69 @@
     return () => setProgress(null);
   }
 
+  function beginLazyDatasetProgress() {
+    setProgress(12, "正在按需建立所选数据集的本地索引");
+    setStatus("正在读取所选数据集 · 不调用 Qwen");
+    return () => setProgress(null);
+  }
+
+  function renderDatasetSelector() {
+    const selector = $("#datasetSelect"), collection = state.datasetCollection, items = collection?.datasets || [];
+    selector.classList.toggle("hidden", !items.length);
+    if (!items.length) { selector.innerHTML = ""; selector.disabled = true; return; }
+    selector.innerHTML = items.map(item => {
+      const status = item.status === "loading" ? "加载中" : item.status === "loaded" ? `${Number(item.file_count || 0).toLocaleString()} 文件` : "未加载";
+      return `<option value="${escAttr(item.key)}">${esc(item.name)} · ${status}</option>`;
+    }).join("");
+    selector.value = collection.activeKey || items[0].key;
+    selector.disabled = Boolean(collection.loadingKey);
+    selector.title = `${collection.rootPath} · ${items.length} 个独立数据集`;
+  }
+
+  function rememberCollectionDataset(manifest) {
+    const collection = state.datasetCollection;
+    if (!collection?.activeKey) return;
+    const item = collection.datasets.find(candidate => candidate.key === collection.activeKey);
+    if (!item) return;
+    item.status = "loaded"; item.dataset_id = manifest.id; item.file_count = Number(manifest.file_count || manifest.files?.length || 0); item.episode_count = Number(manifest.episode_count || 0);
+    state.datasetCache.delete(item.key); state.datasetCache.set(item.key, manifest);
+    while (state.datasetCache.size > 3) state.datasetCache.delete(state.datasetCache.keys().next().value);
+    renderDatasetSelector();
+  }
+
+  function installDatasetCollection(data) {
+    state.datasetLoadToken += 1;
+    state.datasetCollection = { rootPath: data.root_path, activeKey: null, loadingKey: null, datasets: (data.datasets || []).map(item => ({ ...item })) };
+    state.datasetCache = new Map(); state.dataset = null; setEnabled(false);
+    $("#titleDataset").textContent = `${data.dataset_count || data.datasets?.length || 0} 个数据集`;
+    $("#datasetName").textContent = "选择数据集"; $("#datasetPath").textContent = data.root_path;
+    $("#fileTree").innerHTML = '<div class="empty"><i data-lucide="database"></i><b>数据集尚未加载</b><span>选择上方数据集后按需建立索引</span></div>';
+    renderDatasetSelector(); lucide.createIcons();
+  }
+
+  async function loadCollectionDataset(key) {
+    const collection = state.datasetCollection, item = collection?.datasets.find(candidate => candidate.key === key);
+    if (!collection || !item || collection.loadingKey) return;
+    const token = ++state.datasetLoadToken, finishProgress = beginLazyDatasetProgress();
+    collection.loadingKey = key; collection.activeKey = key; item.status = "loading"; renderDatasetSelector();
+    try {
+      let manifest = state.datasetCache.get(key);
+      if (!manifest && item.dataset_id) {
+        try { manifest = await api(`/api/datasets/${encodeURIComponent(item.dataset_id)}`); } catch (_) { item.dataset_id = null; }
+      }
+      if (!manifest) manifest = await api("/api/datasets/open-path", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: item.path, name: item.name, analyze_schema: false }) });
+      if (token !== state.datasetLoadToken) return;
+      item.status = "loaded"; collection.loadingKey = null; collection.activeKey = key; renderDataset(manifest);
+      const schemaStatus = manifest.schema_profile?.status;
+      toast(schemaStatus === "completed" ? `已加载 ${manifest.name} · 格式已理解` : `已加载 ${manifest.name}`, schemaStatus === "error" ? "error" : "");
+    } catch (error) {
+      if (token === state.datasetLoadToken) { item.status = "unloaded"; collection.loadingKey = null; renderDatasetSelector(); setStatus(error.message); toast(error.message, "error"); }
+    } finally { finishProgress(); }
+  }
+
   function renderSensorAlignmentStatus(job) {
     const node = $("#sensorSyncStatus"), status = job?.status || "queued", result = job?.result || {}, summary = result.summary || result;
+    if (status === "idle") { node.className = "sensor-sync-status"; node.textContent = "SYNC: 按需检测"; node.title = job.message || "进入分析流程时再检测传感器时间对齐"; return; }
     node.className = `sensor-sync-status ${status === "complete" ? (Number(summary.conflict_count || 0) ? "warning" : "ready") : status === "failed" ? "failed" : "running"}`;
     if (status === "complete") {
       const streams = Number(summary.stream_count ?? result.stream_count ?? 0), timestamp = Number(summary.timestamp_aligned_count || 0), scaled = Number(summary.rate_multiplier_count ?? summary.multiplier_aligned_count ?? summary.scaled_stream_count ?? 0), conflicts = Number(summary.conflict_count || 0);
@@ -64,21 +125,21 @@
     ["#refreshButton", "#treeMode", "#treeSearch", "#exportFolderButton", "#downloadExport", "#analyzeSchemaButton", "#reviewChangesButton"].forEach(id => { $(id).disabled = !enabled; });
     $("#excludeFileButton").disabled = !enabled || !state.treeSelection?.fileIds?.length;
     const hasEpisodes = Boolean(enabled && state.dataset?.episodes?.length);
-    ["#curationPipelineButton", "#videoSmoothButton", "#poseRecoveryButton", "#behaviorAnnotateButton", "#noActionTrimButton", "#qwenTrimButton"].forEach(id => { $(id).disabled = !hasEpisodes; });
+    ["#curationPipelineButton", "#fullPipelineButton", "#actionMappingButton", "#videoSmoothButton", "#poseRecoveryButton", "#behaviorAnnotateButton", "#noActionTrimButton", "#qwenTrimButton"].forEach(id => { $(id).disabled = !hasEpisodes; });
     ["#manualRangeButton", "#playButton", "#transportPlay", "#prevFrame", "#nextFrame", "#frameSlider", "#zoomIn", "#zoomOut"].forEach(id => { $(id).disabled = !(enabled && Boolean(state.episode)); });
   }
 
   function renderDataset(manifest) {
     resetNativePreview(); resetYoloOverlay(true);
     state.reviewSelectionToken += 1;
-    state.dataset = manifest; state.episode = null; state.media = null; state.file = null; state.treeSelection = null; state.annotations = null; state.curation = null; state.curationStageFilter = null; state.changes = null; state.pendingSourcePaths = new Set(); state.frame = 0; state.jointOverlay = false; state.jointOverlayAvailable = false; $("#jointOverlayButton").classList.remove("active"); $("#jointOverlayButton").disabled = true; $("#yoloOverlayButton").disabled = true; $("#excludeFileButton").disabled = true; updateTreeSelectionUI();
-    hideFrameDataInspector(); clearBehaviorAnnotation(); clearCurationReport();
+    state.dataset = manifest; state.episode = null; state.media = null; state.file = null; state.fileById = new Map((manifest.files || []).map(file => [file.id, file])); state.episodeById = new Map((manifest.episodes || []).map(episode => [episode.id, episode])); state.treeGroups = new Map(); state.treeExpanded = new Set(); state.treeCollapsed = new Set(); state.treeAutoCollapse = Number(manifest.file_count || manifest.files?.length || 0) > 500; state.treeSelection = null; state.annotations = null; state.curation = null; state.curationStageFilter = null; state.actionMapping = null; state.changes = null; state.pendingSourcePaths = new Set(); state.frame = 0; state.jointOverlay = false; state.jointOverlayAvailable = false; $("#jointOverlayButton").classList.remove("active"); $("#jointOverlayButton").disabled = true; $("#yoloOverlayButton").disabled = true; $("#excludeFileButton").disabled = true; rememberCollectionDataset(manifest); updateTreeSelectionUI();
+    hideFrameDataInspector(); clearBehaviorAnnotation(); clearCurationReport(); clearActionMappingResult();
     $("#titleDataset").textContent = manifest.name; $("#datasetName").textContent = manifest.name; $("#datasetPath").textContent = manifest.root_path;
     const sidecar = $("#datasetSidecar"); sidecar.classList.toggle("hidden", !manifest.sidecar_path); sidecar.textContent = manifest.sidecar_path ? `派生目录 ${manifest.sidecar_path} · 已隔离 ${Number(manifest.auxiliary_file_count || 0)} 个辅助文件 · 已移出 ${Number(manifest.excluded_file_count || 0)} 个条目` : "";
     $("#episodeCount").textContent = Number(manifest.episode_count || 0).toLocaleString(); $("#dashboardFiles").textContent = Number(manifest.file_count || manifest.files?.length || 0).toLocaleString(); $("#frameCount").textContent = Number(manifest.frame_count || 0).toLocaleString(); $("#dashboardSize").textContent = fmtBytes(manifest.total_size);
     $("#fileCount").textContent = `${manifest.file_count || manifest.files?.length || 0} 个文件`; $("#totalSize").textContent = fmtBytes(manifest.total_size);
     $("#workspaceMeta").textContent = `${manifest.episode_count || 0} Episodes · ${manifest.file_count || 0} files`;
-    renderBreakdown(manifest.type_counts || {}); renderModels(); renderResolvedTree(); renderSchema(manifest.schema_profile); setEnabled(true); showView("dashboard"); loadChangeCatalog(); startSensorAlignment(manifest.id); restoreAnalysisJobs(manifest.id);
+    renderBreakdown(manifest.type_counts || {}); renderModels(); renderResolvedTree(); renderSchema(manifest.schema_profile); setEnabled(true); showView("dashboard"); loadChangeCatalog(); renderSensorAlignmentStatus({ status: "idle", message: "传感器对齐改为分析时按需启动" }); restoreAnalysisJobs(manifest.id);
     setStatus("数据集已打开，源目录保持只读");
   }
 
@@ -139,7 +200,7 @@
   function renderBreakdown(counts) { const total = Math.max(1, Object.values(counts).reduce((a, b) => a + Number(b || 0), 0)); const labels = { video: "视频", image: "图像", structured: "结构化", metadata: "元数据", text: "文本", file: "其他" }; $("#typeBreakdown").innerHTML = Object.entries(counts).map(([kind, count]) => `<div class="breakdown-row"><b>${labels[kind] || kind}</b><span><i style="width:${Number(count) / total * 100}%"></i></span><em>${count}</em></div>`).join("") || `<div class="empty-copy">没有文件</div>`; }
 
   function renderModels() {
-    api("/api/models/status").then(status => { state.models = status; const local = status.local || {}, vlm = status.vlm || {}; $("#modelSummary").innerHTML = `<div class="model-item"><i data-lucide="scan"></i><div><b>${esc(local.family || local.kind || "本地模型")}</b><small>${local.loaded ? `已加载 · ${esc(local.device)} · ${esc(local.warmup_ms)} ms` : esc(local.error || "未加载")}</small></div><span class="badge ${local.loaded ? "ready" : ""}">${local.loaded ? "READY" : "OFF"}</span></div><div class="model-item"><i data-lucide="sparkles"></i><div><b>Qwen-VLM</b><small>${vlm.configured ? `${esc(vlm.model)} · 已验证` : esc(vlm.error || "未配置")}</small></div><span class="badge ${vlm.configured ? "ready" : ""}">${vlm.configured ? "READY" : "OFF"}</span></div>`; lucide.createIcons(); $("#statusModel").textContent = local.loaded ? `MODEL: ${local.family || local.kind}` : "MODEL: --"; updateYoloOverlayAvailability(); }).catch(() => {});
+    api("/api/models/status").then(status => { state.models = status; const local = status.local || {}, vlm = status.vlm || {}, localState = local.loaded ? "READY" : local.loading ? "LOADING" : "OFF", localDetail = local.loaded ? `已加载 · ${esc(local.device)} · ${esc(local.warmup_ms)} ms` : local.loading ? "后台加载中，文件管理器可先使用" : esc(local.error || "未加载"); $("#modelSummary").innerHTML = `<div class="model-item"><i data-lucide="scan"></i><div><b>${esc(local.family || local.kind || "本地模型")}</b><small>${localDetail}</small></div><span class="badge ${local.loaded ? "ready" : ""}">${localState}</span></div><div class="model-item"><i data-lucide="sparkles"></i><div><b>Qwen-VLM</b><small>${vlm.configured ? `${esc(vlm.model)} · 已配置` : esc(vlm.error || "未配置")}</small></div><span class="badge ${vlm.configured ? "ready" : ""}">${vlm.configured ? "READY" : "OFF"}</span></div>`; lucide.createIcons(); $("#statusModel").textContent = local.loaded ? `MODEL: ${local.family || local.kind}` : local.loading ? "MODEL: LOADING" : "MODEL: --"; updateYoloOverlayAvailability(); if (local.loading) setTimeout(renderModels, 1200); }).catch(() => {});
   }
 
   function fileIcon(file) { return file.kind === "video" ? "video" : file.kind === "structured" ? "database" : file.kind === "metadata" ? "file-text" : file.kind === "image" ? "image" : "file"; }
@@ -147,18 +208,18 @@
   function group(label, children, key, meta = "", options = {}) {
     const pending = children.some(file => state.pendingSourcePaths.has(file.relative_path));
     const selectable = Boolean(options.selectable), active = selectable && state.treeSelection?.kind === "episode" && state.treeSelection.id === key;
-    const selectionFileIds = options.fileIds || children.map(file => file.id);
-    const selectionData = selectable ? ` data-select-kind="episode" data-episode-id="${escAttr(options.episodeId || "")}" data-file-ids="${escAttr(selectionFileIds.join(","))}"` : "";
-    return `<div class="tree-node"><div class="tree-row group ${selectable ? "selectable" : ""} ${pending ? "pending-change" : ""} ${active ? "active" : ""}" data-group="${escAttr(key)}" data-label="${escAttr(label)}"${selectionData}><button class="tree-toggle" title="展开或收起">▾</button><i class="tree-icon" data-lucide="${selectable ? "folder-kanban" : "folder"}"></i><b class="tree-label" title="${escAttr(label)}">${esc(label)}</b><span class="tree-meta">${pending ? "有更改" : (meta || children.length)}</span></div><div class="tree-children">${children.map(file => row(file, 1)).join("")}</div></div>`;
+    const selectionData = selectable ? ` data-select-kind="episode" data-episode-id="${escAttr(options.episodeId || "")}"` : "";
+    const query = $("#treeSearch").value.trim(), expanded = Boolean(query || state.treeExpanded.has(key) || (!state.treeAutoCollapse && !state.treeCollapsed.has(key)));
+    return `<div class="tree-node"><div class="tree-row group ${selectable ? "selectable" : ""} ${pending ? "pending-change" : ""} ${active ? "active" : ""}" data-group="${escAttr(key)}" data-label="${escAttr(label)}"${selectionData}><button class="tree-toggle" title="展开或收起">${expanded ? "▾" : "›"}</button><i class="tree-icon" data-lucide="${selectable ? "folder-kanban" : "folder"}"></i><b class="tree-label" title="${escAttr(label)}">${esc(label)}</b><span class="tree-meta">${pending ? "有更改" : (meta || children.length)}</span></div><div class="tree-children ${expanded ? "" : "collapsed"}">${expanded ? children.map(file => row(file, 1)).join("") : ""}</div></div>`;
   }
   function renderTree() {
     const files = state.dataset?.files || [], mode = state.treeMode; const groups = new Map();
-    for (const file of files) { let key, label, episodeId = null; if (mode === "episode") { key = file.episode_id || `unassigned:${file.episode_key}`; const episode = state.dataset.episodes.find(item => item.id === file.episode_id); label = episode?.name || file.episode_key; episodeId = episode?.id || null; } else if (mode === "category") { key = file.category || "other"; label = { vision: "视觉 Vision", sensor: "传感器 Joint / Tactile", metadata: "元数据", other: "其他" }[key] || key; } else { key = file.parent || "."; label = key === "." ? state.dataset.name : key; } if (!groups.has(key)) groups.set(key, { label, files: [], episodeId }); groups.get(key).files.push(file); }
-    const query = $("#treeSearch").value.trim().toLowerCase(); let html = ""; for (const [key, value] of groups) { const children = value.files.filter(file => !query || `${file.name} ${file.relative_path}`.toLowerCase().includes(query)); if (children.length || !query) html += group(value.label, children, key, "", { selectable: mode === "episode" && Boolean(value.episodeId), episodeId: value.episodeId, fileIds: value.files.map(file => file.id) }); } $("#fileTree").innerHTML = html || `<div class="empty"><i data-lucide="search-x"></i><b>没有匹配文件</b></div>`; lucide.createIcons(); bindTree(); updateTreeSelectionUI(); }
+    for (const file of files) { let key, label, episodeId = null; if (mode === "episode") { key = file.episode_id || `unassigned:${file.episode_key}`; const episode = state.episodeById.get(file.episode_id); label = episode?.name || file.episode_key; episodeId = episode?.id || null; } else if (mode === "category") { key = file.category || "other"; label = { vision: "视觉 Vision", sensor: "传感器 Joint / Tactile", metadata: "元数据", other: "其他" }[key] || key; } else { key = file.parent || "."; label = key === "." ? state.dataset.name : key; } if (!groups.has(key)) groups.set(key, { label, files: [], episodeId }); groups.get(key).files.push(file); }
+    state.treeGroups = groups; const query = $("#treeSearch").value.trim().toLowerCase(); let html = ""; for (const [key, value] of groups) { const children = value.files.filter(file => !query || `${file.name} ${file.relative_path}`.toLowerCase().includes(query)); if (children.length || !query) html += group(value.label, children, key, "", { selectable: mode === "episode" && Boolean(value.episodeId), episodeId: value.episodeId }); } $("#fileTree").innerHTML = html || `<div class="empty"><i data-lucide="search-x"></i><b>没有匹配文件</b></div>`; lucide.createIcons(); bindTree(); updateTreeSelectionUI(); }
   function renderResolvedTree() {
     const files = state.dataset?.files || [], mode = state.treeMode, query = $("#treeSearch").value.trim().toLowerCase();
     if (mode !== "episode") { $("#episodeWarning").classList.add("hidden"); renderTree(); return; }
-    const byId = new Map(files.map(file => [file.id, file]));
+    const byId = state.fileById;
     const resolution = state.dataset?.episode_resolution || {};
     const groups = [];
     for (const item of resolution.groups || []) {
@@ -168,7 +229,7 @@
     const unassigned = (resolution.unassigned_file_ids || []).map(id => byId.get(id)).filter(Boolean);
     if (shared.length) groups.push({ key: "shared", label: "共享 / 数据集级文件", files: shared, meta: String(shared.length) });
     if (unassigned.length) groups.push({ key: "unassigned", label: "未分配（不是 Episode）", files: unassigned, meta: String(unassigned.length) });
-    if (!resolution.groups && files.length) groups.push({ key: "unassigned", label: "未分配（请重新扫描）", files, meta: String(files.length) });
+    if (!(resolution.groups || []).length && files.length) groups.push({ key: "unassigned", label: "未分配（请重新扫描）", files, meta: String(files.length) });
     const warning = $("#episodeWarning");
     const requiresApi = Boolean(resolution.requires_api || unassigned.length);
     warning.classList.toggle("hidden", !requiresApi && !resolution.ai_confirmed);
@@ -176,10 +237,10 @@
     warning.textContent = resolution.ai_confirmed
       ? `${resolution.model || "Qwen"} 已审计 Episode 归属；仍有 ${unassigned.length} 个文件未分配。`
       : requiresApi ? `${unassigned.length} 个文件缺少可靠 EP 证据。需要配置 Qwen API 后点击“再次运行”，否则保持未分配。` : "";
-    let html = "";
+    state.treeGroups = new Map(groups.map(item => [item.key, item])); let html = "";
     for (const item of groups) {
       const children = item.files.filter(file => !query || `${file.name} ${file.relative_path}`.toLowerCase().includes(query));
-      if (children.length || !query) html += group(item.label, children, item.key, item.meta, { selectable: item.selectable, episodeId: item.episodeId, fileIds: item.files.map(file => file.id) });
+      if (children.length || !query) html += group(item.label, children, item.key, item.meta, { selectable: item.selectable, episodeId: item.episodeId });
     }
     $("#fileTree").innerHTML = html || `<div class="empty"><i data-lucide="search-x"></i><b>没有匹配文件</b></div>`;
     lucide.createIcons(); bindTree(); updateTreeSelectionUI();
@@ -195,7 +256,7 @@
     $$(".tree-row.file").forEach(node => node.classList.toggle("active", selection?.kind === "file" && node.dataset.fileId === selection.id));
   }
   async function selectEpisodeGroup(node) {
-    const fileIds = (node.dataset.fileIds || "").split(",").filter(Boolean);
+    const fileIds = (state.treeGroups.get(node.dataset.group)?.files || []).map(file => file.id);
     if (!fileIds.length) return;
     state.file = null;
     state.treeSelection = { kind: "episode", id: node.dataset.group, label: node.dataset.label || node.dataset.group, fileIds, episodeId: node.dataset.episodeId || null };
@@ -204,22 +265,19 @@
     if (state.treeSelection.episodeId) await selectEpisode(state.treeSelection.episodeId);
     else setStatus(`已选择 ${state.treeSelection.label} · ${fileIds.length} 个条目`);
   }
-  function toggleTreeGroup(node) { const children = node.nextElementSibling, collapsed = children.classList.toggle("collapsed"); const toggle = $(".tree-toggle", node); if (toggle) toggle.textContent = collapsed ? "›" : "▾"; }
+  function toggleTreeGroup(node) { const key = node.dataset.group, expanded = state.treeExpanded.has(key) || (!state.treeAutoCollapse && !state.treeCollapsed.has(key)); if (expanded) { state.treeExpanded.delete(key); state.treeCollapsed.add(key); } else { state.treeCollapsed.delete(key); state.treeExpanded.add(key); } renderResolvedTree(); }
   function bindTree() {
-    $$(".tree-row.group").forEach(node => {
-      const toggle = $(".tree-toggle", node); if (toggle) toggle.addEventListener("click", event => { event.stopPropagation(); toggleTreeGroup(node); });
-      node.addEventListener("click", () => node.dataset.selectKind === "episode" ? selectEpisodeGroup(node) : toggleTreeGroup(node));
-    });
-    $$(".tree-row.file").forEach(node => node.addEventListener("click", () => selectFile(node.dataset.fileId)));
+    const tree = $("#fileTree"); if (tree.dataset.bound) return; tree.dataset.bound = "1";
+    tree.addEventListener("click", event => { const toggle = event.target.closest(".tree-toggle"), groupNode = event.target.closest(".tree-row.group"), fileNode = event.target.closest(".tree-row.file"); if (toggle && groupNode) { event.stopPropagation(); toggleTreeGroup(groupNode); return; } if (groupNode) { groupNode.dataset.selectKind === "episode" ? selectEpisodeGroup(groupNode) : toggleTreeGroup(groupNode); return; } if (fileNode) selectFile(fileNode.dataset.fileId); });
   }
 
-  async function selectFile(fileId) { const file = state.dataset.files.find(item => item.id === fileId); if (!file) return; state.file = file; state.treeSelection = { kind: "file", id: file.id, label: file.name, fileIds: [file.id], episodeId: file.episode_id || null }; updateTreeSelectionUI(); hideFrameDataInspector(); try { const detail = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/files/${encodeURIComponent(fileId)}`); renderFileDetail(detail); const playable = state.dataset?.episode_resolution?.file_episode_assignments?.[file.id] || file.episode_id; if (file.kind === "video") { if (playable) await selectEpisode(playable, file.id); return; } if (file.kind === "image") { if (playable) await selectEpisode(playable); return; } await openFilePreview(file, detail); } catch (error) { toast(error.message, "error"); } }
+  async function selectFile(fileId) { const file = state.fileById.get(fileId); if (!file) return; state.file = file; state.treeSelection = { kind: "file", id: file.id, label: file.name, fileIds: [file.id], episodeId: file.episode_id || null }; updateTreeSelectionUI(); hideFrameDataInspector(); try { const detail = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/files/${encodeURIComponent(fileId)}`); renderFileDetail(detail); const playable = state.dataset?.episode_resolution?.file_episode_assignments?.[file.id] || file.episode_id; if (file.kind === "video") { if (playable) await selectEpisode(playable, file.id); return; } if (file.kind === "image") { if (playable) await selectEpisode(playable); return; } await openFilePreview(file, detail); } catch (error) { toast(error.message, "error"); } }
   function renderFileDetail(detail) { $("#fileEmpty").classList.add("hidden"); const fields = detail.fields || []; $("#fileDetail").classList.remove("hidden"); $("#fileDetail").innerHTML = `<div class="detail-title">${esc(detail.name)}</div><dl class="detail-grid"><dt>相对路径</dt><dd>${esc(detail.relative_path)}</dd><dt>类型</dt><dd>${esc(detail.kind)} / ${esc(detail.category)}</dd><dt>大小</dt><dd>${fmtBytes(detail.size_bytes)}</dd><dt>Episode</dt><dd>${esc(detail.episode?.name || detail.episode_key || "未归属")}</dd><dt>修改时间</dt><dd>${esc(detail.modified_at)}</dd></dl>${fields.length ? `<div class="field-list"><b>结构字段 (${fields.length})</b>${fields.slice(0, 80).map(field => `<div class="field-row">${esc(field.key || "$")} · ${esc(field.dtype || "")} · ${esc(JSON.stringify(field.shape || ""))}</div>`).join("")}</div>` : ""}`; }
 
   function stopPlayback() { state.playing = false; state.playbackToken += 1; clearTimeout(state.timer); state.timer = null; const video = $("#videoPlayer"); if (video && !video.paused) video.pause(); if (video?.cancelVideoFrameCallback && state.nativeFrameCallback != null) video.cancelVideoFrameCallback(state.nativeFrameCallback); state.nativeFrameCallback = null; if (state.nativePreview && video?.readyState >= 2 && state.episode) { updateNativeVideoFrame(); if (state.jointOverlay && state.nativePresentedFrame >= 0) requestJointGeometry(state.nativePresentedFrame, true); } if (state.frameAbortController) state.frameAbortController.abort(); state.frameAbortController = null; if (state.frameImageResolve) state.frameImageResolve(false); $("#transportPlay").innerHTML = '<i data-lucide="play"></i>'; $("#playButton").innerHTML = '<i data-lucide="play"></i>'; lucide.createIcons(); }
   function showMediaReview() { $("#reviewToolbar").classList.remove("hidden"); $("#mediaReview").classList.remove("hidden"); $("#filePreview").classList.add("hidden"); }
   async function openFilePreview(file, detail = null, field = null) {
-    const hasEpisodes = Boolean(state.dataset?.episodes?.length); $("#curationPipelineButton").disabled = !hasEpisodes; $("#videoSmoothButton").disabled = !hasEpisodes; $("#poseRecoveryButton").disabled = !hasEpisodes; $("#behaviorAnnotateButton").disabled = !hasEpisodes; $("#noActionTrimButton").disabled = !hasEpisodes; $("#qwenTrimButton").disabled = !hasEpisodes;
+    const hasEpisodes = Boolean(state.dataset?.episodes?.length); $("#curationPipelineButton").disabled = !hasEpisodes; $("#fullPipelineButton").disabled = !hasEpisodes; $("#actionMappingButton").disabled = !hasEpisodes; $("#videoSmoothButton").disabled = !hasEpisodes; $("#poseRecoveryButton").disabled = !hasEpisodes; $("#behaviorAnnotateButton").disabled = !hasEpisodes; $("#noActionTrimButton").disabled = !hasEpisodes; $("#qwenTrimButton").disabled = !hasEpisodes;
     stopPlayback(); showView("review"); $("#reviewToolbar").classList.add("hidden"); $("#mediaReview").classList.add("hidden"); $("#filePreview").classList.remove("hidden");
     $("#manualRangeButton").disabled = true; $("#workspaceTitle").textContent = `文件 / ${file.name}`; $("#workspaceMeta").textContent = file.relative_path; $("#statusEpisode").textContent = `FILE: ${file.name}`;
     $("#previewTitle").textContent = file.name; $("#previewPath").textContent = file.relative_path; $("#previewMode").textContent = "LOADING"; $("#previewControls").classList.add("hidden"); $("#previewNotice").classList.add("hidden"); $("#previewContent").innerHTML = '<div class="empty-copy">正在读取安全预览…</div>';
@@ -464,6 +522,25 @@
       renderCurationReport(payload);
     } catch (_) { if (isCurrent()) clearCurationReport(); }
   }
+  function clearActionMappingResult() { state.actionMapping = null; $("#actionMappingResult").classList.add("hidden"); $("#actionMappingWarning").classList.add("hidden"); $("#actionMappingSummary").textContent = ""; $("#actionMappingPath").textContent = ""; }
+  function renderActionMappingResult(payload) {
+    state.actionMapping = payload; const profile = payload.profile || {}, summary = payload.summary || {}, config = payload.config || {}, warning = (payload.warnings || []).join(" ");
+    $("#actionMappingResult").classList.remove("hidden"); $("#actionMappingBadge").textContent = `${Number(summary.action_dim || profile.action_dim || 0)}D`;
+    $("#actionMappingBadge").className = `badge ${summary.finite ? "ready" : ""}`;
+    $("#actionMappingSummary").textContent = `${profile.name || config.profile_id || "Action"} · ${Number(summary.action_count || 0).toLocaleString()} 行 · ${config.coordinate_frame === "camera" ? "相机坐标" : "世界坐标"} · 未来 ${Number(config.horizon_frames || 0)} 帧${Number(profile.sides || 0) === 1 ? ` · ${config.source_hand === "left" ? "左手" : "右手"}` : ""}`;
+    $("#actionMappingPath").textContent = payload.artifact_path || "";
+    $("#actionMappingWarning").classList.toggle("hidden", !warning); $("#actionMappingWarning").textContent = warning;
+  }
+  async function loadActionMappingResult(episodeId, selectionToken = null) {
+    const datasetId = state.dataset?.id; if (!datasetId) return;
+    try {
+      const payload = await api(`/api/datasets/${encodeURIComponent(datasetId)}/episodes/${encodeURIComponent(episodeId)}/action-mapping`);
+      if (state.dataset?.id !== datasetId || state.episode?.id !== episodeId || (selectionToken != null && state.reviewSelectionToken !== selectionToken)) return;
+      renderActionMappingResult(payload);
+    } catch (_) {
+      if (state.dataset?.id === datasetId && state.episode?.id === episodeId && (selectionToken == null || state.reviewSelectionToken === selectionToken)) clearActionMappingResult();
+    }
+  }
   async function selectEpisode(id, mediaFileId = null) {
     const datasetId = state.dataset?.id, episode = state.dataset?.episodes.find(item => item.id === id);
     if (!datasetId || !episode) return;
@@ -472,18 +549,18 @@
     state.episode = episode;
     state.media = (episode.media_streams || []).find(item => item.file_id === mediaFileId) || (episode.media_streams || []).find(item => item.file_id === episode.primary_media_file_id) || episode;
     const selectedMediaFileId = state.media?.file_id || null;
-    state.frame = 0; state.annotations = null; state.behavior = null; state.curation = null; state.curationStageFilter = null;
+    state.frame = 0; state.annotations = null; state.behavior = null; state.curation = null; state.curationStageFilter = null; state.actionMapping = null;
     $("#statusEpisode").textContent = `EP: ${episode.name} / ${state.media.stream_name || state.media.relative_path || "primary"}`;
     $("#workspaceTitle").textContent = `Episode / ${episode.name}`;
     $("#workspaceMeta").textContent = `${state.media.stream_name || "primary"} · ${state.media.frame_count} frames · ${Number(state.media.fps).toFixed(2)} FPS`;
-    showView("review"); enableEpisodeControls(); clearBehaviorAnnotation(); updateJointOverlayStatus(); clearCurationReport();
+    showView("review"); enableEpisodeControls(); clearBehaviorAnnotation(); updateJointOverlayStatus(); clearCurationReport(); clearActionMappingResult();
     const annotationLoad = loadReviewAnnotations(id, selectedMediaFileId).then(payload => {
       if (!isCurrentReviewSelection(datasetId, id, selectedMediaFileId, selectionToken)) return;
       state.annotations = payload; renderAnnotations(payload);
     }).catch(() => {
       if (isCurrentReviewSelection(datasetId, id, selectedMediaFileId, selectionToken)) clearAnnotations();
     });
-    await Promise.all([annotationLoad, loadCurationReport(id, selectedMediaFileId, selectionToken)]);
+    await Promise.all([annotationLoad, loadCurationReport(id, selectedMediaFileId, selectionToken), loadActionMappingResult(id, selectionToken)]);
     if (!isCurrentReviewSelection(datasetId, id, selectedMediaFileId, selectionToken)) return;
     updateFrame(0); prepareNativePreview(id, selectedMediaFileId);
   }
@@ -951,7 +1028,7 @@
     finally { button.disabled = false; }
   }
 
-  async function openFolder() { const finishProgress = beginDatasetLoadProgress(); try { const data = await api("/api/system/open-dataset-folder", { method: "POST" }); if (data.cancelled) { setStatus("已取消"); return; } renderDataset(data.dataset); const schemaStatus = data.dataset?.schema_profile?.status; toast(schemaStatus === "completed" ? `已打开 ${data.dataset.name} · 格式已自动理解` : `已打开 ${data.dataset.name}`, schemaStatus === "error" ? "error" : ""); setStatus(schemaStatus === "completed" ? "数据集已打开 · Qwen 已自动理解格式与 Episode 归属" : schemaStatus === "error" ? `数据集已打开 · 自动格式理解失败：${data.dataset.schema_profile?.error || "未知错误"}` : "数据集已打开 · Qwen 未配置，格式理解等待再次运行"); } catch (error) { setStatus(error.message); toast(error.message, "error"); } finally { finishProgress(); } }
+  async function openFolder() { const finishProgress = beginDatasetLoadProgress(); let progressFinished = false; try { const data = await api("/api/system/open-dataset-folder", { method: "POST" }); if (data.cancelled) { setStatus("已取消"); return; } if (data.mode === "collection") { finishProgress(); progressFinished = true; installDatasetCollection(data); setStatus(`发现 ${data.dataset_count} 个独立数据集 · 首个数据集按需加载`); await loadCollectionDataset(data.datasets[0].key); return; } state.datasetLoadToken += 1; state.datasetCollection = null; state.datasetCache = new Map(); renderDatasetSelector(); renderDataset(data.dataset); const schemaStatus = data.dataset?.schema_profile?.status; toast(schemaStatus === "completed" ? `已打开 ${data.dataset.name} · 格式已自动理解` : `已打开 ${data.dataset.name}`, schemaStatus === "error" ? "error" : ""); setStatus(schemaStatus === "completed" ? "数据集已打开 · Qwen 已自动理解格式与 Episode 归属" : schemaStatus === "error" ? `数据集已打开 · 自动格式理解失败：${data.dataset.schema_profile?.error || "未知错误"}` : "数据集已打开 · Qwen 未配置，格式理解等待再次运行"); } catch (error) { setStatus(error.message); toast(error.message, "error"); } finally { if (!progressFinished) finishProgress(); } }
   async function refreshDataset() { if (!state.dataset) return; const finishProgress = beginDatasetLoadProgress(); try { const data = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/rescan`, { method: "POST" }); renderDataset(data); const schemaStatus = data.schema_profile?.status; toast(schemaStatus === "completed" ? "扫描已刷新 · 格式已自动理解" : "扫描已刷新", schemaStatus === "error" ? "error" : ""); setStatus(schemaStatus === "completed" ? "原地重扫完成 · Qwen 已自动理解格式与 Episode 归属" : schemaStatus === "error" ? `原地重扫完成 · 自动格式理解失败：${data.schema_profile?.error || "未知错误"}` : "原地重扫完成 · 格式理解等待再次运行"); } catch (error) { toast(error.message, "error"); setStatus(error.message); } finally { finishProgress(); } }
   async function understandSchema() { if (!state.dataset) return; const finishProgress = beginQwenProgress(); try { const profile = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/analyze-schema`, { method: "POST" }); state.dataset.schema_profile = profile; if (profile.episode_resolution) state.dataset.episode_resolution = profile.episode_resolution; renderSchema(profile); renderResolvedTree(); setStatus("Qwen 已再次理解数据结构与 Episode 归属"); toast("格式与 Episode 归属已重新理解", ""); } catch (error) { $("#schemaStatusBadge").textContent = "失败"; toast(error.message, "error"); setStatus(error.message); } finally { finishProgress(); } }
   function manualRangeBounds() {
@@ -1147,7 +1224,7 @@
       field.innerHTML = '<input type="checkbox" id="forceAnalysis"><span><b>强制重新标注</b><small>忽略已有有效结果并重新调用 Qwen</small></span>';
       $("#analysisScopeNotice").before(field);
     }
-    const behavior = state.analysisOperation === "vlm_behavior";
+    const behavior = state.analysisOperation === "vlm_behavior" || state.analysisOperation === "full_pipeline";
     field.classList.toggle("hidden", !behavior);
     if (!behavior) $("#forceAnalysis").checked = false;
   }
@@ -1157,6 +1234,14 @@
     field.innerHTML = '低质量合并间隔（秒）<input id="curationQualityGap" type="number" min="0" max="2" step="0.05" value="0.3" title="只合并间隔严格小于此值的低质量标记">';
     const staticField = $("#curationStaticDuration")?.closest("label");
     if (staticField) staticField.before(field);
+  }
+  function ensureFullActionControls() {
+    if ($("#fullActionSettings")) return;
+    const section = document.createElement("section");
+    section.id = "fullActionSettings";
+    section.className = "full-action-settings hidden";
+    section.innerHTML = '<label class="analysis-scope-option full-action-toggle"><input type="checkbox" id="fullGenerateAction"><span><b>生成机器人 Action</b><small>可选；开启后为所有 Full 分片使用同一种机器人映射</small></span></label><div class="action-settings-grid hidden" id="fullActionFields"><label>机器人 / 控制类型<select id="fullRobotProfile"></select></label><label id="fullSourceHandField">映射哪只手<select id="fullSourceHand"><option value="right" selected>右手</option><option value="left">左手</option></select></label><label>统一坐标系<select id="fullCoordinateFrame"><option value="camera" selected>当前相机坐标（推荐）</option><option value="world">源数据世界坐标</option></select></label><label>预测未来帧数<input id="fullHorizonFrames" type="number" min="1" max="30" step="1" value="3"></label></div><div class="action-profile-note hidden" id="fullActionProfileNote"></div>';
+    $("#curationPlan").append(section);
   }
   function trimNumber(id, fallback, scale = 1) {
     const input = $("#" + id), value = Number(input?.value);
@@ -1209,18 +1294,32 @@
     static_duration_seconds: trimNumber("curationStaticDuration", 2),
     quality_gap_merge_seconds: trimNumber("curationQualityGap", 0.3),
   }; }
+  function fullActionRequestConfig() {
+    if (state.analysisOperation !== "full_pipeline" || !$("#fullGenerateAction")?.checked) return {};
+    const profileId = $("#fullRobotProfile").value;
+    const profile = state.actionProfiles.find(item => item.id === profileId);
+    if (!profile) { toast("请选择有效的机器人类型", "error"); $("#fullRobotProfile").focus(); return null; }
+    const horizon = Number($("#fullHorizonFrames").value);
+    if (!Number.isInteger(horizon) || horizon < 1 || horizon > 30) { $("#fullHorizonFrames").reportValidity(); return null; }
+    return {
+      full_action_profile_id: profileId,
+      full_action_source_hand: $("#fullSourceHand").value,
+      full_action_coordinate_frame: $("#fullCoordinateFrame").value,
+      full_action_horizon_frames: horizon,
+    };
+  }
   function validateTrimSettings() {
-    const section = state.analysisOperation === "paper_curation" ? $("#curationPlan") : state.analysisOperation === "no_action_trim" ? $("#yoloTrimSettings") : state.analysisOperation === "qwen_trim" ? $("#qwenTrimSettings") : null;
+    const section = ["paper_curation", "full_pipeline"].includes(state.analysisOperation) ? $("#curationPlan") : state.analysisOperation === "no_action_trim" ? $("#yoloTrimSettings") : state.analysisOperation === "qwen_trim" ? $("#qwenTrimSettings") : null;
     if (!section) return true;
     const invalid = [...section.querySelectorAll("input,select")].find(input => !input.checkValidity() || (input.type === "number" && !input.value.trim()));
     if (!invalid) return true;
-    invalid.reportValidity(); invalid.focus(); toast(state.analysisOperation === "paper_curation" ? "请先修正清洗参数" : "请先修正剪切参数", "error");
+    invalid.reportValidity(); invalid.focus(); toast(["paper_curation", "full_pipeline"].includes(state.analysisOperation) ? "请先修正清洗参数" : "请先修正剪切参数", "error");
     return false;
   }
-  function analysisNeedsMedia() { return state.analysisOperation === "paper_curation" || state.analysisOperation === "video_smoothing" || state.analysisOperation === "no_action_trim" || state.analysisOperation === "qwen_trim"; }
-  const curationStageOrder = ["s1", "s2", "s3", "s4", "s5", "c1", "c2", "c3"];
-  const curationStageNames = { s1: "突变与 Jerk", s2: "State-Action 趋势对齐", s3: "分位极值", s4: "FK 一致性", s5: "基座与方向统一", c1: "指令一致性", c2: "视频-State 一致性", c3: "视频质量" };
-  const curationStatusLabels = { ready: "可运行", reused: "复用", skipped: "跳过", completed: "完成", warning: "复核", not_evaluated: "未评估" };
+  function analysisNeedsMedia() { return state.analysisOperation === "paper_curation" || state.analysisOperation === "full_pipeline" || state.analysisOperation === "video_smoothing" || state.analysisOperation === "no_action_trim" || state.analysisOperation === "qwen_trim"; }
+  const curationStageOrder = ["s1", "s2", "s3", "s4", "s5", "c3", "c1", "c2"];
+  const curationStageNames = { s1: "突变与 Jerk", s2: "State-Action 对齐与导出一致性", s3: "分位极值", s4: "FK 一致性", s5: "基座与方向统一", c1: "指令一致性", c2: "视频-State 一致性", c3: "视频质量与整手可见" };
+  const curationStatusLabels = { ready: "可运行", pending: "等待前序", reused: "复用", skipped: "跳过", completed: "完成", warning: "复核", not_evaluated: "未评估" };
   function renderCurationPreflight(payload) {
     const stages = payload?.stages || [];
     $("#curationPlanStages").innerHTML = stages.map((item, index) => { const name = qualityDisplayText(item.name), message = qualityDisplayText(item.message); return `<div class="curation-plan-stage ${escAttr(item.status || "skipped")}"><span class="curation-stage-index">${index + 1}</span><span><b>${esc(String(item.id || "").toUpperCase())} · ${esc(name)}</b><small title="${escAttr(message)}">${esc(message)}</small></span><em>${esc(item.status_label || curationStatusLabels[item.status] || item.status || "--")}</em></div>`; }).join("");
@@ -1244,7 +1343,7 @@
       let status = "warning", statusLabel = "混合";
       if (!items.length) { status = "not_evaluated"; statusLabel = "未检查"; }
       else if (statuses.every(value => ["skipped", "not_evaluated"].includes(value))) { status = "skipped"; statusLabel = "全跳过"; }
-      else if (uncheckedCount || statuses.some(value => ["warning", "skipped", "not_evaluated"].includes(value)) || unique.size > 1) { status = "warning"; statusLabel = "混合"; }
+      else if (uncheckedCount || statuses.some(value => ["warning", "pending", "skipped", "not_evaluated"].includes(value)) || unique.size > 1) { status = "warning"; statusLabel = "混合"; }
       else if (statuses.every(value => value === "reused")) { status = "reused"; statusLabel = "全复用"; }
       else if (statuses.every(value => value === "completed")) { status = "completed"; statusLabel = "已完成"; }
       else { status = "ready"; statusLabel = "可运行"; }
@@ -1253,9 +1352,9 @@
     return { scope: "all", stages, episode_count: episodeCount, checked_count: results.length, pending_media_count: pendingMediaCount, failed_count: failedCount };
   }
   async function updateCurationPreflight() {
-    const plan = $("#curationPlan"), active = state.analysisOperation === "paper_curation"; plan.classList.toggle("hidden", !active); if (!active || !state.dataset) return;
+    const plan = $("#curationPlan"), active = ["paper_curation", "full_pipeline"].includes(state.analysisOperation); plan.classList.toggle("hidden", !active); if (!active || !state.dataset) return;
     const token = ++state.curationPreflightToken, datasetId = state.dataset.id, all = $("input[name='analysisScope']:checked")?.value === "all", episodes = state.dataset.episodes || [];
-    const isCurrent = () => token === state.curationPreflightToken && state.dataset?.id === datasetId && state.analysisOperation === "paper_curation";
+    const isCurrent = () => token === state.curationPreflightToken && state.dataset?.id === datasetId && ["paper_curation", "full_pipeline"].includes(state.analysisOperation);
     $("#curationPreflightSummary").textContent = all ? `正在逐 EP 检查 0/${episodes.length}` : "正在检查真实先决条件";
     $("#curationPlanStages").innerHTML = curationStageOrder.map((id, index) => `<div class="curation-plan-stage"><span class="curation-stage-index">${index + 1}</span><span><b>${id.toUpperCase()} · ${esc(curationStageNames[id])}</b><small>检查中</small></span><em>...</em></div>`).join("");
     if (!all) {
@@ -1337,10 +1436,15 @@
   function updateAnalysisScope() {
     const all = $("input[name='analysisScope']:checked")?.value === "all";
     const episodes = state.dataset?.episodes || [];
+    const fullOutputPath = `${state.dataset?.root_path || "数据集目录"}\\output`;
     $("#analysisEpisodeSelect").disabled = all;
     updateAnalysisMediaOptions();
-    $("#analysisScopeNotice").textContent = state.analysisOperation === "paper_curation"
-      ? (all ? `将按所选视频流依次清洗 ${episodes.length} 个 Episode；可运行阶段完成，缺少 URDF/SAM3/标定的阶段明确跳过。` : "运行 S1/S2/S3/C3，复用已有 VLM 标注；所有报告先写入 .alicePD，源文件不变。")
+    const fullProfile = state.actionProfiles.find(item => item.id === $("#fullRobotProfile")?.value);
+    const fullActionText = $("#fullGenerateAction")?.checked && fullProfile ? `将生成 ${fullProfile.name} Action` : "不生成派生 Action；已有 Action 可用于 S2";
+    $("#analysisScopeNotice").textContent = state.analysisOperation === "full_pipeline"
+      ? (all ? `将为 ${episodes.length} 个 Episode 执行视频平滑与清洗；${fullActionText}，再标注非红片段、执行 C1/C2，并分类输出到 ${fullOutputPath}。` : `视频平滑 → S1-S5/C3（${fullActionText}）→ 非红片段 VLM → C1/C2 → 去除静止和伸手 → 防碎片分类输出到 ${fullOutputPath}。`)
+      : state.analysisOperation === "paper_curation"
+      ? (all ? `将按所选视频流依次执行 S1-S5 与 C3 初筛，仅对有效片段调用 VLM，最后执行 C2；共 ${episodes.length} 个 Episode。` : "顺序：S1-S5 → C3 → 仅标注有效片段 → C2；所有报告先写入 .alicePD，源文件不变。")
       : state.analysisOperation === "video_smoothing"
       ? (all ? `将按所选同名视频流依次平滑 ${episodes.length} 个 Episode，输出只写入 .alicePD。` : "将执行光流稳像、边缘补偿和轻度锐化；它不能恢复曝光期间已经丢失的细节。")
       : state.analysisOperation === "vlm_behavior"
@@ -1357,26 +1461,130 @@
     state.analysisReturnFocus = trigger;
     configureAnalysisForceOption();
     configureTrimSettings();
-    const curation = operation === "paper_curation", smoothing = operation === "video_smoothing", behavior = operation === "vlm_behavior", trimming = operation === "no_action_trim", qwenTrimming = operation === "qwen_trim", episodes = state.dataset.episodes;
-    $("#curationPlan").classList.toggle("hidden", !curation);
-    $("#analysisScopeTitle").textContent = curation ? "数据质量清洗范围" : smoothing ? "视频平滑范围" : behavior ? "VLM 行为标注范围" : trimming ? "YOLOE 无动作剪切范围" : qwenTrimming ? "Qwen 片段剪切范围" : "SLAM 位姿恢复范围";
-    $("#analysisScopeKind").textContent = curation ? "State / Action 五级清洗 + 三项跨模态质量检查" : smoothing ? "光流稳像与轻度运动模糊缓解" : behavior ? "Qwen-VLM 高层任务 + 可变长度细阶段 + Joint 边界校正" : trimming ? "YOLOE 物体与手/夹爪距离分析" : qwenTrimming ? "Qwen-VLM 有效操作 / 无效片段判定" : "SLAM / Visual Odometry 初始位姿恢复";
+    configureFullActionSettings();
+    const full = operation === "full_pipeline", curation = operation === "paper_curation", smoothing = operation === "video_smoothing", behavior = operation === "vlm_behavior", trimming = operation === "no_action_trim", qwenTrimming = operation === "qwen_trim", episodes = state.dataset.episodes;
+    $("#curationPlan").classList.toggle("hidden", !(curation || full));
+    $("#analysisScopeTitle").textContent = full ? "Full 标准数据集范围" : curation ? "数据质量清洗范围" : smoothing ? "视频平滑范围" : behavior ? "VLM 行为标注范围" : trimming ? "YOLOE 无动作剪切范围" : qwenTrimming ? "Qwen 片段剪切范围" : "SLAM 位姿恢复范围";
+    $("#analysisScopeKind").textContent = full ? "平滑 → S1-S5/C3（Action 可选）→ VLM → C1/C2 → 防碎片分类导出" : curation ? "S1-S5 → C3 → 非红片段 VLM → C1/C2" : smoothing ? "光流稳像与轻度运动模糊缓解" : behavior ? "Qwen-VLM 高层任务 + 可变长度细阶段 + Joint 边界校正" : trimming ? "YOLOE 物体与手/夹爪距离分析" : qwenTrimming ? "Qwen-VLM 有效操作 / 无效片段判定" : "SLAM / Visual Odometry 初始位姿恢复";
     $("#analysisAllDescription").textContent = `依次处理全部 ${episodes.length} 个 Episode`;
     $("#analysisEpisodeSelect").innerHTML = episodes.map(item => `<option value="${escAttr(item.id)}">${esc(item.name)} · ${Number(item.frame_count || 0).toLocaleString()} frames</option>`).join("");
     $("#analysisEpisodeSelect").value = state.episode?.id || episodes[0].id;
     const single = $("input[name='analysisScope'][value='single']"); if (single) single.checked = true;
     updateAnalysisScope(); $("#analysisScopeModal").classList.remove("hidden"); lucide.createIcons(); requestAnimationFrame(() => $("#analysisScopeTitle").focus());
   }
+  async function loadActionProfiles() {
+    if (!state.actionProfiles.length) {
+      try { const payload = await api("/api/action-mappings/profiles"); state.actionProfiles = payload.items || []; }
+      catch (_) { state.actionProfiles = []; }
+    }
+    if (state.actionProfiles.length) for (const id of ["actionRobotProfile", "fullRobotProfile"]) {
+      const select = $("#" + id); if (!select) continue;
+      const previous = select.value;
+      select.innerHTML = state.actionProfiles.map(item => `<option value="${escAttr(item.id)}">${esc(item.name)}</option>`).join("");
+      select.value = state.actionProfiles.some(item => item.id === previous) ? previous : state.actionProfiles[0].id;
+    }
+    renderActionProfileNote();
+    renderFullActionSettings();
+  }
+  function currentActionProfile() { return state.actionProfiles.find(item => item.id === $("#actionRobotProfile").value) || null; }
+  function renderActionProfileNote() {
+    const profile = currentActionProfile(), option = $("#actionRobotProfile").selectedOptions[0];
+    const single = profile ? Number(profile.sides || 0) === 1 : /单臂/.test(option?.textContent || "");
+    $("#actionSourceHandField").classList.toggle("hidden", !single);
+    const description = profile?.description || "从腕部轨迹生成机器人末端 Action。";
+    const caution = profile?.requires_ik ? " 输出是末端代理 Action；加载该机器人 URDF、关节限位和标定后才能转换为原生关节控制。" : " 输出可用于笛卡尔目标策略，部署前仍需机器人基座与尺度标定。";
+    $("#actionProfileNote").textContent = `${description}${caution}`;
+    updateActionMappingScope();
+  }
+  function configureFullActionSettings() {
+    const section = $("#fullActionSettings"), full = state.analysisOperation === "full_pipeline";
+    section.classList.toggle("hidden", !full);
+    if (full) loadActionProfiles(); else renderFullActionSettings();
+  }
+  function renderFullActionSettings() {
+    const section = $("#fullActionSettings"); if (!section) return;
+    const full = state.analysisOperation === "full_pipeline", toggle = $("#fullGenerateAction"), available = state.actionProfiles.length > 0;
+    const enabled = full && available && Boolean(toggle.checked), profile = state.actionProfiles.find(item => item.id === $("#fullRobotProfile").value) || null;
+    toggle.disabled = full && !available;
+    $("#fullActionFields").classList.toggle("hidden", !enabled);
+    $("#fullActionProfileNote").classList.toggle("hidden", !enabled);
+    $$("input,select", $("#fullActionFields")).forEach(input => { input.disabled = !enabled; });
+    $("#fullSourceHandField").classList.toggle("hidden", enabled && Number(profile?.sides || 0) !== 1);
+    if (enabled) {
+      const requirement = profile?.requires_ik ? "输出为末端代理 Action，部署前仍需机器人标定与 IK。" : "输出为笛卡尔目标 Action，部署前仍需基座与尺度标定。";
+      $("#fullActionProfileNote").textContent = `${profile?.description || "从腕部轨迹生成机器人 Action。"}${requirement}`;
+    }
+    if (full) updateAnalysisScope();
+  }
+  function updateActionMappingScope() {
+    const all = $("input[name='actionScope']:checked")?.value === "all", episodes = state.dataset?.episodes || [], profile = currentActionProfile();
+    $("#actionEpisodeSelect").disabled = all;
+    const target = profile?.name || $("#actionRobotProfile").selectedOptions[0]?.textContent || "所选机器人";
+    $("#actionMappingNotice").textContent = `${all ? `将处理全部 ${episodes.length} 个 Episode` : "只处理所选 Episode"} · ${target} · 每个成功结果都会立即写入 .alicePD/actions 并更新索引。`;
+  }
+  function openActionMapping(trigger = document.activeElement) {
+    const episodes = state.dataset?.episodes || [];
+    if (!episodes.length) { toast("当前数据集没有可生成 Action 的 Episode", "error"); return; }
+    state.actionMappingReturnFocus = trigger;
+    $("#actionEpisodeSelect").innerHTML = episodes.map(item => `<option value="${escAttr(item.id)}">${esc(item.name)} · ${Number(item.frame_count || 0).toLocaleString()} frames</option>`).join("");
+    $("#actionEpisodeSelect").value = state.episode?.id || episodes[0].id;
+    const single = $("input[name='actionScope'][value='single']"); if (single) single.checked = true;
+    $("#actionAllDescription").textContent = `依次处理全部 ${episodes.length} 个 Episode`;
+    $("#actionMappingModal").classList.remove("hidden"); loadActionProfiles(); updateActionMappingScope(); lucide.createIcons(); requestAnimationFrame(() => $("#actionMappingTitle").focus());
+  }
+  function closeActionMapping() { $("#actionMappingModal").classList.add("hidden"); const target = state.actionMappingReturnFocus; state.actionMappingReturnFocus = null; if (target?.focus) target.focus(); }
+  async function submitActionMapping() {
+    if (!state.dataset) return;
+    const horizon = Number($("#actionHorizonFrames").value);
+    if (!Number.isInteger(horizon) || horizon < 1 || horizon > 30) { $("#actionHorizonFrames").reportValidity(); return; }
+    const all = $("input[name='actionScope']:checked")?.value === "all";
+    const episodeIds = all ? state.dataset.episodes.map(item => item.id) : [$("#actionEpisodeSelect").value];
+    const button = $("#startActionMapping"); button.disabled = true;
+    try {
+      const payload = {
+        episode_ids: episodeIds,
+        profile_id: $("#actionRobotProfile").value,
+        source_hand: $("#actionSourceHand").value,
+        coordinate_frame: $("#actionCoordinateFrame").value,
+        horizon_frames: horizon,
+        force: false,
+      };
+      const job = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/action-jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      state.analysisJobs.set(job.id, job); renderAnalysisThreadStatus(); closeActionMapping();
+      setStatus(`Action 后台任务已启动 · ${episodeIds.length} 个 Episode`); toast(`已提交 Action 生成 · ${episodeIds.length} 个 Episode`, ""); monitorBatchAnalysis(job.id);
+    } catch (error) { toast(error.message, "error"); setStatus(error.message); }
+    finally { button.disabled = false; }
+  }
   function renderAnalysisThreadStatus() {
-    const node = $("#analysisThreadStatus"), active = [...state.analysisJobs.values()];
+    const node = $("#analysisThreadStatus"), button = $("#cancelAnalysisButton");
+    const active = [...state.analysisJobs.values()].filter(job => ["queued", "running", "cancelling"].includes(job.status || job.state));
+    const current = active[active.length - 1], stopping = (current?.status || current?.state) === "cancelling";
     node.classList.toggle("running", Boolean(active.length));
     node.textContent = active.length ? `${active.length} 个后台任务 · ${active[active.length - 1].message || "运行中"}` : "后台线程空闲";
+    button.classList.toggle("hidden", !current);
+    button.disabled = !current || stopping;
+    button.querySelector("span").textContent = stopping ? "正在终止" : "终止任务";
+  }
+  async function cancelActiveAnalysis() {
+    const active = [...state.analysisJobs.values()].filter(job => ["queued", "running", "cancelling"].includes(job.status || job.state));
+    const current = active[active.length - 1];
+    if (!current || (current.status || current.state) === "cancelling") return;
+    if (!window.confirm("确定终止当前后台任务？已经完成的 Episode 会保留。")) return;
+    const button = $("#cancelAnalysisButton"); button.disabled = true;
+    try {
+      const job = await api(`/api/jobs/${encodeURIComponent(current.id)}/cancel`, { method: "POST" });
+      state.analysisJobs.set(job.id, job); renderAnalysisThreadStatus();
+      setStatus(job.message || "正在终止任务…");
+    } catch (error) {
+      toast(error.message, "error"); setStatus(error.message); renderAnalysisThreadStatus();
+    }
   }
   async function restoreAnalysisJobs(datasetId) {
     try {
       const payloads = await Promise.all([
         api(`/api/datasets/${encodeURIComponent(datasetId)}/qwen-trim-jobs?active_only=true`).catch(() => ({ items: [] })),
         api(`/api/datasets/${encodeURIComponent(datasetId)}/curation-jobs?active_only=true`).catch(() => ({ items: [] })),
+        api(`/api/datasets/${encodeURIComponent(datasetId)}/action-jobs?active_only=true`).catch(() => ({ items: [] })),
       ]);
       if (state.dataset?.id !== datasetId) return;
       for (const job of payloads.flatMap(payload => payload.items || [])) {
@@ -1393,19 +1601,34 @@
       while (true) {
         const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
         state.analysisJobs.set(jobId, job); renderAnalysisThreadStatus(); setProgress(job.progress, job.message);
-        if (job.status === "complete") {
+        const jobStatus = job.status || job.state;
+        if (jobStatus === "complete" || jobStatus === "completed") {
           await loadChangeCatalog();
-          if (job.operation === "paper_curation" && state.episode && (job.result?.items || []).some(item => item.episode_id === state.episode.id && item.status === "completed")) await loadCurationReport(state.episode.id, state.media?.file_id);
+          const currentCurationItem = (job.result?.items || []).find(item => item.episode_id === state.episode?.id && item.status === "completed");
+          if (["paper_curation", "full_pipeline"].includes(job.operation) && currentCurationItem) {
+            await loadCurationReport(state.episode.id, state.media?.file_id);
+            await loadBehaviorAnnotation();
+          }
           if (job.operation === "vlm_behavior" && state.episode) await loadBehaviorAnnotation();
           if (job.operation === "pose_recovery" && state.episode) { await updateJointOverlayStatus(); await updateFrame(state.frame); }
+          if (job.operation === "action_mapping" && state.episode && (job.result?.items || []).some(item => item.episode_id === state.episode.id && ["completed", "skipped"].includes(item.status))) await loadActionMappingResult(state.episode.id);
           if (job.operation === "no_action_trim" && state.episode && (job.result?.items || []).some(item => item.episode_id === state.episode.id && item.status === "completed")) { const payload = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/episodes/${encodeURIComponent(state.episode.id)}/no-action-trim`); if (!payload.source_video?.file_id || payload.source_video.file_id === state.media?.file_id) { state.annotations = payload; renderAnnotations(payload); if (state.yoloOverlay) installYoloOverlayReport(payload); } }
           if ((job.kind === "qwen_action_trim" || job.result?.operation === "qwen_action_trim") && state.episode && (job.result?.items || []).some(item => item.episode_id === state.episode.id && item.status === "completed")) { const payload = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/episodes/${encodeURIComponent(state.episode.id)}/qwen-action-trim`); if (!payload.source_video?.file_id || payload.source_video.file_id === state.media?.file_id) { state.annotations = payload; renderAnnotations(payload); } }
           const failures = Number(job.result?.failure_count || 0), total = Number(job.result?.episode_count || 0), skipped = Number(job.result?.skipped_count || 0);
           const skippedText = skipped ? ` · ${skipped} 个已复用并跳过` : "";
-          toast(failures ? `后台任务完成 · ${total - failures}/${total}${skippedText} · ${failures} 个失败` : `后台任务完成 · ${total} 个 Episode${skippedText}`, failures ? "error" : "");
-          setStatus(`${job.message} · 结果已暂存到 .alicePD`); return;
+          const vlmText = ["paper_curation", "full_pipeline"].includes(job.operation)
+            ? ` · VLM 请求 ${Number(job.result?.vlm_requested_count || 0)} · 复用 ${Number(job.result?.vlm_reused_count || 0)} · 跳过 ${Number(job.result?.vlm_skipped_count || 0)}`
+            : "";
+          const fullText = job.operation === "full_pipeline" ? `${vlmText} · ${Number(job.result?.pair_count || 0)} 对输出 · ${job.result?.output_root || "未生成目录"}` : vlmText;
+          toast(failures ? `后台任务完成 · ${total - failures}/${total}${skippedText} · ${failures} 个失败${fullText}` : `后台任务完成 · ${total} 个 Episode${skippedText}${fullText}`, failures ? "error" : "");
+          setStatus(job.operation === "full_pipeline" ? `${job.message}${fullText}` : `${job.message} · 结果已暂存到 .alicePD`); return;
         }
-        if (job.status === "failed") throw new Error(job.error || job.message || "后台任务失败");
+        if (jobStatus === "cancelled") {
+          const completed = Number(job.completed_count || 0), total = Number(job.episode_count || 0);
+          const summary = total ? `任务已终止 · 已完成 ${completed}/${total} Episodes` : "任务已终止";
+          toast(summary, ""); setStatus(summary); return;
+        }
+        if (jobStatus === "failed") throw new Error(job.error || job.message || "后台任务失败");
         await new Promise(resolve => setTimeout(resolve, 700));
       }
     } catch (error) { toast(error.message, "error"); setStatus(error.message); }
@@ -1438,11 +1661,13 @@
     }
     const button = $("#startScopedAnalysis"); button.disabled = true;
     try {
-      const qwenTrim = state.analysisOperation === "qwen_trim", curation = state.analysisOperation === "paper_curation";
-      const endpoint = curation ? `/api/datasets/${encodeURIComponent(state.dataset.id)}/curation-jobs` : qwenTrim ? `/api/datasets/${encodeURIComponent(state.dataset.id)}/qwen-trim-jobs` : `/api/datasets/${encodeURIComponent(state.dataset.id)}/analysis-jobs`;
+      const qwenTrim = state.analysisOperation === "qwen_trim", full = state.analysisOperation === "full_pipeline", curation = state.analysisOperation === "paper_curation";
+      const endpoint = curation || full ? `/api/datasets/${encodeURIComponent(state.dataset.id)}/curation-jobs` : qwenTrim ? `/api/datasets/${encodeURIComponent(state.dataset.id)}/qwen-trim-jobs` : `/api/datasets/${encodeURIComponent(state.dataset.id)}/analysis-jobs`;
       const trimConfig = trimRequestConfig();
-      const payload = curation
-        ? { episode_ids: episodeIds, media_file_ids: mediaFileIds, ...curationRequestConfig() }
+      const fullActionConfig = full ? fullActionRequestConfig() : {};
+      if (fullActionConfig === null) return;
+      const payload = curation || full
+        ? { episode_ids: episodeIds, media_file_ids: mediaFileIds, ...curationRequestConfig(), ...fullActionConfig, full_pipeline: full, force_vlm: full && Boolean($("#forceAnalysis")?.checked) }
         : qwenTrim
         ? { episode_ids: episodeIds, all_episodes: all, media_file_ids: mediaFileIds, ...trimConfig }
         : { operation: state.analysisOperation, episode_ids: episodeIds, media_file_ids: mediaFileIds, sample_count: 18, sample_fps: 4, proximity_threshold: 0.04, max_gap_seconds: 0.5, min_valid_seconds: 0.3, force: state.analysisOperation === "vlm_behavior" && Boolean($("#forceAnalysis")?.checked), ...trimConfig };
@@ -1496,12 +1721,13 @@
   }
   function bind() {
     ensureCurationQualityGapControl();
+    ensureFullActionControls();
     $$("[data-ribbon]").forEach(button => button.addEventListener("click", () => { $$("[data-ribbon]").forEach(item => item.classList.toggle("active", item === button)); $$("[data-pane]").forEach(pane => pane.classList.toggle("active", pane.dataset.pane === button.dataset.ribbon)); }));
     $$("[data-view-target]").forEach(button => button.addEventListener("click", () => showView(button.dataset.viewTarget)));
     $$("[data-inspector]").forEach(button => button.addEventListener("click", () => activateInspector(button.dataset.inspector)));
-    $("#openFolderButton").addEventListener("click", openFolder); $("#refreshButton").addEventListener("click", refreshDataset); $("#analyzeSchemaButton").addEventListener("click", understandSchema); $("#excludeFileButton").addEventListener("click", openExcludeFileModal); $("#confirmExcludeFile").addEventListener("click", confirmExcludeFile); $("#manualRangeButton").addEventListener("click", openManualRange); $("#curationPipelineButton").addEventListener("click", event => openAnalysisScope("paper_curation", event.currentTarget)); $("#videoSmoothButton").addEventListener("click", event => openAnalysisScope("video_smoothing", event.currentTarget)); $("#poseRecoveryButton").addEventListener("click", recoverInitialPose); $("#behaviorAnnotateButton").addEventListener("click", annotateBehavior); $("#noActionTrimButton").addEventListener("click", event => openAnalysisScope("no_action_trim", event.currentTarget)); $("#qwenTrimButton").addEventListener("click", event => openAnalysisScope("qwen_trim", event.currentTarget)); $("#exportFolderButton").addEventListener("click", exportFolder); $("#downloadExport").addEventListener("click", downloadZip); $("#reviewChangesButton").addEventListener("click", openChangeModal); $("#applyChangesButton").addEventListener("click", openChangeModal); $("#confirmApplyChanges").addEventListener("click", applySelectedChanges); $("#changeConfirm").addEventListener("change", updateChangeApplyState); $("#modelButton").addEventListener("click", configureModal); $("#saveModel").addEventListener("click", saveModel);
-    $$(".modal-close").forEach(button => button.addEventListener("click", () => $("#modelModal").classList.add("hidden"))); $$(".change-modal-close").forEach(button => button.addEventListener("click", closeChangeModal)); $$(".analysis-scope-close").forEach(button => button.addEventListener("click", closeAnalysisScope)); $$(".manual-range-close").forEach(button => button.addEventListener("click", closeManualRange)); $$(".exclude-file-close").forEach(button => button.addEventListener("click", closeExcludeFileModal)); $$("input[name='manualRangeState']").forEach(input => input.addEventListener("change", updateManualRangeSummary)); $("#manualRangeStart").addEventListener("input", updateManualRangeSummary); $("#manualRangeEnd").addEventListener("input", updateManualRangeSummary); $("#manualStartCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeStart")); $("#manualEndCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeEnd")); $("#saveManualRange").addEventListener("click", saveManualRange); $$("input[name='analysisScope']").forEach(input => input.addEventListener("change", updateAnalysisScope)); $("#analysisEpisodeSelect").addEventListener("change", updateAnalysisMediaOptions); $("#analysisMediaSelect").addEventListener("change", () => { renderAnalysisMediaMap(); updateCurationPreflight(); }); $("#fillAnalysisMediaByName").addEventListener("click", fillAnalysisMediaByName); $("#startScopedAnalysis").addEventListener("click", submitScopedAnalysis); $("#clearCurationStageFilter").addEventListener("click", () => { state.curationStageFilter = null; $$(".curation-stage-row", $("#curationStageList")).forEach(item => item.classList.remove("active")); renderCurationTrack(); }); $("#modelType").addEventListener("change", () => { const qwen = $("#modelType").value === "qwen"; $("#localModelFields").classList.toggle("hidden", qwen); $("#qwenFields").classList.toggle("hidden", !qwen); });
-    $("#treeMode").addEventListener("change", event => { state.treeMode = event.target.value; if (state.treeSelection?.kind === "episode") state.treeSelection = null; renderResolvedTree(); updateTreeSelectionUI(); }); $("#treeSearch").addEventListener("input", renderResolvedTree); $("#expandButton").addEventListener("click", () => $$(".tree-children").forEach(node => node.classList.remove("collapsed"))); $("#collapseButton").addEventListener("click", () => $$(".tree-children").forEach(node => node.classList.add("collapsed"))); $("#themeButton").addEventListener("click", () => document.body.classList.toggle("dark")); $("#detailButton").addEventListener("click", () => $("#inspector").classList.toggle("closed"));
+    $("#openFolderButton").addEventListener("click", openFolder); $("#datasetSelect").addEventListener("change", event => loadCollectionDataset(event.target.value)); $("#refreshButton").addEventListener("click", refreshDataset); $("#analyzeSchemaButton").addEventListener("click", understandSchema); $("#excludeFileButton").addEventListener("click", openExcludeFileModal); $("#confirmExcludeFile").addEventListener("click", confirmExcludeFile); $("#manualRangeButton").addEventListener("click", openManualRange); $("#curationPipelineButton").addEventListener("click", event => openAnalysisScope("paper_curation", event.currentTarget)); $("#fullPipelineButton").addEventListener("click", event => openAnalysisScope("full_pipeline", event.currentTarget)); $("#actionMappingButton").addEventListener("click", event => openActionMapping(event.currentTarget)); $("#videoSmoothButton").addEventListener("click", event => openAnalysisScope("video_smoothing", event.currentTarget)); $("#poseRecoveryButton").addEventListener("click", recoverInitialPose); $("#behaviorAnnotateButton").addEventListener("click", annotateBehavior); $("#noActionTrimButton").addEventListener("click", event => openAnalysisScope("no_action_trim", event.currentTarget)); $("#qwenTrimButton").addEventListener("click", event => openAnalysisScope("qwen_trim", event.currentTarget)); $("#cancelAnalysisButton").addEventListener("click", cancelActiveAnalysis); $("#exportFolderButton").addEventListener("click", exportFolder); $("#downloadExport").addEventListener("click", downloadZip); $("#reviewChangesButton").addEventListener("click", openChangeModal); $("#applyChangesButton").addEventListener("click", openChangeModal); $("#confirmApplyChanges").addEventListener("click", applySelectedChanges); $("#changeConfirm").addEventListener("change", updateChangeApplyState); $("#modelButton").addEventListener("click", configureModal); $("#saveModel").addEventListener("click", saveModel);
+    $$(".modal-close").forEach(button => button.addEventListener("click", () => $("#modelModal").classList.add("hidden"))); $$(".change-modal-close").forEach(button => button.addEventListener("click", closeChangeModal)); $$(".analysis-scope-close").forEach(button => button.addEventListener("click", closeAnalysisScope)); $$(".action-mapping-close").forEach(button => button.addEventListener("click", closeActionMapping)); $$(".manual-range-close").forEach(button => button.addEventListener("click", closeManualRange)); $$(".exclude-file-close").forEach(button => button.addEventListener("click", closeExcludeFileModal)); $$("input[name='manualRangeState']").forEach(input => input.addEventListener("change", updateManualRangeSummary)); $("#manualRangeStart").addEventListener("input", updateManualRangeSummary); $("#manualRangeEnd").addEventListener("input", updateManualRangeSummary); $("#manualStartCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeStart")); $("#manualEndCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeEnd")); $("#saveManualRange").addEventListener("click", saveManualRange); $$("input[name='analysisScope']").forEach(input => input.addEventListener("change", updateAnalysisScope)); $$("input[name='actionScope']").forEach(input => input.addEventListener("change", updateActionMappingScope)); $("#actionRobotProfile").addEventListener("change", renderActionProfileNote); $("#fullGenerateAction").addEventListener("change", renderFullActionSettings); $("#fullRobotProfile").addEventListener("change", renderFullActionSettings); $("#startActionMapping").addEventListener("click", submitActionMapping); $("#analysisEpisodeSelect").addEventListener("change", updateAnalysisMediaOptions); $("#analysisMediaSelect").addEventListener("change", () => { renderAnalysisMediaMap(); updateCurationPreflight(); }); $("#fillAnalysisMediaByName").addEventListener("click", fillAnalysisMediaByName); $("#startScopedAnalysis").addEventListener("click", submitScopedAnalysis); $("#clearCurationStageFilter").addEventListener("click", () => { state.curationStageFilter = null; $$(".curation-stage-row", $("#curationStageList")).forEach(item => item.classList.remove("active")); renderCurationTrack(); }); $("#modelType").addEventListener("change", () => { const qwen = $("#modelType").value === "qwen"; $("#localModelFields").classList.toggle("hidden", qwen); $("#qwenFields").classList.toggle("hidden", !qwen); });
+    $("#treeMode").addEventListener("change", event => { state.treeMode = event.target.value; state.treeGroups = new Map(); state.treeExpanded = new Set(); state.treeCollapsed = new Set(); if (state.treeSelection?.kind === "episode") state.treeSelection = null; renderResolvedTree(); updateTreeSelectionUI(); }); $("#treeSearch").addEventListener("input", () => { clearTimeout(state.treeSearchTimer); state.treeSearchTimer = setTimeout(renderResolvedTree, 120); }); $("#expandButton").addEventListener("click", () => { state.treeAutoCollapse = false; state.treeCollapsed = new Set(); state.treeExpanded = new Set(); renderResolvedTree(); }); $("#collapseButton").addEventListener("click", () => { state.treeAutoCollapse = true; state.treeExpanded = new Set(); state.treeCollapsed = new Set(); renderResolvedTree(); }); $("#themeButton").addEventListener("click", () => document.body.classList.toggle("dark")); $("#detailButton").addEventListener("click", () => $("#inspector").classList.toggle("closed"));
     $("#frameSlider").addEventListener("input", event => updateFrame(event.target.value)); $("#prevFrame").addEventListener("click", () => updateFrame(state.frame - 1)); $("#nextFrame").addEventListener("click", () => updateFrame(state.frame + 1)); $("#transportPlay").addEventListener("click", togglePlay); $("#playButton").addEventListener("click", togglePlay); $("#jointOverlayButton").addEventListener("click", toggleJointOverlay); $("#yoloOverlayButton").addEventListener("click", toggleYoloOverlay); $$(".segmented button").forEach(button => button.addEventListener("click", () => { $$(".segmented button").forEach(item => item.classList.toggle("active", item === button)); updateFrame(state.frame); })); $("#zoomIn").addEventListener("click", () => zoom(0.1)); $("#zoomOut").addEventListener("click", () => zoom(-0.1));
     $("#behaviorRemoveSelect").addEventListener("change", updateBehaviorRemovalState); $("#behaviorRemoveButton").addEventListener("click", removeBehaviorPhase);
     $("#frameDataFollow").addEventListener("change", event => { state.frameData.follow = event.target.checked; if (state.frameData.follow && state.episode) scheduleFrameData(state.frame, true); });

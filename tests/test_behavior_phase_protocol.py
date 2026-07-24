@@ -11,7 +11,11 @@ import numpy as np
 from app.behavior_annotator import (
     BEHAVIOR_ARTIFACT_VERSION,
     PHASE_LABELS,
+    _apply_dataset_task_fallback,
+    _constrain_segments_to_ranges,
     _normalize_phase_label,
+    _sample_indices_in_ranges,
+    _segments_follow_phase_protocol,
     _validate_result,
     annotate_episode_behavior,
 )
@@ -25,6 +29,29 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
             "categories": [{"label": "pick", "task": "pick", "verbs": ["pick"], "objects": ["cup"], "descriptions": []}],
         }
         self.episode = {"frame_count": 100, "fps": 10.0}
+
+    def test_valid_range_sampling_never_uses_rejected_gap(self) -> None:
+        ranges = [(10, 19), (50, 59)]
+        indices = _sample_indices_in_ranges(100, 8, ranges)
+
+        self.assertEqual(8, len(indices))
+        self.assertTrue(all(10 <= index <= 19 or 50 <= index <= 59 for index in indices))
+        self.assertIn(10, indices)
+        self.assertIn(59, indices)
+
+    def test_segments_outside_precheck_ranges_become_unknown(self) -> None:
+        constrained = _constrain_segments_to_ranges(
+            [{"start_frame": 0, "end_frame": 99, "phase_label": "grasp", "label": "grasp", "confidence": 0.9, "boundary_source": "vlm"}],
+            [(10, 19), (50, 59)],
+            100,
+            10.0,
+        )
+
+        self.assertEqual(0, constrained[0]["start_frame"])
+        self.assertEqual(99, constrained[-1]["end_frame"])
+        self.assertEqual(["unknown", "grasp", "unknown", "grasp", "unknown"], [item["phase_label"] for item in constrained])
+        self.assertEqual("curation_precheck", constrained[0]["boundary_source"])
+        self.assertTrue(_segments_follow_phase_protocol({"segments": constrained}, 100))
 
     def test_stage_and_label_inputs_normalize_to_contiguous_phase_labels(self) -> None:
         raw = {
@@ -67,6 +94,22 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
         self.assertEqual(["reach", "unknown"], [item["phase_label"] for item in result["segments"]])
         self.assertEqual("unknown", _normalize_phase_label("invented phase"))
         self.assertTrue(set(item["phase_label"] for item in result["segments"]).issubset(set(PHASE_LABELS)))
+
+    def test_other_task_uses_dataset_name_only_when_vlm_content_confirms_it(self) -> None:
+        result = {
+            "task_label": "other",
+            "behavior_description": "Assemble a toy sandwich by stacking bread and vegetables.",
+            "object_nouns": ["sandwich", "bread"],
+            "segments": [],
+            "warnings": [],
+        }
+
+        resolved = _apply_dataset_task_fallback(result, {"name": "make_sandwich"})
+        unrelated = _apply_dataset_task_fallback(result, {"name": "boil_serve_egg"})
+
+        self.assertEqual("make_sandwich", resolved["task_label"])
+        self.assertEqual("dataset_name_confirmed_by_vlm_content", resolved["task_label_source"])
+        self.assertEqual("other", unrelated["task_label"])
 
     def test_same_phase_stays_split_when_object_or_instance_changes(self) -> None:
         raw = {

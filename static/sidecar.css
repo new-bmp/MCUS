@@ -47,7 +47,10 @@ body.dark .change-row.requires-rerun .change-row-status { color:#ff9d91; }
 
 .analysis-thread-status { align-self:center; margin:0 8px; padding:4px 8px; border:1px solid var(--line); border-radius:9px; color:var(--muted); font-size:9px; white-space:nowrap; }
 .analysis-thread-status.running { color:#1769a0; border-color:#95c6e8; background:#edf7fd; }
-.explorer-head-actions { margin-left:auto; display:flex; align-items:center; }
+.ribbon-button.danger { border-color:#b83b43; background:#b83b43; color:#fff; }
+.ribbon-button.danger:hover:not(:disabled) { border-color:#943039; background:#a9353d; }
+.explorer-head-actions { margin-left:auto; display:flex; align-items:center; min-width:0; }
+.source-summary #datasetSelect { width:100%; height:27px; border:1px solid var(--line); background:#fff; font-size:10px; }
 .explorer-actions { height:38px; min-height:38px; max-height:38px; display:flex; align-items:center; gap:7px; padding:5px 8px; overflow:hidden; border-top:1px solid var(--line); background:#f8f9fa; }
 .explorer-selection { min-width:0; flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:9px; line-height:1.2; }
 .explorer-remove-button { width:auto; min-width:54px; max-width:78px; height:27px!important; min-height:27px; max-height:27px; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 7px; overflow:hidden; border:1px solid #e2a7a7; border-radius:3px; background:#fff7f7; color:#a43038; font-size:9px; line-height:1; white-space:nowrap; }
@@ -95,6 +98,16 @@ body.dark .explorer-remove-button { background:#38282b; color:#ffadb2; border-co
 .analysis-scope-option small { margin-top:3px; color:var(--muted); font-size:9px; line-height:1.35; }
 .analysis-episode-field { margin-top:12px; }
 .analysis-scope-notice { min-height:34px; padding:8px 10px; border:1px solid #ead39b; background:#fff8df; color:#795b1d; font-size:9px; line-height:1.45; }
+.action-mapping-modal { width:min(620px,calc(100vw - 30px)); max-height:calc(100dvh - 24px); display:flex; flex-direction:column; }
+.action-mapping-modal .modal-body { min-height:0; overflow:auto; }
+.action-settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin:12px 0; }
+.action-settings-grid label { min-width:0; margin:0!important; }
+.action-settings-grid input,.action-settings-grid select { margin-top:5px!important; }
+.action-profile-note { min-height:48px; margin:8px 0 12px; padding:9px 10px; border-left:3px solid var(--brand); background:#f3f8fc; color:#466170; font-size:9px; line-height:1.5; }
+.action-mapping-result { margin-bottom:10px; }
+.action-mapping-summary { padding:9px 10px; font-size:10px; line-height:1.5; }
+.action-mapping-path { padding:0 10px 9px; color:var(--muted); font:8px/1.45 Consolas,"Cascadia Mono",monospace; overflow-wrap:anywhere; }
+.action-mapping-warning { margin:0 10px 10px; padding:7px 9px; border-left:3px solid #d59a2a; background:#fff8df; color:#795b1d; font-size:8px; line-height:1.45; }
 .trim-settings { margin:10px 0; border:1px solid var(--line); background:#fff; }
 .trim-settings>summary { min-height:36px; display:flex; align-items:center; gap:8px; padding:8px 10px; cursor:pointer; list-style-position:inside; font-size:10px; font-weight:600; }
 .trim-settings>summary small { margin-left:auto; color:var(--muted); font-size:8px; font-weight:400; }
@@ -127,6 +140,8 @@ body.dark .manual-range-summary { background:#203a30; color:#a8dfc4; border-colo
 body.dark .manual-range-summary.error { background:#42272b; color:#ffadb2; border-color:#70444a; }
 body.dark .analysis-scope-option:has(input:checked) { background:#223947; }
 body.dark .analysis-scope-notice { background:#443a20; color:#f1d68d; border-color:#77652e; }
+body.dark .action-profile-note { background:#223947; color:#b7cbd8; }
+body.dark .action-mapping-warning { background:#443a20; color:#f1d68d; }
 body.dark .trim-settings { background:var(--panel); }
 body.dark .trim-settings>summary { color:var(--text); }
 body.dark .trim-range output { color:#74c2f6; }
@@ -154,6 +169,10 @@ body.dark .analysis-media-map-empty { background:#203a30; color:#a8dfc4; }
 .curation-settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; padding:9px 10px 11px; border-top:1px solid var(--line2); }
 .curation-settings-grid label { min-width:0; margin:0!important; }
 .curation-settings-grid input { margin-top:4px!important; }
+.full-action-settings { padding:10px; border-top:1px solid var(--line2); }
+.full-action-toggle { margin:0!important; }
+.full-action-settings .action-settings-grid { margin-bottom:8px; }
+.full-action-settings .action-profile-note { margin:0; }
 .curation-result { margin-bottom:10px; }
 .curation-summary { padding:9px 11px; border-bottom:1px solid var(--line2); color:var(--muted); font-size:9px; }
 .curation-stage-list { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); }
@@ -191,7 +210,7 @@ body.dark .curation-track-empty b { color:#f1d68d; }
 body.dark .frame-audit-row { background:#443a20; color:#f1d68d; }
 body.dark .frame-audit-row.reject { background:#42272b; color:#ffadb2; }
 @media(max-width:900px){.curation-stage-list{grid-template-columns:repeat(2,minmax(0,1fr))}.curation-stage-row:nth-child(4n){border-right:1px solid var(--line2)}.curation-stage-row:nth-child(2n){border-right:0}}
-@media(max-width:720px){.analysis-scope-options,.trim-settings-grid,.curation-settings-grid,.curation-plan-stages{grid-template-columns:1fr}.trim-range{grid-column:auto}.analysis-media-map-row{grid-template-columns:1fr}.analysis-media-map-head{align-items:flex-start;flex-direction:column}.curation-plan-stage:nth-child(odd){border-right:0}.curation-plan-stage small,.curation-stage-row small{white-space:normal;overflow-wrap:anywhere;line-height:1.35;max-height:2.7em}}
+@media(max-width:720px){.analysis-scope-options,.trim-settings-grid,.curation-settings-grid,.curation-plan-stages,.action-settings-grid{grid-template-columns:1fr}.trim-range{grid-column:auto}.analysis-media-map-row{grid-template-columns:1fr}.analysis-media-map-head{align-items:flex-start;flex-direction:column}.curation-plan-stage:nth-child(odd){border-right:0}.curation-plan-stage small,.curation-stage-row small{white-space:normal;overflow-wrap:anywhere;line-height:1.35;max-height:2.7em}}
 @media(max-width:480px){.curation-stage-list{grid-template-columns:1fr}.curation-stage-row{border-right:0}.curation-stage-row:nth-child(4n){border-right:0}}
 
 .tree-row.pending-change { color:#ad2f36; background:#fff0f1; border-left:3px solid #d54a52; }

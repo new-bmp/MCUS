@@ -1,5 +1,29 @@
 # alice blue
 
+## minRE minimal command line pipeline
+
+`minRE` runs without the web UI. It indexes the source in place, then processes
+Episodes one at a time: video smoothing, Qwen VLM behavior annotation, the
+eight-stage curation report, useless-phase removal, aligned cutting, VLM task
+classification, and verified MP4/HDF5 pair export.
+
+```sh
+sh minRE.sh "/data/SPM"
+sh minRE.sh "/data/SPM" --output "/data/SPM_clean"
+sh minRE.sh "/data/SPM" --index-only
+```
+
+Windows PowerShell uses the same arguments:
+
+```powershell
+.\minRE.ps1 "F:\SPM"
+```
+
+The default output is a sibling directory named `<source>_minRE`. Progress and
+resume state are stored in `minre-state.json`; the final searchable pair index
+is `dataset.json`. Re-running the same command resumes completed stages and
+verifies existing pairs before skipping them. Source files are never modified.
+
 VLA 数据集操作有效性审查工具。FastAPI 后端负责目录扫描、媒体解码、模型加载、Qwen 数据结构理解、后台推理、标注持久化和导出。
 
 ## 一键启动
@@ -18,14 +42,82 @@ Windows 下双击：
 .\run.ps1
 ```
 
+首次恢复环境时运行：
+
+```powershell
+.\run.ps1 -Setup
+```
+
+Linux/macOS 使用：
+
+```sh
+sh run.sh --setup       # 首次创建 .venv 并安装依赖
+sh run.sh               # 后台启动，不打开浏览器
+sh run.sh --foreground  # 前台运行，日志直接输出到终端
+sh stop.sh
+```
+
+启动器优先使用项目 `.venv`，API 就绪不再等待 YOLOE warm-up。模型在后台加载，状态可通过健康接口或 CLI 查看。启动时不会自动扫描旧数据集或运行传感器对齐任务；这些任务在打开数据集或进入对应分析流程时按需执行。
+
 应用地址：<http://127.0.0.1:8000/>  
 API 文档：<http://127.0.0.1:8000/docs>
 
 使用 `停止服务.bat` 关闭由启动器创建的服务。日志位于 `.vla_lens/server.out.log` 和 `.vla_lens/server.err.log`。
 
+## 纯命令行
+
+项目提供不依赖浏览器的命令行入口：
+
+```text
+python -m app.cli doctor
+python -m app.cli start
+python -m app.cli status
+python -m app.cli open "D:\SPM"
+python -m app.cli datasets --json
+python -m app.cli schema <dataset-id> --analyze
+python -m app.cli stop
+```
+
+Linux Full 命令行：
+
+```sh
+# 自动启动服务，处理整个数据集，并持续显示进度
+sh full.sh /data/insert_remove_usb --all
+
+# 只处理指定 Episode；支持重复、逗号分隔和通配符
+sh full.sh /data/insert_remove_usb --episode 'episode_00*'
+
+# 查看可选机器人类型
+sh full.sh --robots
+
+# 全部分片统一生成 SO-100 / SO-101 的 7D Action
+sh full.sh /data/insert_remove_usb --all --robot so100_so101 --source-hand right
+
+# 只提交后台任务，不等待完成
+sh full.sh /data/insert_remove_usb --all --detach
+```
+
+`full.sh` 会用 `nvidia-smi` 自动发现 GPU。8 张 A800 时默认设置 8 个 Full worker，把 Episode 按帧数均衡拆成 8 个任务，并让全分辨率稳像变换与锐化在各 GPU 间轮转。可显式覆盖：
+
+Action 是可选项。默认 Full 不生成派生 Action：数据里已有原生 Action 或已生成映射时执行 S2，没有时明确跳过 S2；只有传入 `--robot` 时才会为所有分片生成同一种机器人 Action。当前可选类型包括通用单双臂、ALOHA、SO-100/SO-101、Franka Panda、UR5/UR5e、xArm 7 和 AgileX Piper。旧参数 `--action-profile` 仍可继续使用。
+
+```sh
+ALICE_GPU_DEVICES=0,1,2,3,4,5,6,7 \
+ALICE_FULL_WORKERS=8 \
+ALICE_FULL_PARALLEL=8 \
+ALICE_FULL_RESTART=1 \
+sh full.sh /data/insert_remove_usb --all
+```
+
+低分辨率光流估计、S1/S2/C2 和 HDF5 处理仍主要受 CPU 与磁盘限制；A800 负责全分辨率画面变换和清晰度增强。A800/A100 通常不提供 NVENC，视频编码器会在启动时探测并自动回退，不会把“检测到 CUDA”误认为“可以使用 NVENC”。本地 YOLO 不属于 Full 链路，因此 `full.sh` 默认不加载它，避免占用显存。`ALICE_FULL_LOAD_YOLO=1` 可恢复自动加载。CPU 线程会按 worker 数量切分，避免 8 个任务各自占满全部 CPU 核；若 PyTorch 不是 CUDA 构建，启动器会显示警告并回退到 CPU。
+
+`start` 使用 `.vla_lens/server.json` 记录实例 ID、PID、端口和 Python 路径。重复启动会复用健康实例；陈旧状态文件不会导致误杀无关进程；默认在 8000–8010 中选择可用端口。
+
 ## 打开数据集
 
 点击页面顶部的 `打开文件夹`，后端会显示 Windows 原生目录选择器。
+
+文件夹采用一级懒加载：如果所选目录包含直接子目录，每个子目录会登记为独立数据集，只有选中的数据集才会扫描并建立 Episode/文件索引；切换到其他数据集时再按需加载。已加载数据集最多在前端保留三个缓存。如果所选目录没有子目录，则按单数据集加载。集合模式的首次切换不自动等待 Qwen，结构理解可通过“再次运行”单独启动。
 
 - 数据集在原路径就地打开，不通过浏览器上传。
 - 视频、图像、HDF5、NPY、CSV 等源文件不会被复制。
@@ -37,6 +129,8 @@ API 文档：<http://127.0.0.1:8000/docs>
 ## 数据结构理解
 
 打开文件夹后，系统会扫描 JSON/JSONL、HDF5、Parquet、NPY/NPZ、CSV/TSV 和媒体文件，记录真实 path、key、shape、dtype。
+
+Schema 探测采用文件夹/扩展名分层抽样：在不同目录和 Episode 范围内均匀选择代表文件，每个文件夹最多探测少量结构化文件。Qwen 只接收这些真实抽样文件的压缩字段清单，不接收整个数据集内容；返回的 source ID 仍必须通过真实清单校验。目录索引本身保持完整，因此文件管理器与导出不会漏文件。
 
 配置 Qwen-VLM 后，系统会识别：
 
@@ -68,6 +162,33 @@ Qwen-VLM 使用 OpenAI-compatible `/chat/completions` API。配置保存在本�
 5. 可选 Qwen-VLM 使用已校验的数据结构作为上下文进行时窗复核。
 6. 无效片段写入版本化 `.alicePD/<dataset>/annotations/<episode>.alice`。
 7. 同步生成 `indices/invalid/*.invalid.alice` 区间索引和 `*.invalid.bin` 一帧一位的快速 bitmap。
+
+## Full 标准数据集
+
+页面上的 `Full` 按钮按以下顺序执行：
+
+```text
+视频平滑 → S1-S5/C3 → 非红色片段 VLM 标注 → C1/C2 → 去除静止和伸手 → 分类导出
+```
+
+S1-S5/C3 后的红色片段不会送入 VLM；绿色和黄色片段都会参与标注。C1/C2 结束后只导出最终通过的连续片段，并按 VLM 高层任务标签建立分类目录。例如任务标签为 `插usb` 时：
+
+```text
+<源数据集>/
+  output/
+    dataset.json
+    插usb/
+      ep1/
+        data.hdf5
+        video.mp4
+      ep2/
+        data.hdf5
+        video.mp4
+```
+
+`output` 是固定导出根目录，会被 Alice 的源数据扫描器忽略。重复执行 Full 时不会覆盖已有 Episode；同一分类下继续分配新的 `epN`，`dataset.json` 会合并保留既有配对索引。
+
+每对文件严格帧对齐。`data.hdf5` 包含 `mano/transforms [T,44,4,4]`、`camera/transform [T,4,4]`、左右腕 `xyz+rot6d [T,9]`、源帧号、源 HDF5 行号、时间戳和 VLM 阶段标签。源数据缺少真实 44 个手部变换或 camera 变换时，该 Episode 会明确失败，不会使用补零数据。
 
 ## 无效帧快速索引
 

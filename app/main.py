@@ -11,13 +11,15 @@ import cv2
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from .analyzer import jobs
+from .action_mapping import action_mapping_jobs, action_mapping_profiles, load_episode_action_mapping
 from .annotation_edits import apply_behavior_phase_exclusion, apply_segment_override
 from .batch_jobs import batch_analysis_jobs
 from .behavior_annotator import behavior_jobs, load_behavior_annotation
 from .curation_pipeline import curation_jobs, curation_preflight, load_curation_report
-from .episode_resolver import build_episode_framework, validate_qwen_episode_plan
+from .episode_resolver import build_sampled_episode_framework, validate_qwen_episode_plan
 from .file_preview import preview_file, preview_file_frame
 from .folder_dialog import choose_folder
 from .joint_overlay import draw_joint_overlay, joint_overlay_geometry, joint_overlay_status
@@ -28,12 +30,13 @@ from .preview_proxy import preview_proxy_manager
 from .qwen_trim import QwenTrimRequest, load_qwen_action_trim, qwen_trim_jobs
 from .schema_profiler import validate_understanding
 from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment, sensor_alignment_jobs
-from .schemas import AnalysisRequest, ApplyChangesRequest, BatchAnalysisRequest, BehaviorAnnotationRequest, BehaviorPhaseRemovalRequest, CurationJobRequest, ExcludeFilesRequest, ExportFolderRequest, LocalModelConfig, PathOpenRequest, SegmentUpdate, VLMModelConfig
+from .schemas import ActionMappingRequest, AnalysisRequest, ApplyChangesRequest, BatchAnalysisRequest, BehaviorAnnotationRequest, BehaviorPhaseRemovalRequest, CurationJobRequest, ExcludeFilesRequest, ExportFolderRequest, LocalModelConfig, PathOpenRequest, SegmentUpdate, VLMModelConfig
 from .storage import (
     ALICE_ANNOTATION_SCHEMA,
     apply_changes,
     ROOT,
     dataset_cache_dir,
+    discover_dataset_roots,
     exclude_dataset_files,
     episode_media,
     export_dataset,
@@ -93,26 +96,25 @@ def _load_vlm_config() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    try:
+        if os.getenv("ALICE_OPENCV_THREADS"):
+            cv2.setNumThreads(max(1, int(os.environ["ALICE_OPENCV_THREADS"])))
+    except ValueError:
+        pass
     model_path = _default_model_path()
-    if model_path:
-        try:
-            registry.configure_local(LocalModelConfig(kind="yolo", model_path=str(model_path), device="auto", confidence=0.25))
-        except RuntimeError:
-            pass
+    if model_path and os.getenv("VLA_SKIP_MODEL_AUTOLOAD", "").strip().casefold() not in {"1", "true", "yes"}:
+        registry.configure_local_async(
+            LocalModelConfig(kind="yolo", model_path=str(model_path), device="auto", confidence=0.25)
+        )
     try:
         _load_vlm_config()
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError):
         pass
-    manifests = list_manifests()
-    if manifests:
-        try:
-            sensor_alignment_jobs.submit(manifests[0]["id"])
-        except (KeyError, OSError, ValueError):
-            pass
     yield
 
 
 app = FastAPI(title="alice blue API", version="1.0.0", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 
 def _understand_manifest(manifest: dict, require_vlm: bool = False) -> dict:
@@ -124,15 +126,21 @@ def _understand_manifest(manifest: dict, require_vlm: bool = False) -> dict:
     try:
         raw = registry.understand_dataset_schema(profile.get("inventory") or {})
         understanding, warnings = validate_understanding(profile.get("inventory") or {}, raw)
-        episode_framework = build_episode_framework(manifest.get("files", []))
-        episode_raw = registry.resolve_episode_membership(episode_framework)
-        manifest["episode_resolution"] = validate_qwen_episode_plan(
-            episode_raw,
-            episode_framework,
-            manifest.get("files", []),
-            manifest.get("episodes", []),
-            registry.status().get("vlm", {}).get("model"),
-        )
+        local_resolution = manifest.get("episode_resolution") or {}
+        if local_resolution.get("requires_api"):
+            episode_framework = build_sampled_episode_framework(
+                manifest.get("files", []),
+                focus_ids=set(local_resolution.get("unassigned_file_ids") or []),
+            )
+            episode_raw = registry.resolve_episode_membership(episode_framework)
+            manifest["episode_resolution"] = validate_qwen_episode_plan(
+                episode_raw,
+                episode_framework,
+                manifest.get("files", []),
+                manifest.get("episodes", []),
+                registry.status().get("vlm", {}).get("model"),
+            )
+            manifest["episode_resolution"]["sampling"] = episode_framework.get("sampling")
         profile.update({
             "status": "completed",
             "understanding": understanding,
@@ -158,7 +166,15 @@ def _understand_manifest(manifest: dict, require_vlm: bool = False) -> dict:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "vla-lens", "version": app.version, "models": registry.status()}
+    return {
+        "ok": True,
+        "service": "vla-lens",
+        "version": app.version,
+        "pid": os.getpid(),
+        "instance_id": os.getenv("VLA_INSTANCE_ID"),
+        "models": registry.status(),
+        "runtime": {"full_pipeline": curation_jobs.runtime_config()},
+    }
 
 
 @app.get("/api/datasets")
@@ -172,8 +188,11 @@ def open_dataset_folder():
         selected = choose_folder()
         if selected is None:
             return {"cancelled": True, "dataset": None}
+        discovery = discover_dataset_roots(selected)
+        if discovery["mode"] == "collection":
+            return {"cancelled": False, "dataset": None, **discovery}
         manifest = _understand_manifest(scan_dataset(selected))
-        return {"cancelled": False, "dataset": manifest}
+        return {"cancelled": False, "dataset": manifest, **discovery}
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(422, str(exc))
 
@@ -251,7 +270,8 @@ def dataset_file_frame(
 @app.post("/api/datasets/open-path")
 def open_path(request: PathOpenRequest):
     try:
-        return _understand_manifest(scan_dataset(request.path, request.name))
+        manifest = scan_dataset(request.path, request.name)
+        return _understand_manifest(manifest) if request.analyze_schema else manifest
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -525,6 +545,44 @@ def submit_curation(dataset_id: str, request: CurationJobRequest):
         raise HTTPException(409, str(exc))
 
 
+@app.get("/api/action-mappings/profiles")
+def action_profiles():
+    return {"items": action_mapping_profiles()}
+
+
+@app.post("/api/datasets/{dataset_id}/action-jobs")
+def submit_action_mapping(dataset_id: str, request: ActionMappingRequest):
+    try:
+        return action_mapping_jobs.submit(dataset_id, request)
+    except KeyError:
+        raise HTTPException(404, "Dataset 或 Episode 不存在")
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/action-jobs")
+def list_action_mapping_jobs(dataset_id: str, active_only: bool = False):
+    try:
+        get_manifest(dataset_id)
+        return {"items": action_mapping_jobs.list(dataset_id, active_only=active_only)}
+    except KeyError:
+        raise HTTPException(404, "Dataset 不存在")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/action-mapping")
+def episode_action_mapping(dataset_id: str, episode_id: str, profile_id: str | None = None):
+    try:
+        get_episode(dataset_id, episode_id)
+        payload = load_episode_action_mapping(dataset_id, episode_id, profile_id)
+        if payload is None:
+            raise HTTPException(404, "尚无 Action 映射结果")
+        return payload
+    except KeyError:
+        raise HTTPException(404, "Dataset 或 Episode 不存在")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
 @app.get("/api/datasets/{dataset_id}/curation-jobs")
 def list_curation_jobs(dataset_id: str, active_only: bool = False):
     try:
@@ -623,26 +681,23 @@ def behavior_annotation(dataset_id: str, episode_id: str):
 
 @app.get("/api/jobs/{job_id}")
 def job(job_id: str):
-    try:
-        return jobs.get(job_id)
-    except KeyError:
+    for manager in (jobs, behavior_jobs, batch_analysis_jobs, qwen_trim_jobs, sensor_alignment_jobs, curation_jobs, action_mapping_jobs):
         try:
-            return behavior_jobs.get(job_id)
+            return manager.get(job_id)
         except KeyError:
-            try:
-                return batch_analysis_jobs.get(job_id)
-            except KeyError:
-                try:
-                    return qwen_trim_jobs.get(job_id)
-                except KeyError:
-                    try:
-                        return sensor_alignment_jobs.get(job_id)
-                    except KeyError:
-                        try:
-                            return curation_jobs.get(job_id)
-                        except KeyError:
-                            pass
-        raise HTTPException(404, "任务不存在")
+            continue
+    raise HTTPException(404, "任务不存在")
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    for manager in (jobs, behavior_jobs, batch_analysis_jobs, qwen_trim_jobs, sensor_alignment_jobs, curation_jobs, action_mapping_jobs):
+        try:
+            manager.get(job_id)
+        except KeyError:
+            continue
+        return manager.cancel(job_id)
+    raise HTTPException(404, "任务不存在")
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/annotations")

@@ -20,6 +20,7 @@ from typing import Any, Iterable
 import numpy as np
 
 from .storage import dataset_sidecar_root, get_manifest, slugify, storage_slug
+from .job_control import CancellableJobMixin, JobCancelled
 
 
 SENSOR_ALIGNMENT_SCHEMA = "alice/sensor-alignment/v2"
@@ -855,7 +856,7 @@ def map_video_frame_to_sensor(
     return sensor_index, metadata
 
 
-class SensorAlignmentJobManager:
+class SensorAlignmentJobManager(CancellableJobMixin):
     """Run dataset-wide timing scans without blocking the API/UI thread."""
 
     def __init__(self, max_workers: int = 2) -> None:
@@ -863,6 +864,7 @@ class SensorAlignmentJobManager:
         self._jobs: dict[str, dict] = {}
         self._dataset_jobs: dict[str, str] = {}
         self._lock = threading.RLock()
+        self._init_cancellation()
 
     def submit(
         self,
@@ -881,7 +883,7 @@ class SensorAlignmentJobManager:
                 raise KeyError(sorted(missing)[0])
         with self._lock:
             existing_id = self._dataset_jobs.get(dataset_id)
-            if existing_id and self._jobs.get(existing_id, {}).get("status") in {"queued", "running"}:
+            if existing_id and self._jobs.get(existing_id, {}).get("status") in {"queued", "running", "cancelling"}:
                 return dict(self._jobs[existing_id])
             job_id = uuid.uuid4().hex
             job = {
@@ -902,6 +904,7 @@ class SensorAlignmentJobManager:
                 "error": None,
             }
             self._jobs[job_id] = job
+            self._register_cancellation(job_id)
             self._dataset_jobs[dataset_id] = job_id
         self._executor.submit(self._run, job_id, dict(manifest), episodes, force)
         return dict(job)
@@ -940,8 +943,9 @@ class SensorAlignmentJobManager:
         failures = []
         artifacts = []
         try:
-            self._update(job_id, status="running", progress=1 if total else 100, message=f"Detecting sensor Hz: 0/{total} Episodes")
+            self._start_unless_cancelled(job_id, status="running", progress=1 if total else 100, message=f"Detecting sensor Hz: 0/{total} Episodes")
             for position, episode in enumerate(episodes):
+                self._raise_if_cancelled(job_id)
                 episode_id = str(episode.get("id"))
                 self._update(job_id, current_episode_id=episode_id, message=f"Detecting sensor Hz: {position}/{total} · {episode.get('name') or episode_id}")
                 try:
@@ -962,8 +966,11 @@ class SensorAlignmentJobManager:
                         "conflict_count": sum(bool(item.get("rate_conflict")) for item in streams),
                         "artifact_path": document.get("artifact_path") or str(sensor_alignment_path(manifest, episode_id)),
                     })
+                except JobCancelled:
+                    raise
                 except Exception as exc:
                     failures.append({"episode_id": episode_id, "error": str(exc)})
+                self._raise_if_cancelled(job_id)
                 completed = position + 1
                 self._update(
                     job_id,
@@ -1001,8 +1008,12 @@ class SensorAlignmentJobManager:
                 result=result,
                 error=failures[0]["error"] if final_status == "failed" else None,
             )
+        except JobCancelled:
+            self._mark_cancelled(job_id)
         except Exception as exc:
             self._update(job_id, status="failed", progress=100, message=str(exc), error=str(exc), trace=traceback.format_exc(limit=8))
+        finally:
+            self._forget_cancellation(job_id)
 
 
 sensor_alignment_jobs = SensorAlignmentJobManager()

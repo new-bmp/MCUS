@@ -19,6 +19,7 @@ import cv2
 from pydantic import BaseModel, Field
 
 from .models import registry
+from .job_control import CancellableJobMixin, JobCancelled
 from .storage import dataset_artifact_dir, episode_media, get_manifest, read_frame, record_change, slugify
 
 
@@ -620,12 +621,16 @@ def load_qwen_action_trim(dataset_id: str, episode_id: str) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
-class QwenTrimJobManager:
+class QwenTrimJobManager(CancellableJobMixin):
     def __init__(self, max_workers: int = 2) -> None:
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="qwen-action-trim")
         self._jobs: dict[str, dict] = {}
         self._active_episode_jobs: dict[tuple[str, str], str] = {}
         self._lock = threading.RLock()
+        self._init_cancellation()
+
+    def _on_cancelled_before_run(self, job_id: str) -> None:
+        self._release_episodes(job_id)
 
     def _reserve_episodes(self, job_id: str, dataset_id: str, episode_ids: list[str]) -> None:
         with self._lock:
@@ -689,6 +694,7 @@ class QwenTrimJobManager:
         self._reserve_episodes(job_id, dataset_id, episode_ids)
         with self._lock:
             self._jobs[job_id] = job
+            self._register_cancellation(job_id)
         try:
             self._executor.submit(self._run, job_id, dataset_id, episode_ids, selected_media, request)
         except Exception:
@@ -705,7 +711,7 @@ class QwenTrimJobManager:
             return deepcopy(self._jobs[job_id])
 
     def list(self, dataset_id: str, active_only: bool = False) -> list[dict]:
-        active_statuses = {"queued", "running"}
+        active_statuses = {"queued", "running", "cancelling"}
         with self._lock:
             jobs = [
                 deepcopy(job)
@@ -734,13 +740,15 @@ class QwenTrimJobManager:
             results = []
             failures = []
             total = len(episode_ids)
-            self._update(job_id, status="running", started_at=_now(), progress=1, message=f"Qwen 后台线程已启动 · 0/{total}")
+            self._start_unless_cancelled(job_id, status="running", started_at=_now(), progress=1, message=f"Qwen 后台线程已启动 · 0/{total}")
             for position, episode_id in enumerate(episode_ids):
+                self._raise_if_cancelled(job_id)
                 episode = episodes[episode_id]
                 base = position / total * 100.0
                 span = 100.0 / total
 
                 def episode_progress(value: float, message: str) -> None:
+                    self._raise_if_cancelled(job_id)
                     scaled = min(99.0, base + span * max(0.0, min(100.0, float(value))) / 100.0)
                     self._update(job_id, progress=round(scaled, 1), message=f"{episode['name']} · {message} · {position + 1}/{total}")
 
@@ -764,8 +772,11 @@ class QwenTrimJobManager:
                         "artifact_path": payload["artifact_path"],
                         "change_id": payload["change"]["id"],
                     })
+                except JobCancelled:
+                    raise
                 except Exception as exc:
                     failures.append({"episode_id": episode_id, "episode_name": episode["name"], "error": str(exc)})
+                self._raise_if_cancelled(job_id)
                 completed = position + 1
                 self._update(job_id, completed_count=completed, progress=round(completed / total * 100.0, 1), message=f"Qwen 剪切后台处理 · {completed}/{total}")
             result = {
@@ -785,10 +796,13 @@ class QwenTrimJobManager:
                 if failures:
                     message += f" · {len(failures)} 个失败"
                 self._update(job_id, status="complete", progress=100, finished_at=_now(), message=message, result=result)
+        except JobCancelled:
+            self._mark_cancelled(job_id)
         except Exception as exc:
             self._update(job_id, status="failed", finished_at=_now(), message=str(exc), error=str(exc), trace=traceback.format_exc(limit=8))
         finally:
             self._release_episodes(job_id)
+            self._forget_cancellation(job_id)
 
 
 qwen_trim_jobs = QwenTrimJobManager()

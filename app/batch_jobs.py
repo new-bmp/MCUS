@@ -6,6 +6,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from .behavior_annotator import annotate_episode_behavior, behavior_annotation_status
+from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .no_action_trim import analyze_no_action_trim
 from .pose_recovery import pose_recovery_status, recover_episode_pose
@@ -14,11 +15,12 @@ from .storage import episode_media, get_manifest
 from .video_smoothing import smooth_video
 
 
-class BatchAnalysisJobManager:
+class BatchAnalysisJobManager(CancellableJobMixin):
     def __init__(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alice-batch-analysis")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.RLock()
+        self._init_cancellation()
 
     def submit(self, dataset_id: str, request: BatchAnalysisRequest) -> dict:
         manifest = get_manifest(dataset_id)
@@ -97,6 +99,7 @@ class BatchAnalysisJobManager:
         }
         with self._lock:
             self._jobs[job_id] = job
+            self._register_cancellation(job_id)
         self._executor.submit(self._run, job_id, dataset_id, episode_ids, request)
         return dict(job)
 
@@ -134,8 +137,9 @@ class BatchAnalysisJobManager:
             results = []
             failures = []
             total = len(episode_ids)
-            self._update(job_id, status="running", progress=1, message=f"后台线程已启动 · 0/{total}")
+            self._start_unless_cancelled(job_id, status="running", progress=1, message=f"后台线程已启动 · 0/{total}")
             for position, episode_id in enumerate(episode_ids):
+                self._raise_if_cancelled(job_id)
                 episode = episodes[episode_id]
                 base = position / total * 100
                 span = 1 / total * 100
@@ -145,6 +149,7 @@ class BatchAnalysisJobManager:
                         selected_media = episode_media(episode, request.media_file_ids[episode_id])
 
                         def smoothing_progress(value: float, message: str) -> None:
+                            self._raise_if_cancelled(job_id)
                             self._update(
                                 job_id,
                                 progress=min(99, round(base + span * max(0, min(100, value)) / 100, 1)),
@@ -165,6 +170,7 @@ class BatchAnalysisJobManager:
                         behavior_request = BehaviorAnnotationRequest(sample_count=request.sample_count, force=request.force)
 
                         def progress(value: float, message: str) -> None:
+                            self._raise_if_cancelled(job_id)
                             self._update(
                                 job_id,
                                 progress=min(99, round(base + span * max(0, min(100, value)) / 100, 1)),
@@ -203,6 +209,7 @@ class BatchAnalysisJobManager:
                         selected_media = episode_media(episode, request.media_file_ids[episode_id])
 
                         def trim_progress(value: float, message: str) -> None:
+                            self._raise_if_cancelled(job_id)
                             self._update(
                                 job_id,
                                 progress=min(99, round(base + span * max(0, min(100, value)) / 100, 1)),
@@ -230,8 +237,11 @@ class BatchAnalysisJobManager:
                             "invalid_frame_count": payload.get("summary", {}).get("invalid_frame_count", 0),
                             "artifact_path": payload.get("artifact_path"),
                         })
+                except JobCancelled:
+                    raise
                 except Exception as exc:
                     failures.append({"episode_id": episode_id, "episode_name": episode["name"], "error": str(exc)})
+                self._raise_if_cancelled(job_id)
                 completed = position + 1
                 self._update(job_id, completed_count=completed, progress=round(completed / total * 100, 1), message=f"后台线程处理中 · {completed}/{total}")
             result = {
@@ -252,8 +262,12 @@ class BatchAnalysisJobManager:
                 if failures:
                     message += f" · {len(failures)} 个失败"
                 self._update(job_id, status="complete", progress=100, message=message, result=result)
+        except JobCancelled:
+            self._mark_cancelled(job_id)
         except Exception as exc:
             self._update(job_id, status="failed", message=str(exc), error=str(exc), trace=traceback.format_exc(limit=8))
+        finally:
+            self._forget_cancellation(job_id)
 
 
 batch_analysis_jobs = BatchAnalysisJobManager()

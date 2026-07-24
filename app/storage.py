@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import struct
 import threading
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +30,11 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 AUXILIARY_EXTENSIONS = {".alice", ".crc", ".checksum", ".sha1", ".sha256", ".md5", ".lock", ".tmp"}
 AUXILIARY_NAMES = {".complete", ".ds_store", "thumbs.db", "desktop.ini"}
+IGNORED_DIRECTORY_NAMES = {
+    ".alicepd", ".git", ".hg", ".svn", ".venv", "venv", ".vla_lens",
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules",
+    "output",
+}
 ALICE_ANNOTATION_EXTENSION = ".alice"
 ALICE_ANNOTATION_SCHEMA = "alice/annotation/v1"
 CHANGE_RECORD_SCHEMA = "alice/change-record/v1"
@@ -38,6 +45,7 @@ INVALID_BITMAP_MAGIC = b"ALPDINV1"
 INVALID_BITMAP_HEADER_BYTES = len(INVALID_BITMAP_MAGIC) + 8
 
 _lock = threading.RLock()
+_detail_index_cache: dict[tuple[str, int], dict] = {}
 
 
 def _paper_curation_version_status(payload: dict) -> tuple[int, bool]:
@@ -241,6 +249,65 @@ def _auxiliary_record(path: Path, root: Path) -> dict:
         "size_bytes": stat.st_size,
         "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "reason": "alice_annotation" if path.suffix.lower() == ALICE_ANNOTATION_EXTENSION else "control_or_checksum_file",
+    }
+
+
+def _iter_dataset_files(root: Path):
+    """Walk once with directory pruning and reuse DirEntry stat results."""
+    stack = [root]
+    while stack:
+        directory = stack.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        for entry in entries:
+            name = entry.name.casefold()
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if name not in IGNORED_DIRECTORY_NAMES:
+                        stack.append(Path(entry.path))
+                    continue
+                if entry.is_file(follow_symlinks=False):
+                    yield Path(entry.path), entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+
+
+def discover_dataset_roots(path: str | Path) -> dict:
+    """Discover immediate child datasets without scanning their contents."""
+    root = Path(path).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"数据集目录不存在: {root}")
+    children: list[Path] = []
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                name = entry.name.casefold()
+                if name in IGNORED_DIRECTORY_NAMES or name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        children.append(Path(entry.path).resolve())
+                except OSError:
+                    continue
+    except OSError as exc:
+        raise ValueError(f"无法读取目录: {root}") from exc
+    dataset_roots = sorted(children, key=lambda item: item.name.casefold()) if children else [root]
+    mode = "collection" if children else "single"
+    return {
+        "mode": mode,
+        "root_path": str(root),
+        "dataset_count": len(dataset_roots),
+        "datasets": [
+            {
+                "key": hashlib.sha1(str(item).casefold().encode("utf-8")).hexdigest()[:16],
+                "name": item.name or str(item),
+                "path": str(item),
+                "status": "unloaded" if mode == "collection" else "loading",
+            }
+            for item in dataset_roots
+        ],
     }
 
 
@@ -944,8 +1011,8 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
     auxiliary_files: list[dict] = []
     video_groups: dict[str, list[dict]] = {}
     image_groups: dict[Path, list[Path]] = {}
-    for item in root.rglob("*"):
-        if not item.is_file() or RUNTIME in item.parents or _is_sidecar_member(item, root):
+    for item, stat in _iter_dataset_files(root):
+        if RUNTIME in item.parents or _is_sidecar_member(item, root):
             continue
         if _is_auxiliary_source_file(item):
             auxiliary_files.append(_auxiliary_record(item, root))
@@ -957,7 +1024,6 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
         group_key = item.parent.relative_to(root).as_posix() if image_sequence else episode_key(item, root)
         if not group_key or group_key == ".":
             group_key = root.name
-        stat = item.stat()
         record = {
             "id": _file_id(relative),
             "name": item.name,
@@ -977,13 +1043,32 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
         elif suffix in IMAGE_EXTENSIONS:
             image_groups.setdefault(item.parent, []).append(item)
 
+    video_results: dict[str, list[tuple[dict, dict]]] = {}
+
+    def probe_video_record(payload: tuple[str, dict]) -> tuple[str, dict, dict | None]:
+        group_key, record = payload
+        stream = _probe_video(root / record["relative_path"], record["relative_path"], group_key)
+        return group_key, record, stream
+
+    probe_payloads = [
+        (group_key, record)
+        for group_key, records in video_groups.items()
+        for record in records
+    ]
+    try:
+        configured_workers = int(os.getenv("VLA_SCAN_WORKERS", str(min(8, os.cpu_count() or 4))))
+    except ValueError:
+        configured_workers = min(8, os.cpu_count() or 4)
+    worker_count = max(1, min(8, configured_workers))
+    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="alice-media-probe") as executor:
+        for group_key, record, stream in executor.map(probe_video_record, probe_payloads):
+            if stream:
+                video_results.setdefault(group_key, []).append((record, stream))
+
     for group_key, records in video_groups.items():
         media_streams = []
         readable_records = []
-        for record in records:
-            stream = _probe_video(root / record["relative_path"], record["relative_path"], group_key)
-            if not stream:
-                continue
+        for record, stream in video_results.get(group_key, []):
             stream["file_id"] = record["id"]
             stream["stream_name"] = Path(record["relative_path"]).name
             media_streams.append(stream)
@@ -1119,6 +1204,8 @@ def save_manifest(manifest: dict) -> None:
         _write_json_atomic(sidecar_path, manifest)
         _write_json_atomic(registry_path, registry)
         _backfill_invalid_indices(manifest, sidecar_root)
+        for key in [key for key in _detail_index_cache if key[0] == str(manifest["id"])]:
+            _detail_index_cache.pop(key, None)
 
 
 def manifest_registry_path(dataset_id: str) -> Path:
@@ -1191,39 +1278,64 @@ def get_episode(dataset_id: str, episode_id: str) -> tuple[dict, dict]:
     raise KeyError(episode_id)
 
 
+def _manifest_detail_index(manifest: dict) -> dict:
+    manifest_path = _manifest_sidecar_path(manifest) / "dataset.json"
+    try:
+        revision = manifest_path.stat().st_mtime_ns
+    except OSError:
+        revision = 0
+    cache_key = (str(manifest["id"]), revision)
+    with _lock:
+        cached = _detail_index_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        inventory_files = (manifest.get("schema_profile") or {}).get("inventory", {}).get("files", [])
+        resolution = manifest.get("episode_resolution") or {}
+        groups_by_file = {}
+        for group in resolution.get("groups", []):
+            for file_id in group.get("file_ids", []):
+                groups_by_file[str(file_id)] = group
+        index = {
+            "files": {str(item.get("id")): item for item in manifest.get("files", [])},
+            "episodes": {str(item.get("id")): item for item in manifest.get("episodes", [])},
+            "inventory": {str(item.get("path")): item for item in inventory_files},
+            "groups": groups_by_file,
+            "shared": set(map(str, resolution.get("shared_file_ids", []))),
+            "unassigned": set(map(str, resolution.get("unassigned_file_ids", []))),
+        }
+        if len(_detail_index_cache) >= 12:
+            _detail_index_cache.clear()
+        _detail_index_cache[cache_key] = index
+        return index
+
+
 def get_dataset_file(dataset_id: str, file_id: str) -> tuple[dict, dict]:
     manifest = get_manifest(dataset_id)
-    record = next((item for item in manifest.get("files", []) if item.get("id") == file_id), None)
+    index = _manifest_detail_index(manifest)
+    record = index["files"].get(str(file_id))
     if record is None:
         raise KeyError(file_id)
     detail = dict(record)
-    inventory = manifest.get("schema_profile", {}).get("inventory", {})
-    profiled = next((item for item in inventory.get("files", []) if item.get("path") == record["relative_path"]), None)
+    profiled = index["inventory"].get(str(record["relative_path"]))
     if profiled:
         detail["fields"] = profiled.get("fields", [])
     if record.get("episode_id"):
-        episode = next(
-            (item for item in manifest.get("episodes", []) if item.get("id") == record["episode_id"]),
-            None,
-        )
+        episode = index["episodes"].get(str(record["episode_id"]))
         if episode:
             detail["episode"] = {
                 key: episode.get(key)
                 for key in ("id", "name", "episode_key", "fps", "frame_count", "duration", "width", "height")
             }
     resolution = manifest.get("episode_resolution") or {}
-    resolved_group = next(
-        (group for group in resolution.get("groups", []) if file_id in group.get("file_ids", [])),
-        None,
-    )
+    resolved_group = index["groups"].get(str(file_id))
     if resolved_group:
         detail["resolved_episode"] = {
             key: resolved_group.get(key)
             for key in ("group_id", "label", "source", "confidence", "evidence", "playable_episode_id")
         }
-    elif file_id in resolution.get("shared_file_ids", []):
+    elif str(file_id) in index["shared"]:
         detail["resolved_episode"] = {"label": "shared", "source": resolution.get("source")}
-    elif file_id in resolution.get("unassigned_file_ids", []):
+    elif str(file_id) in index["unassigned"]:
         detail["resolved_episode"] = {"label": "unassigned", "source": resolution.get("source")}
     return manifest, detail
 

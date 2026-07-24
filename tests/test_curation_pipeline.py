@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import cv2
@@ -11,17 +12,23 @@ import numpy as np
 
 from app.curation_pipeline import (
     CURATION_PIPELINE_VERSION,
+    CurationJobManager,
     _build_s3_references,
     _episode_records,
+    _full_action_config,
     _load_signal_bundle,
     _signal_candidates,
     curation_preflight,
+    curation_valid_ranges,
     detect_extreme_values,
     detect_sudden_changes,
     estimate_state_action_alignment,
     inspect_video_quality,
+    inspect_behavior_state_consistency,
+    inspect_instruction_consistency,
     load_curation_report,
     merge_dense_quality_marks,
+    resolve_post_vlm_review,
     source_signature,
     source_signatures_match,
 )
@@ -30,6 +37,26 @@ from app.schema_profiler import build_inventory
 
 
 class CurationPipelineTests(unittest.TestCase):
+    def test_full_request_locks_one_action_profile_for_every_shard(self) -> None:
+        request = CurationJobRequest(
+            episode_ids=["ep"],
+            full_pipeline=True,
+            full_action_profile_id="so100_so101",
+            full_action_source_hand="right",
+            full_action_coordinate_frame="camera",
+            full_action_horizon_frames=3,
+        )
+
+        config = _full_action_config(request)
+
+        self.assertEqual("so100_so101", config["profile_id"])
+        self.assertEqual("full_pipeline_request", config["source"])
+
+    def test_full_action_is_optional_by_default(self) -> None:
+        request = CurationJobRequest(episode_ids=["ep"], full_pipeline=True)
+
+        self.assertIsNone(_full_action_config(request))
+
     @staticmethod
     def _write_skeletal_hdf5(path: Path, frame_count: int = 12) -> None:
         import h5py
@@ -396,6 +423,192 @@ class CurationPipelineTests(unittest.TestCase):
         self.assertTrue(merged[0:4].all())
         self.assertFalse(merged[4:12].any())
         self.assertTrue(merged[12])
+
+    def test_c2_reviews_active_vlm_segment_without_state_motion(self) -> None:
+        behavior = {"segments": [{"start_frame": 0, "end_frame": 29, "phase_label": "grasp"}]}
+        result = inspect_behavior_state_consistency(
+            behavior,
+            {"joint": np.zeros((30, 3), dtype=np.float64), "action": None, "action_representation": "unknown"},
+            np.ones(30, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("warning", result["status"])
+        self.assertTrue(result["review_mask"].all())
+        self.assertEqual(1, result["metrics"]["mismatch_segment_count"])
+
+    def test_c1_reviews_explicit_task_mismatch(self) -> None:
+        result = inspect_instruction_consistency(
+            {"task_label": "remove_lid", "confidence": 0.9},
+            {"name": "insert_usb"},
+            np.ones(12, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("warning", result["status"])
+        self.assertTrue(result["review_mask"].all())
+
+    def test_c1_accepts_matching_task_tokens(self) -> None:
+        result = inspect_instruction_consistency(
+            {"task_label": "insert_usb", "confidence": 0.9},
+            {"name": "insert_usb_ep1"},
+            np.ones(12, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["review_mask"].any())
+
+    def test_c1_c2_clear_precheck_review_only_after_both_checks_run(self) -> None:
+        precheck_review = np.ones(6, dtype=bool)
+        clear = np.zeros(6, dtype=bool)
+        completed = {"status": "completed", "review_mask": clear}
+        skipped = {"status": "skipped", "review_mask": clear}
+
+        self.assertFalse(resolve_post_vlm_review(precheck_review, completed, completed).any())
+        self.assertTrue(resolve_post_vlm_review(precheck_review, completed, skipped).all())
+
+    def test_main_curation_job_orders_precheck_vlm_then_c2(self) -> None:
+        manager = CurationJobManager()
+        manager._jobs["job"] = {"id": "job", "dataset_id": "fixture", "status": "queued"}
+        episode = {"id": "ep", "name": "episode", "frame_count": 20, "fps": 10.0}
+        manifest = {"id": "fixture", "episodes": [episode]}
+        media = {"file_id": "video", "frame_count": 20, "fps": 10.0}
+        preliminary = {
+            "segments": [{"start_frame": 0, "end_frame": 4, "state": "invalid"}, {"start_frame": 5, "end_frame": 14, "state": "valid"}, {"start_frame": 15, "end_frame": 19, "state": "invalid"}],
+            "pre_vlm_segments": [{"start_frame": 0, "end_frame": 4, "state": "invalid"}, {"start_frame": 5, "end_frame": 14, "state": "valid"}, {"start_frame": 15, "end_frame": 19, "state": "invalid"}],
+        }
+        behavior = {"task_label": "pick", "segments": [], "sampling": {"allowed_ranges": [{"start_frame": 5, "end_frame": 14}]}}
+        final = {"artifact_path": "result.alice", "summary": {}, "stages": []}
+        order: list[str] = []
+
+        def run_precheck(*args, **kwargs):
+            order.append("precheck")
+            self.assertFalse(kwargs["behavior_checks"])
+            return preliminary
+
+        def run_vlm(*args, **kwargs):
+            order.append("vlm")
+            self.assertEqual([(5, 14)], kwargs["analysis_frame_ranges"])
+            return behavior
+
+        def run_c2(*args, **kwargs):
+            order.append("c2")
+            self.assertEqual("completed", kwargs["vlm_status"])
+            return final
+
+        request = CurationJobRequest(episode_ids=["ep"], media_file_ids={"ep": "video"})
+        with (
+            patch("app.curation_pipeline.get_manifest", return_value=manifest),
+            patch("app.curation_pipeline._build_s3_references", return_value={}),
+            patch("app.curation_pipeline.run_episode_curation", side_effect=run_precheck),
+            patch("app.curation_pipeline.load_behavior_annotation", return_value=None),
+            patch("app.curation_pipeline.annotate_episode_behavior", side_effect=run_vlm),
+            patch("app.curation_pipeline.finalize_episode_curation", side_effect=run_c2),
+            patch("app.curation_pipeline.registry", SimpleNamespace(has_vlm=True)),
+        ):
+            manager._run("job", "fixture", ["ep"], {"ep": media}, request)
+
+        self.assertEqual(["precheck", "vlm", "c2"], order)
+        completed_job = manager.get("job")
+        self.assertEqual("complete", completed_job["status"])
+        self.assertEqual(1, completed_job["result"]["vlm_requested_count"])
+        self.assertEqual(0, completed_job["result"]["vlm_reused_count"])
+        self.assertEqual([(5, 14)], curation_valid_ranges(preliminary, before_c2=True))
+
+    def test_full_job_adds_smoothing_and_pair_export_around_main_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = CurationJobManager()
+            manager._jobs["full-job"] = {"id": "full-job", "dataset_id": "fixture", "status": "queued"}
+            episode = {"id": "ep", "name": "episode", "frame_count": 20, "fps": 10.0}
+            manifest = {"id": "fixture", "name": "fixture", "root_path": str(root), "episodes": [episode]}
+            media = {"file_id": "video", "path": str(root / "source.mp4"), "frame_count": 20, "fps": 10.0}
+            preliminary = {
+                "segments": [{"start_frame": 0, "end_frame": 19, "state": "valid"}],
+                "pre_vlm_segments": [{"start_frame": 0, "end_frame": 19, "state": "valid"}],
+            }
+            behavior = {"task_label": "pick", "segments": [], "sampling": {"allowed_ranges": [{"start_frame": 0, "end_frame": 19}]}}
+            final = {"artifact_path": "result.alice", "summary": {}, "stages": []}
+            order: list[str] = []
+            smoothed = {"output_video": str(root / "smoothed.mp4"), "summary": {"frame_count": 20, "fps": 10.0}}
+
+            request = CurationJobRequest(
+                episode_ids=["ep"],
+                media_file_ids={"ep": "video"},
+                full_pipeline=True,
+                full_action_profile_id="generic_bimanual_pose",
+            )
+            with (
+                patch("app.curation_pipeline.get_manifest", return_value=manifest),
+                patch("app.curation_pipeline._build_s3_references", return_value={}),
+                patch("app.curation_pipeline.smooth_video", side_effect=lambda *args, **kwargs: (order.append("smooth") or smoothed)),
+                patch("app.curation_pipeline.generate_episode_action", side_effect=lambda *args, **kwargs: (order.append("action") or {
+                    "profile": {"id": "generic_bimanual_pose"},
+                    "config": {"profile_id": "generic_bimanual_pose"},
+                    "summary": {"action_count": 17},
+                    "artifact_path": "action.hdf5",
+                    "reused": False,
+                })),
+                patch("app.curation_pipeline.validate_episode_action_mapping", return_value={
+                    "verdict": "pass",
+                    "invalid_mask": np.zeros(20, dtype=bool),
+                    "profile_id": "generic_bimanual_pose",
+                }),
+                patch("app.curation_pipeline.run_episode_curation", side_effect=lambda *args, **kwargs: (order.append("precheck") or preliminary)),
+                patch("app.curation_pipeline.load_behavior_annotation", return_value=None),
+                patch("app.curation_pipeline.annotate_episode_behavior", side_effect=lambda *args, **kwargs: (order.append("vlm") or behavior)),
+                patch("app.curation_pipeline.finalize_episode_curation", side_effect=lambda *args, **kwargs: (order.append("c2") or final)),
+                patch("app.curation_pipeline.export_episode", side_effect=lambda *args, **kwargs: (order.append("export") or {"pairs": [{"frame_count": 4}], "filtering": {}, "transform_source": "episode.hdf5", "category": "pick"})),
+                patch("app.curation_pipeline.write_dataset_index", return_value=root / "dataset.json"),
+                patch("app.curation_pipeline.registry", SimpleNamespace(has_vlm=True)),
+            ):
+                manager._run("full-job", "fixture", ["ep"], {"ep": media}, request)
+
+            self.assertEqual({"smooth", "action"}, set(order[:2]))
+            self.assertEqual(["precheck", "vlm", "c2", "export"], order[2:])
+            result = manager.get("full-job")["result"]
+            self.assertEqual("full_pipeline", result["operation"])
+            self.assertEqual(1, result["pair_count"])
+            self.assertEqual(1, result["vlm_requested_count"])
+            self.assertEqual(str(root / "output"), result["output_root"])
+            self.assertEqual("generic_bimanual_pose", result["action_config"]["profile_id"])
+            self.assertEqual("pass", result["items"][0]["action_s2"]["validation"]["verdict"])
+
+    def test_full_job_does_not_generate_action_without_an_explicit_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = CurationJobManager()
+            manager._jobs["full-no-action"] = {"id": "full-no-action", "dataset_id": "fixture", "status": "queued"}
+            episode = {"id": "ep", "name": "episode", "frame_count": 20, "fps": 10.0}
+            manifest = {"id": "fixture", "name": "fixture", "root_path": str(root), "episodes": [episode]}
+            media = {"file_id": "video", "path": str(root / "source.mp4"), "frame_count": 20, "fps": 10.0}
+            preliminary = {
+                "segments": [{"start_frame": 0, "end_frame": 19, "state": "invalid"}],
+                "pre_vlm_segments": [{"start_frame": 0, "end_frame": 19, "state": "invalid"}],
+            }
+            final = {"artifact_path": "result.alice", "summary": {}, "stages": []}
+            smoothed = {"output_video": str(root / "smoothed.mp4"), "summary": {"frame_count": 20, "fps": 10.0}}
+            request = CurationJobRequest(episode_ids=["ep"], media_file_ids={"ep": "video"}, full_pipeline=True)
+
+            with (
+                patch("app.curation_pipeline.get_manifest", return_value=manifest),
+                patch("app.curation_pipeline._build_s3_references", return_value={}),
+                patch("app.curation_pipeline.smooth_video", return_value=smoothed) as smooth,
+                patch("app.curation_pipeline.generate_episode_action", side_effect=AssertionError("Action must stay optional")),
+                patch("app.curation_pipeline.run_episode_curation", return_value=preliminary),
+                patch("app.curation_pipeline.load_behavior_annotation", return_value=None),
+                patch("app.curation_pipeline.finalize_episode_curation", return_value=final),
+                patch("app.curation_pipeline.write_dataset_index", return_value=root / "dataset.json"),
+                patch("app.curation_pipeline.registry", SimpleNamespace(has_vlm=True)),
+            ):
+                manager._run("full-no-action", "fixture", ["ep"], {"ep": media}, request)
+
+            job = manager.get("full-no-action")
+            self.assertEqual("complete", job["status"])
+            self.assertIsNone(job["result"]["action_config"])
+            self.assertNotIn("action_s2", job["result"]["items"][0])
+            smooth.assert_called_once()
 
 
 if __name__ == "__main__":

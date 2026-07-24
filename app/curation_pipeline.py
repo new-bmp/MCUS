@@ -4,6 +4,8 @@ import csv
 import hashlib
 import json
 import math
+import os
+import re
 import threading
 import traceback
 import uuid
@@ -18,15 +20,21 @@ import numpy as np
 from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
 
-from .behavior_annotator import load_behavior_annotation
+from .action_mapping import generate_episode_action, load_episode_action_mapping, validate_episode_action_mapping
+from .behavior_annotator import annotate_episode_behavior, load_behavior_annotation, media_fingerprint_matches
+from .full_export import _find_transform_source, export_episode, write_dataset_index
+from .hand_visibility import inspect_full_hand_visibility
+from .job_control import CancellableJobMixin, JobCancelled
+from .models import registry
 from .schema_profiler import infer_local_signal_fields, probe_local_signal_fields
-from .schemas import CurationJobRequest
+from .schemas import ActionMappingRequest, BehaviorAnnotationRequest, CurationJobRequest
 from .sensor_alignment import scan_episode_sensor_alignment
 from .storage import dataset_artifact_dir, episode_media, get_manifest, record_change, slugify, storage_slug
+from .video_smoothing import smooth_video
 
 
 CURATION_SCHEMA = "alice/paper-curation/v1"
-CURATION_PIPELINE_VERSION = 4
+CURATION_PIPELINE_VERSION = 7
 QUALITY_MARK_GAP_SECONDS = 0.3
 MAX_SIGNAL_ROWS = 120_000
 MAX_SIGNAL_DIMS = 80
@@ -35,13 +43,14 @@ NUMERIC_EXTENSIONS = {".h5", ".hdf5", ".h5df", ".parquet", ".npy", ".npz", ".jso
 
 STAGE_DEFINITIONS = [
     ("s1", "突变与 Jerk"),
-    ("s2", "State-Action 趋势对齐"),
+    ("s2", "State-Action 对齐与导出一致性"),
     ("s3", "分位极值"),
     ("s4", "FK 一致性"),
     ("s5", "基座与方向统一"),
+    ("c3", "视频质量与整手可见"),
+    ("vlm", "非红片段行为标注"),
     ("c1", "指令一致性"),
     ("c2", "视频-State 一致性"),
-    ("c3", "视频质量"),
 ]
 
 
@@ -914,6 +923,237 @@ def _combined_segments(frame_count: int, fps: float, invalid: np.ndarray, review
     return segments
 
 
+def _state_masks_from_segments(frame_count: int, segments: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+    invalid = np.zeros(frame_count, dtype=bool)
+    review = np.zeros(frame_count, dtype=bool)
+    for segment in segments:
+        if frame_count <= 0:
+            break
+        start = max(0, min(frame_count - 1, int(segment.get("start_frame") or 0)))
+        end = max(start, min(frame_count - 1, int(segment.get("end_frame") or start)))
+        state = str(segment.get("state") or "")
+        if state == "invalid":
+            invalid[start:end + 1] = True
+        elif state == "uncertain":
+            review[start:end + 1] = True
+    review &= ~invalid
+    return invalid, review
+
+
+def resolve_post_vlm_review(precheck_review: np.ndarray, c1: dict, c2: dict) -> np.ndarray:
+    evaluated = {"completed", "warning"}
+    both_checks_ran = c1.get("status") in evaluated and c2.get("status") in evaluated
+    review = np.zeros_like(precheck_review) if both_checks_ran else precheck_review.copy()
+    for result in (c1, c2):
+        mask = result.get("review_mask")
+        if mask is not None:
+            review |= np.asarray(mask, dtype=bool)
+    return review
+
+
+def curation_valid_ranges(report: dict, *, before_c2: bool = False) -> list[tuple[int, int]]:
+    segments = report.get("pre_vlm_segments") if before_c2 else None
+    if not isinstance(segments, list):
+        segments = report.get("segments") or []
+    return [
+        (int(item.get("start_frame") or 0), int(item.get("end_frame") or item.get("start_frame") or 0))
+        for item in segments
+        if str(item.get("state") or "") == "valid"
+    ]
+
+
+def curation_vlm_ranges(report: dict) -> list[tuple[int, int]]:
+    """Return every pre-C2 range except red/rejected segments."""
+    segments = report.get("pre_vlm_segments") or report.get("segments") or []
+    ranges: list[tuple[int, int]] = []
+    for item in segments:
+        if str(item.get("state") or "") == "invalid":
+            continue
+        start = int(item.get("start_frame") or 0)
+        end = int(item.get("end_frame") or start)
+        if ranges and start <= ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+        else:
+            ranges.append((start, end))
+    return ranges
+
+
+def behavior_matches_curation_ranges(behavior: dict | None, ranges: list[tuple[int, int]], media: dict | None = None) -> bool:
+    if not behavior:
+        return False
+    stored = (behavior.get("sampling") or {}).get("allowed_ranges")
+    if not isinstance(stored, list):
+        return False
+    normalized = [
+        (int(item.get("start_frame") or 0), int(item.get("end_frame") or item.get("start_frame") or 0))
+        for item in stored
+        if isinstance(item, dict)
+    ]
+    if normalized != ranges:
+        return False
+    if media is not None:
+        analysis_video = behavior.get("analysis_video") or {}
+        if str(analysis_video.get("file_id") or "") != str(media.get("file_id") or ""):
+            return False
+        if int(analysis_video.get("frame_count") or 0) != int(media.get("frame_count") or 0):
+            return False
+        if not media_fingerprint_matches(analysis_video.get("fingerprint"), media):
+            return False
+    return True
+
+
+def _motion_evidence(bundle: dict, frame_count: int) -> np.ndarray | None:
+    scores: list[np.ndarray] = []
+    for kind in ("joint", "action"):
+        matrix = bundle.get(kind)
+        if matrix is None or not np.asarray(matrix).size:
+            continue
+        values = _smooth(np.asarray(matrix, dtype=np.float64))
+        if values.shape[0] != frame_count:
+            continue
+        if kind == "action" and bundle.get("action_representation") in {"delta", "velocity"}:
+            centered = values
+            scale = np.nanpercentile(np.abs(centered), 90, axis=0)
+            scale = np.maximum(scale, 1e-9)
+            score = np.sqrt(np.nanmean(np.square(centered / scale), axis=1))
+        else:
+            span = np.nanpercentile(values, 95, axis=0) - np.nanpercentile(values, 5, axis=0)
+            span = np.maximum(np.abs(span), 1e-9)
+            delta = np.diff(values, axis=0, prepend=values[:1])
+            score = np.sqrt(np.nanmean(np.square(delta / span), axis=1))
+        scores.append(np.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0))
+    return np.maximum.reduce(scores) if scores else None
+
+
+def inspect_behavior_state_consistency(
+    behavior: dict | None,
+    bundle: dict,
+    preliminary_valid: np.ndarray,
+    fps: float,
+) -> dict:
+    frame_count = int(preliminary_valid.size)
+    if not behavior:
+        return {
+            "status": "skipped",
+            "message": "C2 需要先完成有效片段 VLM 标注",
+            "review_mask": np.zeros(frame_count, dtype=bool),
+            "findings": [],
+            "metrics": {},
+        }
+    motion = _motion_evidence(bundle, frame_count)
+    if motion is None:
+        return {
+            "status": "skipped",
+            "message": "C2 缺少可对齐的 State/Action 数值流",
+            "review_mask": np.zeros(frame_count, dtype=bool),
+            "findings": [],
+            "metrics": {"behavior_segment_count": len(behavior.get("segments") or [])},
+        }
+    candidates = motion[preliminary_valid & np.isfinite(motion)]
+    positive = candidates[candidates > 1e-9]
+    motion_threshold = max(1e-4, float(np.percentile(positive, 25)) * 0.5) if positive.size else 1e-4
+    inactive_phases = {"idle", "observe", "reach", "withdraw", "unknown", "precheck_invalid"}
+    minimum_frames = max(2, int(math.ceil(0.4 * fps)))
+    review_mask = np.zeros(frame_count, dtype=bool)
+    findings: list[dict] = []
+    checked = 0
+    ratios: list[float] = []
+    for segment in behavior.get("segments") or []:
+        if frame_count <= 0:
+            break
+        phase = str(segment.get("phase_label") or segment.get("label") or "unknown").strip().casefold().replace("-", "_").replace(" ", "_")
+        if phase in inactive_phases:
+            continue
+        start = max(0, min(frame_count - 1, int(segment.get("start_frame") or 0)))
+        end = max(start, min(frame_count - 1, int(segment.get("end_frame") or start)))
+        mask = preliminary_valid[start:end + 1]
+        if int(mask.sum()) < minimum_frames:
+            continue
+        checked += 1
+        active_ratio = float(np.mean(motion[start:end + 1][mask] > motion_threshold))
+        ratios.append(active_ratio)
+        if active_ratio >= 0.08:
+            continue
+        segment_mask = np.zeros(frame_count, dtype=bool)
+        segment_mask[start:end + 1] = preliminary_valid[start:end + 1]
+        review_mask |= segment_mask
+        findings.extend(_mask_findings(
+            segment_mask,
+            "c2",
+            "review",
+            f"C2 VLM 阶段 {phase} 缺少同步 State/Action 运动证据",
+            fps,
+            0.72,
+        ))
+    metrics = {
+        "behavior_segment_count": len(behavior.get("segments") or []),
+        "checked_active_segment_count": checked,
+        "mismatch_segment_count": len(findings),
+        "mismatch_frame_count": int(review_mask.sum()),
+        "motion_threshold": round(motion_threshold, 8),
+        "mean_active_motion_ratio": round(float(np.mean(ratios)) if ratios else 0.0, 6),
+        "signal_sources": [kind for kind in ("joint", "action") if bundle.get(kind) is not None],
+    }
+    return {
+        "status": "warning" if findings else "completed",
+        "message": f"发现 {len(findings)} 个视频-State 不一致片段" if findings else f"已复核 {checked} 个有效操作片段",
+        "review_mask": review_mask,
+        "findings": findings,
+        "metrics": metrics,
+    }
+
+
+def inspect_instruction_consistency(
+    behavior: dict | None,
+    episode: dict,
+    eligible: np.ndarray,
+    fps: float,
+) -> dict:
+    frame_count = int(eligible.size)
+    review_mask = np.zeros(frame_count, dtype=bool)
+    if not behavior:
+        return {"status": "skipped", "message": "C1 需要 VLM 任务标注", "review_mask": review_mask, "findings": [], "metrics": {}}
+    task_label = str(behavior.get("task_label") or "other").strip().casefold()
+    confidence = float(behavior.get("confidence") or 0.0)
+    expected_text = " ".join(str(episode.get(key) or "") for key in ("name", "task", "instruction", "description"))
+    ignored = {"episode", "ep", "trial", "demo", "task", "data", "dataset"}
+
+    def tokens(value: str) -> set[str]:
+        return {
+            token
+            for token in re.findall(r"[a-z0-9\u4e00-\u9fff]+", value.casefold().replace("_", " ").replace("-", " "))
+            if len(token) > 1 and token not in ignored and not token.isdigit()
+        }
+
+    expected_tokens = tokens(expected_text)
+    actual_tokens = tokens(task_label)
+    generic = task_label in {"", "other", "unknown"}
+    explicit_mismatch = bool(expected_tokens and actual_tokens and expected_tokens.isdisjoint(actual_tokens))
+    low_confidence = confidence < 0.35
+    mismatch = generic or explicit_mismatch or low_confidence
+    findings: list[dict] = []
+    if mismatch:
+        review_mask |= eligible
+        reason = "C1 VLM 任务类别不明确" if generic else "C1 VLM 任务类别与 Episode 指令不一致" if explicit_mismatch else "C1 VLM 任务标注置信度不足"
+        findings = _mask_findings(review_mask, "c1", "review", reason, fps, 0.74)
+    overlap = sorted(expected_tokens & actual_tokens)
+    metrics = {
+        "task_label": task_label,
+        "confidence": round(confidence, 6),
+        "expected_tokens": sorted(expected_tokens),
+        "task_tokens": sorted(actual_tokens),
+        "matching_tokens": overlap,
+        "review_frame_count": int(review_mask.sum()),
+    }
+    return {
+        "status": "warning" if mismatch else "completed",
+        "message": "VLM 任务与指令需要复核" if mismatch else "VLM 任务与 Episode 指令一致",
+        "review_mask": review_mask,
+        "findings": findings,
+        "metrics": metrics,
+    }
+
+
 def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | None = None) -> dict:
     manifest = get_manifest(dataset_id)
     episode = next((item for item in manifest.get("episodes", []) if item.get("id") == episode_id), None)
@@ -927,21 +1167,33 @@ def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | No
         if item["kind"] == "action" and str(item.get("representation") or "unknown") != "unknown"
     }
     action_semantics_known = len(action_representations) == 1
+    generated_action = load_episode_action_mapping(dataset_id, episode_id, manifest=manifest)
+    generated_action_ready = bool(generated_action and generated_action.get("artifact_path"))
+    s2_ready = generated_action_ready or ({"joint", "action"} <= kinds and action_semantics_known)
+    try:
+        _find_transform_source(manifest, episode)
+        action_source_ready = True
+    except (KeyError, OSError, RuntimeError, ValueError):
+        action_source_ready = False
     behavior = load_behavior_annotation(dataset_id, episode_id)
     media = episode_media(episode, media_file_id or episode.get("primary_media_file_id"))
     stages = [
         _stage("s1", "ready" if kinds else "skipped", "可运行" if kinds else "没有已识别的 Joint/Action 数值流"),
         _stage(
             "s2",
-            "ready" if {"joint", "action"} <= kinds and action_semantics_known else "skipped",
-            "可运行" if {"joint", "action"} <= kinds and action_semantics_known else "需要 State/Joint、Action，并确认 Action 是 absolute、delta 或 velocity",
+            "ready" if s2_ready else "pending" if action_source_ready else "skipped",
+            "将校验已生成 Action 的源轨迹、预测帧和数值一致性" if generated_action_ready else "可运行" if s2_ready else "需要先生成 Action，或提供语义明确的 State/Joint 与 Action",
         ),
         _stage("s3", "ready" if kinds else "skipped", "可运行" if kinds else "没有已识别的数值流"),
         _stage("s4", "skipped", "当前版本未实现 FK 一致性计算；即使检测到 URDF/Pinocchio 也不会宣称可运行"),
         _stage("s5", "skipped", "当前版本仅记录坐标修正建议，不自动改写坐标；标定信息不会触发执行"),
-        _stage("c1", "reused" if behavior else "skipped", "复用已有 VLM 行为标注" if behavior else "没有已有 VLM 行为标注；本任务不会隐式调用 Qwen"),
-        _stage("c2", "skipped", "需要 URDF、相机标定与专用 SAM3 机器人分割模型"),
-        _stage("c3", "ready", f"将检查 {media.get('stream_name') or media.get('relative_path') or '所选视频'}"),
+        _stage("c3", "ready", f"将检查 {media.get('stream_name') or media.get('relative_path') or '所选视频'} 的画质与整手可见性"),
+        _stage("c1", "pending", "初筛后将校验已有 VLM 是否匹配有效区间" if behavior else "将在 S1-S5/C3 初筛后标注有效片段"),
+        _stage(
+            "c2",
+            "ready" if behavior and kinds else "pending" if kinds else "skipped",
+            "将在有效片段 VLM 标注后运行" if kinds else "缺少可对齐的 State/Action 数值流",
+        ),
     ]
     return {
         "dataset_id": dataset_id,
@@ -961,12 +1213,15 @@ def run_episode_curation(
     request: CurationJobRequest,
     progress: Callable[[float, str], None],
     s3_reference: dict | None = None,
+    behavior_checks: bool | None = None,
+    generated_s2_override: dict | None = None,
 ) -> dict:
     frame_count = int(media.get("frame_count") or episode.get("frame_count") or 0)
     fps = max(0.01, float(media.get("fps") or episode.get("fps") or 30.0))
     if frame_count < 4:
         raise ValueError("Episode 帧数不足，无法运行数据清洗")
     root = Path(manifest["root_path"]).expanduser().resolve()
+    generated_action_report = load_episode_action_mapping(dataset_id, str(episode["id"]), manifest=manifest)
     candidate_paths = {
         str(candidate.get("relative_path") or "").replace("\\", "/")
         for candidate in _signal_candidates(manifest, episode)
@@ -975,6 +1230,14 @@ def run_episode_curation(
     media_relative = str(media.get("relative_path") or episode.get("relative_path") or "").replace("\\", "/")
     if media_relative:
         candidate_paths.add(media_relative)
+    generated_source_relative = str((generated_action_report or {}).get("source", {}).get("relative_path") or "").replace("\\", "/")
+    if generated_source_relative:
+        candidate_paths.add(generated_source_relative)
+    try:
+        _, visibility_source_relative, _ = _find_transform_source(manifest, episode)
+        candidate_paths.add(visibility_source_relative.replace("\\", "/"))
+    except RuntimeError:
+        visibility_source_relative = ""
     source_paths = sorted(candidate_paths)
     source_signatures = [source_signature(root, relative) for relative in source_paths]
     reference_signatures = list((s3_reference or {}).get("source_signatures") or [])
@@ -1006,8 +1269,32 @@ def run_episode_curation(
     else:
         stages.append(_stage("s1", "skipped", "没有可读取的 Joint/Action 数值流"))
 
-    progress(32, "S2 State-Action 延迟与方向一致率")
-    if joint is not None and action is not None:
+    progress(32, "S2 State-Action 对齐与导出一致性")
+    generated_s2 = generated_s2_override
+    if generated_s2 is None and generated_action_report:
+        generated_s2 = validate_episode_action_mapping(dataset_id, manifest, episode, frame_count)
+    if generated_s2 is not None:
+        s2_invalid = np.asarray(generated_s2["invalid_mask"], dtype=bool)
+        if s2_invalid.shape != (frame_count,):
+            s2_invalid = np.ones(frame_count, dtype=bool)
+            generated_s2["verdict"] = "reject_candidate"
+            generated_s2["error"] = "Action 校验结果帧数与视频不一致"
+        invalid |= s2_invalid
+        if s2_invalid.any():
+            findings.extend(_mask_findings(
+                s2_invalid,
+                "s2",
+                "reject",
+                "S2 派生 Action 与源轨迹、预测目标帧或文件索引不一致",
+                fps,
+                0.96,
+            ))
+        s2_metrics = {key: value for key, value in generated_s2.items() if key != "invalid_mask"}
+        if generated_s2["verdict"] == "pass":
+            stages.append(_stage("s2", "completed", "派生 Action 与源轨迹及预测帧一致", s2_metrics))
+        else:
+            stages.append(_stage("s2", "warning", f"发现 {int(s2_invalid.sum())} 个 Action 不一致帧", s2_metrics))
+    elif joint is not None and action is not None:
         try:
             s2 = estimate_state_action_alignment(joint, action, fps, request.max_lag_seconds, request.directional_agreement_threshold, bundle["action_representation"])
             if s2["verdict"] == "reject_candidate":
@@ -1052,13 +1339,20 @@ def run_episode_curation(
     preflight_stages = {item["id"]: item for item in preflight["stages"]}
     stages.append(_stage("s4", "skipped", preflight_stages["s4"]["message"]))
     stages.append(_stage("s5", "skipped", "检测到标定也只生成修正建议；当前版本不自动改写坐标" if preflight_stages["s5"]["status"] == "ready" else preflight_stages["s5"]["message"]))
-    behavior = load_behavior_annotation(dataset_id, str(episode["id"]))
-    if behavior:
-        stages.append(_stage("c1", "reused", "已复用现有 VLM 行为标注；未重复调用 Qwen", {"task_label": behavior.get("task_label"), "confidence": behavior.get("confidence"), "segment_count": len(behavior.get("segments") or [])}))
-    else:
-        stages.append(_stage("c1", "skipped", "没有已有 VLM 行为标注；为保持交互性未隐式启动长耗时 API"))
-    stages.append(_stage("c2", "skipped", preflight_stages["c2"]["message"]))
-
+    required_hand_sides = list((generated_s2 or {}).get("required_sides") or ["left", "right"])
+    progress(58, "C3 检查整手是否完整位于画面内")
+    hand_visibility = inspect_full_hand_visibility(manifest, episode, media, required_hand_sides)
+    hand_invalid = np.asarray(hand_visibility["invalid_mask"], dtype=bool)
+    if hand_visibility.get("available") and hand_invalid.shape == (frame_count,):
+        invalid |= hand_invalid
+        findings.extend(_mask_findings(
+            hand_invalid,
+            "c3",
+            "reject",
+            f"C3 整手未完整位于画面内（检查 {'+'.join(required_hand_sides)}）",
+            fps,
+            0.92,
+        ))
     progress(62, "C3 黑帧、模糊与长静止检查")
     quality = inspect_video_quality(media, action, request, lambda value, message: progress(62 + value * 0.25, message))
     invalid |= quality["invalid_mask"]
@@ -1078,8 +1372,37 @@ def run_episode_curation(
         "quality_gap_merge_seconds": request.quality_gap_merge_seconds,
         "merged_invalid_gap_frame_count": int(merged_invalid_gaps.sum()),
         "merged_review_gap_frame_count": int(merged_review_gaps.sum()),
+        "hand_visibility": hand_visibility["metrics"],
     })
-    stages.append(_stage("c3", "completed", f"采样 {quality['metrics']['sample_count']} 帧完成", quality["metrics"]))
+    c3_message = f"采样 {quality['metrics']['sample_count']} 帧完成"
+    if hand_visibility.get("available"):
+        c3_message += f"；{hand_visibility['message']}"
+    else:
+        c3_message += "；整手可见性不可用"
+    stages.append(_stage("c3", "completed" if hand_visibility.get("available") else "warning", c3_message, quality["metrics"]))
+
+    preliminary_valid = ~invalid & ~review
+    pre_vlm_segments = _combined_segments(frame_count, fps, invalid, review, findings)
+    behavior = load_behavior_annotation(dataset_id, str(episode["id"])) if behavior_checks is not False else None
+    if behavior_checks is True and behavior:
+        stages.append(_stage("c1", "reused", "已复用有效片段 VLM 行为标注", {"task_label": behavior.get("task_label"), "confidence": behavior.get("confidence"), "segment_count": len(behavior.get("segments") or [])}))
+        progress(88, "C2 基于 VLM 与 State/Action 检查有效片段")
+        c2 = inspect_behavior_state_consistency(behavior, bundle, preliminary_valid, fps)
+        review |= c2["review_mask"] & ~invalid
+        findings.extend(c2["findings"])
+        stages.append(_stage("c2", c2["status"], c2["message"], c2["metrics"]))
+    elif behavior_checks is True:
+        stages.append(_stage("c1", "skipped", "没有已有 VLM 行为标注；C2 不会提前执行"))
+        stages.append(_stage("c2", "skipped", "需要先对 S1-S5/C3 有效片段完成 VLM 标注"))
+    elif behavior_checks is False:
+        stages.append(_stage("c1", "pending", "等待对 S1-S5/C3 有效片段进行 VLM 标注"))
+        stages.append(_stage("c2", "pending", "将在有效片段 VLM 标注完成后执行"))
+    elif behavior:
+        stages.append(_stage("c1", "reused", "已复用现有 VLM 行为标注；未重复调用 Qwen", {"task_label": behavior.get("task_label"), "confidence": behavior.get("confidence"), "segment_count": len(behavior.get("segments") or [])}))
+        stages.append(_stage("c2", "skipped", "此调用保持原有清洗行为，不自动执行 VLM 后 C2"))
+    else:
+        stages.append(_stage("c1", "skipped", "没有已有 VLM 行为标注"))
+        stages.append(_stage("c2", "skipped", "此调用保持原有清洗行为，不自动执行 VLM 后 C2"))
 
     progress(90, "合并阶段结论并写入 .alicePD")
     findings = sorted(findings, key=lambda item: (item["start_frame"], item["stage"]))[:MAX_REPORT_FINDINGS]
@@ -1102,6 +1425,8 @@ def run_episode_curation(
     used_source_paths = sorted({
         *(item["relative_path"] for item in bundle["bindings"]),
         media_relative,
+        generated_source_relative,
+        str(hand_visibility.get("source_relative_path") or visibility_source_relative or ""),
         *(str(item.get("relative_path") or "") for item in reference_signatures),
     } - {""})
     signatures_by_path = {item["relative_path"]: item for item in source_signatures}
@@ -1127,6 +1452,7 @@ def run_episode_curation(
     document = {
         "schema": CURATION_SCHEMA,
         "pipeline_version": CURATION_PIPELINE_VERSION,
+        "pipeline_phase": "post_vlm" if behavior_checks is True and behavior else "pre_vlm" if behavior_checks is False else "legacy",
         "dataset_id": dataset_id,
         "episode_id": episode["id"],
         "episode_name": episode.get("name"),
@@ -1151,10 +1477,18 @@ def run_episode_curation(
             "episode_count": int((s3_reference or {}).get("episode_count") or 1),
         },
         "stream_bindings": bundle["bindings"],
-        "warnings": bundle["warnings"],
+        "warnings": [
+            *bundle["warnings"],
+            *([] if hand_visibility.get("available") else [hand_visibility.get("message") or "整手可见性检查不可用"]),
+        ],
         "config": {**request.model_dump(), "quality_gap_merge_rule": "strictly_less_than"},
         "stages": stages,
         "findings": findings,
+        "pre_vlm_segments": pre_vlm_segments,
+        "pre_vlm_valid_ranges": [
+            {"start_frame": start, "end_frame": end}
+            for start, end in curation_valid_ranges({"segments": pre_vlm_segments})
+        ],
         "segments": segments,
         "samples": samples,
         "summary": summary,
@@ -1173,6 +1507,116 @@ def run_episode_curation(
     document["artifact_path"] = str(path)
     document["change"] = {"id": change["id"], "status": change["status"], "revision": change["revision"]}
     progress(100, "数据质量清洗报告已暂存")
+    return document
+
+
+def finalize_episode_curation(
+    dataset_id: str,
+    manifest: dict,
+    episode: dict,
+    behavior: dict | None,
+    progress: Callable[[float, str], None],
+    *,
+    vlm_status: str = "completed",
+) -> dict:
+    report = load_curation_report(dataset_id, str(episode["id"]))
+    if report is None:
+        raise RuntimeError("缺少 S1-S5/C3 初筛报告，不能执行 C2")
+    frame_count = int((report.get("source_video") or {}).get("frame_count") or episode.get("frame_count") or 0)
+    fps = max(0.01, float((report.get("source_video") or {}).get("fps") or episode.get("fps") or 30.0))
+    pre_vlm_segments = report.get("pre_vlm_segments") or report.get("segments") or []
+    invalid, precheck_review = _state_masks_from_segments(frame_count, pre_vlm_segments)
+    preliminary_eligible = ~invalid
+    progress(12, "读取 S1-S5/C3 有效片段与对齐数值流")
+    alignment = scan_episode_sensor_alignment(manifest, episode, force=False)
+    bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=frame_count)
+    progress(45, "C2 基于有效片段 VLM 与 State/Action 做一致性检查")
+    c1 = inspect_instruction_consistency(behavior, episode, preliminary_eligible, fps)
+    c2 = inspect_behavior_state_consistency(behavior, bundle, preliminary_eligible, fps)
+    review = resolve_post_vlm_review(precheck_review, c1, c2) & ~invalid
+    findings = [item for item in report.get("findings") or [] if str(item.get("stage") or "") not in {"c1", "c2"}]
+    findings.extend(c1["findings"])
+    findings.extend(c2["findings"])
+    findings = sorted(findings, key=lambda item: (item["start_frame"], item["stage"]))[:MAX_REPORT_FINDINGS]
+    segments = _combined_segments(frame_count, fps, invalid, review, findings)
+    stages = [item for item in report.get("stages") or [] if item.get("id") not in {"vlm", "c1", "c2"}]
+    if behavior:
+        sampling = behavior.get("sampling") or {}
+        normalized_vlm_status = "reused" if vlm_status == "reused" else "completed"
+        stages.append(_stage(
+            "vlm",
+            normalized_vlm_status,
+            "已复用匹配当前非红片段的 VLM 标注，未请求 Qwen" if normalized_vlm_status == "reused" else "Qwen 已完成非红片段 VLM 标注",
+            {
+                "task_label": behavior.get("task_label"),
+                "confidence": behavior.get("confidence"),
+                "segment_count": len(behavior.get("segments") or []),
+                "sampled_frame_count": len(sampling.get("frames") or []),
+                "allowed_range_count": len(sampling.get("allowed_ranges") or []),
+                "qwen_requested": normalized_vlm_status == "completed",
+            },
+        ))
+        stages.append(_stage("c1", c1["status"], c1["message"], {
+            **c1["metrics"],
+            "segment_count": len(behavior.get("segments") or []),
+            "sampled_frame_count": len(sampling.get("frames") or []),
+        }))
+    else:
+        stages.append(_stage("vlm", "skipped", "S1-S5/C3 初筛后没有非红片段，未请求 Qwen", {"qwen_requested": False}))
+        stages.append(_stage("c1", "skipped", "S1-S5/C3 初筛后没有有效片段，未调用 VLM"))
+    stages.append(_stage("c2", c2["status"], c2["message"], c2["metrics"]))
+    samples = []
+    for sample in report.get("samples") or []:
+        frame = max(0, min(frame_count - 1, int(sample.get("frame") or 0))) if frame_count else 0
+        samples.append({
+            **sample,
+            "state": "invalid" if frame_count and invalid[frame] else "uncertain" if frame_count and review[frame] else "valid",
+            "confidence": 0.86 if frame_count and invalid[frame] else 0.62 if frame_count and review[frame] else 0.92,
+        })
+    summary = {
+        **(report.get("summary") or {}),
+        "frame_count": frame_count,
+        "valid_frame_count": int((~invalid & ~review).sum()),
+        "review_frame_count": int(review.sum()),
+        "invalid_frame_count": int(invalid.sum()),
+        "invalid_segment_count": sum(item["state"] == "invalid" for item in segments),
+        "stage_completed_count": sum(item["status"] in {"completed", "reused", "warning"} for item in stages),
+        "stage_skipped_count": sum(item["status"] == "skipped" for item in stages),
+        "recommendation": "exclude_episode" if invalid.all() else "review_and_apply" if invalid.any() or review.any() else "keep",
+    }
+    behavior_fingerprint = hashlib.sha256(json.dumps({
+        "task_label": behavior.get("task_label"),
+        "sampling": behavior.get("sampling"),
+        "segments": behavior.get("segments"),
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest() if behavior else None
+    document = {
+        **report,
+        "pipeline_version": CURATION_PIPELINE_VERSION,
+        "pipeline_phase": "post_vlm",
+        "updated_at": _utc_now(),
+        "behavior_fingerprint": behavior_fingerprint,
+        "stages": stages,
+        "findings": findings,
+        "pre_vlm_segments": pre_vlm_segments,
+        "segments": segments,
+        "samples": samples,
+        "summary": summary,
+    }
+    path = curation_report_path(dataset_id, str(episode["id"]))
+    _write_json_atomic(path, document)
+    source_paths = [str(item.get("relative_path") or "") for item in report.get("source_signatures") or []]
+    change = record_change(
+        dataset_id,
+        "paper_curation",
+        str(episode["id"]),
+        f"Paper curation: {episode.get('name') or episode['id']}",
+        [path],
+        summary,
+        source_paths,
+    )
+    document["artifact_path"] = str(path)
+    document["change"] = {"id": change["id"], "status": change["status"], "revision": change["revision"]}
+    progress(100, "C2 已合并到最终有效片段")
     return document
 
 
@@ -1252,12 +1696,59 @@ def _build_s3_references(
     return references
 
 
-class CurationJobManager:
-    def __init__(self, max_workers: int = 2) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="alice-paper-curation")
+def _full_action_config(request: CurationJobRequest | None) -> dict | None:
+    if not request or not request.full_action_profile_id:
+        return None
+    requested = ActionMappingRequest(
+        episode_ids=[request.episode_ids[0]],
+        profile_id=request.full_action_profile_id,
+        source_hand=request.full_action_source_hand,
+        coordinate_frame=request.full_action_coordinate_frame,
+        horizon_frames=request.full_action_horizon_frames,
+    )
+    return {
+        "profile_id": requested.profile_id,
+        "source_hand": requested.source_hand,
+        "coordinate_frame": requested.coordinate_frame,
+        "horizon_frames": requested.horizon_frames,
+        "source": "full_pipeline_request",
+    }
+
+
+class CurationJobManager(CancellableJobMixin):
+    def __init__(self, max_workers: int | None = None) -> None:
+        if max_workers is None:
+            try:
+                max_workers = int(os.environ.get("ALICE_FULL_WORKERS", "2"))
+            except ValueError:
+                max_workers = 2
+        self.max_workers = max(1, min(32, int(max_workers)))
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="alice-paper-curation")
         self._jobs: dict[str, dict] = {}
         self._reservations: dict[tuple[str, str], str] = {}
         self._lock = threading.RLock()
+        self._init_cancellation()
+
+    def runtime_config(self) -> dict:
+        gpu_devices = [
+            item.strip()
+            for item in os.environ.get("ALICE_GPU_DEVICES", "").split(",")
+            if item.strip()
+        ]
+        return {
+            "workers": self.max_workers,
+            "gpu_devices": gpu_devices,
+            "video_encoder": os.environ.get("ALICE_VIDEO_ENCODER", "auto"),
+            "video_accelerator": os.environ.get("ALICE_VIDEO_ACCELERATOR", "auto"),
+            "opencv_threads": cv2.getNumThreads(),
+            "episode_parallelism": "sharded_jobs",
+        }
+
+    def _on_cancelled_before_run(self, job_id: str) -> None:
+        with self._lock:
+            for key, owner in list(self._reservations.items()):
+                if owner == job_id:
+                    self._reservations.pop(key, None)
 
     def submit(self, dataset_id: str, request: CurationJobRequest) -> dict:
         manifest = get_manifest(dataset_id)
@@ -1275,14 +1766,15 @@ class CurationJobManager:
             if overlap:
                 raise RuntimeError(f"{episodes[overlap[0]]['name']} 已有数据清洗任务正在运行")
             job_id = uuid.uuid4().hex
+            operation = "full_pipeline" if request.full_pipeline else "paper_curation"
             job = {
                 "id": job_id,
-                "kind": "paper_curation",
-                "operation": "paper_curation",
+                "kind": operation,
+                "operation": operation,
                 "dataset_id": dataset_id,
                 "status": "queued",
                 "progress": 0,
-                "message": f"数据质量清洗已排队 · {len(episode_ids)} Episodes",
+                "message": f"{'Full 流程' if request.full_pipeline else '数据质量清洗'}已排队 · {len(episode_ids)} Episodes",
                 "episode_count": len(episode_ids),
                 "completed_count": 0,
                 "current_episode_id": None,
@@ -1292,6 +1784,7 @@ class CurationJobManager:
                 "error": None,
             }
             self._jobs[job_id] = job
+            self._register_cancellation(job_id)
             for episode_id in episode_ids:
                 self._reservations[(dataset_id, episode_id)] = job_id
         self._executor.submit(self._run, job_id, dataset_id, episode_ids, media_by_episode, request)
@@ -1307,7 +1800,7 @@ class CurationJobManager:
         with self._lock:
             items = [dict(item) for item in self._jobs.values() if item.get("dataset_id") == dataset_id]
         if active_only:
-            items = [item for item in items if item.get("status") in {"queued", "running"}]
+            items = [item for item in items if item.get("status") in {"queued", "running", "cancelling"}]
         items.sort(key=lambda item: item.get("id", ""), reverse=True)
         return {"dataset_id": dataset_id, "items": items}
 
@@ -1318,21 +1811,43 @@ class CurationJobManager:
     def _run(self, job_id: str, dataset_id: str, episode_ids: list[str], media_by_episode: dict[str, dict], request: CurationJobRequest) -> None:
         results = []
         failures = []
+        all_pairs: list[dict] = []
+        vlm_requested_count = 0
+        vlm_reused_count = 0
+        vlm_skipped_count = 0
         total = len(episode_ids)
         try:
             manifest = get_manifest(dataset_id)
             episodes = {str(item["id"]): item for item in manifest.get("episodes", [])}
-            self._update(job_id, status="running", progress=1, message=f"后台清洗线程已启动 · 0/{total}")
+            operation = "full_pipeline" if request.full_pipeline else "paper_curation"
+            output_root = Path(str(manifest["root_path"])).expanduser().resolve() / "output" if request.full_pipeline else None
+            if output_root is not None:
+                output_root.mkdir(parents=True, exist_ok=True)
+            full_action = _full_action_config(request) if request.full_pipeline else None
+            self._start_unless_cancelled(job_id, status="running", progress=1, message=f"{'Full' if request.full_pipeline else '后台清洗'}流程已启动 · 0/{total}")
             if total > 1:
                 self._update(job_id, progress=2, current_stage="s3", message=f"正在建立同 embodiment 的跨 EP S3 分位参考 · {total} Episodes")
+            self._raise_if_cancelled(job_id)
             s3_references = _build_s3_references(manifest, episodes, media_by_episode, episode_ids)
             for position, episode_id in enumerate(episode_ids):
+                self._raise_if_cancelled(job_id)
                 episode = episodes[episode_id]
                 base = position / max(1, total) * 100
                 span = 100 / max(1, total)
 
                 def update(value: float, message: str) -> None:
-                    stage_id = message.split(" ", 1)[0].casefold() if message[:2].casefold() in {"s1", "s2", "s3", "s4", "s5", "c1", "c2", "c3"} else "running"
+                    self._raise_if_cancelled(job_id)
+                    prefix = message.split(" ", 1)[0].casefold()
+                    if prefix in {"s1", "s2", "s3", "s4", "s5", "c1", "c2", "c3"}:
+                        stage_id = prefix
+                    elif message.startswith("VLM"):
+                        stage_id = "vlm"
+                    elif message.startswith("视频平滑"):
+                        stage_id = "smoothing"
+                    elif message.startswith("导出"):
+                        stage_id = "export"
+                    else:
+                        stage_id = "running"
                     self._update(
                         job_id,
                         progress=min(99, round(base + span * max(0, min(100, value)) / 100, 1)),
@@ -1342,43 +1857,202 @@ class CurationJobManager:
                     )
 
                 try:
-                    payload = run_episode_curation(
+                    selected_media = media_by_episode[episode_id]
+                    analysis_media = selected_media
+                    smoothing_payload = None
+                    action_stage_payload = None
+                    if request.full_pipeline:
+                        def smoothing_update(value: float, message: str) -> None:
+                            self._raise_if_cancelled(job_id)
+                            update(max(0.0, min(100.0, value)) * 0.30, f"视频平滑 · {message}")
+
+                        if full_action is not None:
+                            def action_s2_work() -> dict:
+                                self._raise_if_cancelled(job_id)
+                                update(1.0, "S2 可选 Action 正在与视频平滑并行生成")
+                                action_request = ActionMappingRequest(
+                                    episode_ids=[episode_id],
+                                    profile_id=str(full_action["profile_id"]),
+                                    source_hand=str(full_action["source_hand"]),
+                                    coordinate_frame=str(full_action["coordinate_frame"]),
+                                    horizon_frames=int(full_action["horizon_frames"]),
+                                    force=False,
+                                )
+                                action_report = generate_episode_action(dataset_id, manifest, episode, action_request)
+                                self._raise_if_cancelled(job_id)
+                                validation = validate_episode_action_mapping(
+                                    dataset_id,
+                                    manifest,
+                                    episode,
+                                    int(selected_media.get("frame_count") or episode.get("frame_count") or 0),
+                                )
+                                if validation is None:
+                                    raise RuntimeError("S2 未生成可验证的 Action 结果")
+                                update(29.0, f"S2 Action 校验完成：{validation.get('verdict') or 'unknown'}")
+                                return {"report": action_report, "validation": validation}
+
+                            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="alice-full-early") as early_executor:
+                                smoothing_future = early_executor.submit(smooth_video, dataset_id, episode, selected_media, smoothing_update)
+                                action_future = early_executor.submit(action_s2_work)
+                                smoothing_payload = smoothing_future.result()
+                                action_stage_payload = action_future.result()
+                        else:
+                            smoothing_payload = smooth_video(dataset_id, episode, selected_media, smoothing_update)
+                        smoothing_summary = smoothing_payload.get("summary") or {}
+                        analysis_media = {
+                            **selected_media,
+                            "path": str(smoothing_payload["output_video"]),
+                            "frame_count": int(smoothing_summary.get("frame_count") or selected_media.get("frame_count") or 0),
+                            "fps": float(smoothing_summary.get("fps") or selected_media.get("fps") or 30.0),
+                            "width": int(smoothing_summary.get("width") or selected_media.get("width") or 0),
+                            "height": int(smoothing_summary.get("height") or selected_media.get("height") or 0),
+                        }
+
+                    precheck_base = 30.0 if request.full_pipeline else 0.0
+                    precheck_span = 30.0 if request.full_pipeline else 70.0
+                    def preliminary_update(value: float, message: str) -> None:
+                        self._raise_if_cancelled(job_id)
+                        update(precheck_base + max(0.0, min(100.0, value)) * precheck_span / 100.0, message)
+
+                    preliminary = run_episode_curation(
                         dataset_id,
                         manifest,
                         episode,
-                        media_by_episode[episode_id],
+                        analysis_media,
                         request,
-                        update,
+                        preliminary_update,
                         s3_reference=s3_references.get(episode_id),
+                        behavior_checks=False,
+                        generated_s2_override=(action_stage_payload or {}).get("validation"),
                     )
-                    results.append({
+                    valid_ranges = curation_vlm_ranges(preliminary)
+                    behavior = load_behavior_annotation(dataset_id, episode_id) if valid_ranges else None
+                    reusable_behavior = bool(valid_ranges) and not request.force_vlm and behavior_matches_curation_ranges(
+                        behavior, valid_ranges, analysis_media,
+                    )
+                    vlm_status = "skipped"
+                    if valid_ranges and not reusable_behavior:
+                        if not registry.has_vlm:
+                            raise RuntimeError("S1-S5/C3 初筛已完成；继续有效片段标注与 C2 需要先配置 Qwen-VLM API")
+
+                        def behavior_update(value: float, message: str) -> None:
+                            self._raise_if_cancelled(job_id)
+                            start, span_value = (60.0, 18.0) if request.full_pipeline else (70.0, 20.0)
+                            update(start + max(0.0, min(100.0, value)) * span_value / 100.0, f"VLM 非红片段标注 · {message}")
+
+                        vlm_requested_count += 1
+                        behavior = annotate_episode_behavior(
+                            dataset_id,
+                            manifest,
+                            episode,
+                            BehaviorAnnotationRequest(sample_count=request.vlm_sample_count, force=True),
+                            behavior_update,
+                            analysis_media_override=analysis_media,
+                            analysis_source_kind="curation_non_rejected_segments",
+                            analysis_frame_ranges=valid_ranges,
+                        )
+                        vlm_status = "completed"
+                    elif reusable_behavior:
+                        vlm_reused_count += 1
+                        vlm_status = "reused"
+                        update(78.0 if request.full_pipeline else 90.0, "VLM 已复用匹配当前非红片段的标注，未请求 Qwen")
+                    else:
+                        vlm_skipped_count += 1
+                        update(78.0 if request.full_pipeline else 90.0, "VLM 已跳过：S1-S5/C3 后没有非红片段")
+                    def finalize_update(value: float, message: str) -> None:
+                        self._raise_if_cancelled(job_id)
+                        start, span_value = (78.0, 10.0) if request.full_pipeline else (90.0, 10.0)
+                        update(start + max(0.0, min(100.0, value)) * span_value / 100.0, message)
+
+                    payload = finalize_episode_curation(
+                        dataset_id,
+                        manifest,
+                        episode,
+                        behavior,
+                        finalize_update,
+                        vlm_status=vlm_status,
+                    )
+                    export_result = None
+                    if request.full_pipeline:
+                        def export_update(value: float, message: str) -> None:
+                            self._raise_if_cancelled(job_id)
+                            update(88 + max(0.0, min(100.0, value)) * 0.12, message)
+
+                        export_result = export_episode(output_root, manifest, episode, analysis_media, payload, behavior, export_update) if behavior else {
+                            "pairs": [],
+                            "filtering": {"retained_frame_count": 0, "removed_vlm_frame_count": 0},
+                            "transform_source": None,
+                            "category": None,
+                            "categories": [],
+                        }
+                        all_pairs.extend(export_result["pairs"])
+                    item = {
                         "episode_id": episode_id,
                         "episode_name": episode.get("name"),
                         "status": "completed",
                         "artifact_path": payload.get("artifact_path"),
                         "summary": payload.get("summary"),
                         "stages": payload.get("stages"),
-                    })
+                        "vlm_status": vlm_status,
+                        "vlm_requested": vlm_status == "completed",
+                        "vlm_reused": reusable_behavior,
+                        "vlm_valid_ranges": [
+                            {"start_frame": start, "end_frame": end}
+                            for start, end in valid_ranges
+                        ],
+                    }
+                    if smoothing_payload is not None:
+                        item["smoothing"] = {"output_video": smoothing_payload.get("output_video"), "summary": smoothing_payload.get("summary")}
+                    if action_stage_payload is not None:
+                        action_report = action_stage_payload.get("report") or {}
+                        action_validation = action_stage_payload.get("validation") or {}
+                        item["action_s2"] = {
+                            "profile": action_report.get("profile"),
+                            "config": action_report.get("config"),
+                            "summary": action_report.get("summary"),
+                            "artifact_path": action_report.get("artifact_path"),
+                            "reused": bool(action_report.get("reused")),
+                            "validation": {key: value for key, value in action_validation.items() if key != "invalid_mask"},
+                        }
+                    if export_result is not None:
+                        item["export"] = export_result
+                        item["pair_count"] = len(export_result["pairs"])
+                    results.append(item)
                     self._update(job_id, stages=payload.get("stages"))
+                except JobCancelled:
+                    raise
                 except Exception as exc:
                     failures.append({"episode_id": episode_id, "episode_name": episode.get("name"), "error": str(exc)})
+                self._raise_if_cancelled(job_id)
                 self._update(job_id, completed_count=position + 1, progress=round((position + 1) / max(1, total) * 100, 1))
+            self._raise_if_cancelled(job_id)
+            index_path = write_dataset_index(output_root, manifest, all_pairs, failures) if output_root is not None else None
             result = {
                 "dataset_id": dataset_id,
-                "operation": "paper_curation",
+                "operation": operation,
                 "episode_count": total,
                 "completed_count": len(results),
                 "failure_count": len(failures),
                 "items": results,
                 "failures": failures,
+                "pair_count": len(all_pairs),
+                "vlm_requested_count": vlm_requested_count,
+                "vlm_reused_count": vlm_reused_count,
+                "vlm_skipped_count": vlm_skipped_count,
+                "action_config": full_action,
+                "output_root": str(output_root) if output_root is not None else None,
+                "dataset_index": str(index_path) if index_path is not None else None,
             }
             if failures and not results:
                 self._update(job_id, status="failed", progress=100, current_episode_id=None, current_stage="failed", message=f"全部 {total} 个 Episode 清洗失败", result=result, error=failures[0]["error"])
             else:
-                message = f"数据质量清洗完成 · {len(results)}/{total}"
+                message = f"{'Full 数据集生成' if request.full_pipeline else '数据质量清洗'}完成 · {len(results)}/{total}"
+                message += f" · VLM 请求 {vlm_requested_count} · 复用 {vlm_reused_count} · 跳过 {vlm_skipped_count}"
                 if failures:
                     message += f" · {len(failures)} 个失败"
                 self._update(job_id, status="complete", progress=100, current_episode_id=None, current_stage="complete", message=message, result=result)
+        except JobCancelled:
+            self._mark_cancelled(job_id)
         except Exception as exc:
             self._update(job_id, status="failed", progress=100, message=str(exc), error=str(exc), trace=traceback.format_exc(limit=8))
         finally:
@@ -1386,6 +2060,7 @@ class CurationJobManager:
                 for episode_id in episode_ids:
                     if self._reservations.get((dataset_id, episode_id)) == job_id:
                         self._reservations.pop((dataset_id, episode_id), None)
+            self._forget_cancellation(job_id)
 
 
 curation_jobs = CurationJobManager()

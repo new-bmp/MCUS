@@ -38,6 +38,12 @@ class FrontendBehaviorTimelineContractTests(unittest.TestCase):
         self.assertIn("trim-state-segment", self.app)
         self.assertIn(".trim-track-group{display:contents}", self.css)
 
+    def test_timeline_is_contained_and_cursor_stays_inside_its_track(self) -> None:
+        self.assertIn(".workspace>*,.workarea,.view,.review-scroll,#mediaReview{min-width:0}", self.css)
+        self.assertIn(".timeline{width:100%;max-width:100%;min-width:0", self.css)
+        self.assertIn(".segments{overflow:hidden}", self.css)
+        self.assertIn(".timeline-cursor{top:2px;bottom:2px}", self.css)
+
     def test_legacy_behavior_payload_still_has_a_readable_label(self) -> None:
         self.assertIn("segment?.phase || segment?.stage_label || segment?.stage || segment?.label", self.app)
         self.assertIn('if (!raw) return "未提供"', self.app)

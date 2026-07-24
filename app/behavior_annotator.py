@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from .behavior_boundary_refiner import load_episode_joint_pose, refine_behavior_boundaries
+from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .qwen_trim import _source_fingerprints_match, _source_video_fingerprint
 from .schemas import BehaviorAnnotationRequest
@@ -188,6 +189,13 @@ def _media_fingerprint(media: dict) -> dict | None:
     return None
 
 
+def media_fingerprint_matches(expected: dict | None, media: dict) -> bool:
+    if not isinstance(expected, dict):
+        return False
+    current = _media_fingerprint(media)
+    return current is not None and _source_fingerprints_match(expected, current)
+
+
 def _assert_media_unchanged(media: dict, expected: dict | None, stage: str) -> None:
     if expected is None:
         return
@@ -245,7 +253,7 @@ def _segments_follow_phase_protocol(annotation: dict, expected_frame_count: int 
             not isinstance(item, dict)
             or item.get("phase_label") not in _PHASE_LABEL_SET
             or item.get("label") != item.get("phase_label")
-            or item.get("boundary_source") not in {"vlm", "joint_refined"}
+            or item.get("boundary_source") not in {"vlm", "joint_refined", "curation_precheck"}
         ):
             return False
         start = _safe_int(item.get("start_frame"), -1)
@@ -350,7 +358,7 @@ def behavior_annotation_status(
         if current_analysis_fingerprint is None or not _source_fingerprints_match(expected_analysis_fingerprint, current_analysis_fingerprint):
             base["reason"] = "analysis_video_changed"
             return base
-    payload = deepcopy(annotation)
+    payload = _apply_dataset_task_fallback(deepcopy(annotation), manifest)
     payload["artifacts"] = {"behavior": str(annotation_path), "targets": str(target_path)}
     payload["reuse"] = {
         "reused": True,
@@ -377,6 +385,93 @@ def _sample_indices(frame_count: int, count: int) -> list[int]:
     return sorted({int(round(value)) for value in np.linspace(0, frame_count - 1, min(count, frame_count))})
 
 
+def _normalize_frame_ranges(frame_count: int, ranges: list[tuple[int, int]] | None) -> list[tuple[int, int]]:
+    if ranges is None:
+        return [(0, frame_count - 1)] if frame_count > 0 else []
+    normalized: list[tuple[int, int]] = []
+    for raw_start, raw_end in sorted(ranges):
+        if frame_count <= 0:
+            break
+        start = max(0, min(frame_count - 1, int(raw_start)))
+        end = max(start, min(frame_count - 1, int(raw_end)))
+        if normalized and start <= normalized[-1][1] + 1:
+            normalized[-1] = (normalized[-1][0], max(normalized[-1][1], end))
+        else:
+            normalized.append((start, end))
+    return normalized
+
+
+def _sample_indices_in_ranges(frame_count: int, count: int, ranges: list[tuple[int, int]] | None) -> list[int]:
+    normalized = _normalize_frame_ranges(frame_count, ranges)
+    total = sum(end - start + 1 for start, end in normalized)
+    if total <= 0:
+        return []
+    offsets = sorted({int(round(value)) for value in np.linspace(0, total - 1, min(count, total))})
+    indices: list[int] = []
+    range_index = 0
+    consumed = 0
+    for offset in offsets:
+        while range_index < len(normalized):
+            start, end = normalized[range_index]
+            length = end - start + 1
+            if offset < consumed + length:
+                indices.append(start + offset - consumed)
+                break
+            consumed += length
+            range_index += 1
+    return indices
+
+
+def _constrain_segments_to_ranges(
+    segments: list[dict],
+    ranges: list[tuple[int, int]],
+    frame_count: int,
+    fps: float,
+) -> list[dict]:
+    if frame_count <= 0:
+        return []
+    pieces: list[dict] = []
+    for segment in segments:
+        segment_start = int(segment.get("start_frame") or 0)
+        segment_end = int(segment.get("end_frame") or segment_start)
+        for allowed_start, allowed_end in ranges:
+            start = max(segment_start, allowed_start)
+            end = min(segment_end, allowed_end)
+            if start <= end:
+                pieces.append({**segment, "start_frame": start, "end_frame": end})
+    pieces.sort(key=lambda item: (int(item["start_frame"]), int(item["end_frame"])))
+    output: list[dict] = []
+    cursor = 0
+
+    def append_unknown(start: int, end: int) -> None:
+        if start > end:
+            return
+        output.append({
+            "start_frame": start,
+            "end_frame": end,
+            "phase_label": "unknown",
+            "label": "unknown",
+            "description": "Excluded by the S1-S5/C3 precheck before VLM sampling.",
+            "confidence": 1.0,
+            "primary_targets": [],
+            "target_instance": "",
+            "boundary_source": "curation_precheck",
+        })
+
+    for item in pieces:
+        start = max(cursor, int(item["start_frame"]))
+        end = int(item["end_frame"])
+        append_unknown(cursor, start - 1)
+        if start <= end:
+            output.append({**item, "start_frame": start, "end_frame": end})
+            cursor = end + 1
+    append_unknown(cursor, frame_count - 1)
+    for item in output:
+        item["start_time"] = round(int(item["start_frame"]) / fps, 3)
+        item["end_time"] = round(int(item["end_frame"]) / fps, 3)
+    return output
+
+
 def _list_value(value: Any) -> list:
     return value if isinstance(value, list) else []
 
@@ -398,6 +493,33 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _confidence(value: Any, default: float = 0.0) -> float:
     return max(0.0, min(1.0, _safe_float(value, default)))
+
+
+def _apply_dataset_task_fallback(result: dict, manifest: dict) -> dict:
+    if str(result.get("task_label") or "").strip().casefold() not in {"", "other", "unknown"}:
+        return result
+    candidate = str(manifest.get("name") or "").strip()[:80]
+    if not candidate or candidate.casefold() in {"data", "dataset", "part1", "spm", "test", "unknown"}:
+        return result
+    tokens = [
+        token
+        for token in candidate.casefold().replace("-", " ").replace("_", " ").split()
+        if len(token) >= 3 and token not in {"data", "dataset", "episode", "test"}
+    ]
+    evidence = " ".join([
+        str(result.get("behavior_description") or ""),
+        *[str(item) for item in result.get("object_nouns") or []],
+        *[str(item.get("description") or "") for item in result.get("segments") or [] if isinstance(item, dict)],
+    ]).casefold()
+    if not tokens or not any(token in evidence for token in tokens):
+        return result
+    resolved = deepcopy(result)
+    resolved["task_label"] = candidate
+    resolved["task_label_source"] = "dataset_name_confirmed_by_vlm_content"
+    warnings = [str(item) for item in resolved.get("warnings") or []]
+    warnings.append(f"VLM returned other; resolved task_label to {candidate} because its content matched the dataset task name.")
+    resolved["warnings"] = warnings[:30]
+    return resolved
 
 
 def _normalize_phase_label(value: Any) -> str:
@@ -620,7 +742,16 @@ def _validate_result(raw: dict, ontology: dict, episode: dict, sampled_frames: l
     }
 
 
-def annotate_episode_behavior(dataset_id: str, manifest: dict, episode: dict, request: BehaviorAnnotationRequest, progress) -> dict:
+def annotate_episode_behavior(
+    dataset_id: str,
+    manifest: dict,
+    episode: dict,
+    request: BehaviorAnnotationRequest,
+    progress,
+    analysis_media_override: dict | None = None,
+    analysis_source_kind: str | None = None,
+    analysis_frame_ranges: list[tuple[int, int]] | None = None,
+) -> dict:
     if not request.force:
         existing = behavior_annotation_status(dataset_id, manifest, episode)
         if existing["reusable"]:
@@ -628,19 +759,30 @@ def annotate_episode_behavior(dataset_id: str, manifest: dict, episode: dict, re
             return existing["payload"]
     if not registry.has_vlm:
         raise RuntimeError("请先配置 Qwen-VLM API")
-    ontology_root = os.getenv("VLA_BEHAVIOR_ONTOLOGY", r"D:\part1")
+    ontology_root = os.getenv("VLA_BEHAVIOR_ONTOLOGY", "").strip()
+    if not ontology_root:
+        ontology_root = next((candidate for candidate in (r"F:\part1", r"D:\part1") if Path(candidate).is_dir()), "")
     progress(8, "加载行为语言模板")
     ontology = load_behavior_ontology(ontology_root)
     if ontology["source"] == "builtin":
         progress(9, "使用内置通用操作词表")
     primary_media = episode_media(episode, episode.get("primary_media_file_id"))
-    analysis_media, smoothing_document = preferred_smoothed_media(dataset_id, episode, primary_media)
+    if analysis_media_override is None:
+        analysis_media, smoothing_document = preferred_smoothed_media(dataset_id, episode, primary_media)
+    else:
+        analysis_media = {**primary_media, **analysis_media_override}
+        smoothing_document = {"source": analysis_source_kind or "external_video_smoothing"}
     source_fingerprint = _media_fingerprint(primary_media)
     same_analysis_source = str(analysis_media.get("path") or "") == str(primary_media.get("path") or "")
     analysis_fingerprint = source_fingerprint if same_analysis_source else _media_fingerprint(analysis_media)
     if smoothing_document:
-        progress(10, f"使用已应用的视频平滑结果: {primary_media.get('stream_name') or 'primary'}")
-    indices = _sample_indices(int(analysis_media["frame_count"]), request.sample_count)
+        message = "使用 minRE 视频平滑结果" if analysis_media_override is not None else "使用已应用的视频平滑结果"
+        progress(10, f"{message}: {primary_media.get('stream_name') or 'primary'}")
+    analysis_frame_count = int(analysis_media["frame_count"])
+    allowed_ranges = _normalize_frame_ranges(analysis_frame_count, analysis_frame_ranges)
+    indices = _sample_indices_in_ranges(analysis_frame_count, request.sample_count, analysis_frame_ranges)
+    if not indices:
+        raise RuntimeError("S1-S5/C3 初筛后没有可供 VLM 标注的有效帧")
     frames: list[tuple[int, float, np.ndarray]] = []
     for position, index in enumerate(indices):
         frame = read_frame(analysis_media, index)
@@ -668,7 +810,10 @@ def annotate_episode_behavior(dataset_id: str, manifest: dict, episode: dict, re
         or 30.0
     ))
     timing_episode = {**episode, "frame_count": behavior_frame_count, "fps": behavior_fps}
-    result = _validate_result(raw, ontology, timing_episode, [item[0] for item in frames])
+    result = _apply_dataset_task_fallback(
+        _validate_result(raw, ontology, timing_episode, [item[0] for item in frames]),
+        manifest,
+    )
     progress(78, "使用已对齐 Joint Pose 微调 VLM 阶段边界")
     joint_pose = load_episode_joint_pose(manifest, episode, frame_count=behavior_frame_count)
     result["segments"] = refine_behavior_boundaries(
@@ -677,6 +822,13 @@ def annotate_episode_behavior(dataset_id: str, manifest: dict, episode: dict, re
         behavior_frame_count,
         joint_pose,
     )
+    if analysis_frame_ranges is not None:
+        result["segments"] = _constrain_segments_to_ranges(
+            result["segments"],
+            allowed_ranges,
+            behavior_frame_count,
+            behavior_fps,
+        )
     joint_refined_count = sum(item.get("boundary_source") == "joint_refined" for item in result["segments"])
     boundary_refinement = {
         "source": "joint_refined" if joint_refined_count else "vlm",
@@ -703,6 +855,11 @@ def annotate_episode_behavior(dataset_id: str, manifest: dict, episode: dict, re
         "sampling": {
             "requested": request.sample_count,
             "frames": [item[0] for item in frames],
+            "allowed_ranges": [
+                {"start_frame": start, "end_frame": end}
+                for start, end in allowed_ranges
+            ] if analysis_frame_ranges is not None else None,
+            "allowed_frame_count": sum(end - start + 1 for start, end in allowed_ranges),
             "media_file_id": primary_media.get("file_id"),
             "stream_name": primary_media.get("stream_name"),
             "used_applied_video_smoothing": bool(smoothing_document),
@@ -716,7 +873,10 @@ def annotate_episode_behavior(dataset_id: str, manifest: dict, episode: dict, re
             "fingerprint": source_fingerprint,
         },
         "analysis_video": {
-            "kind": "applied_video_smoothing" if smoothing_document else "source_video",
+            "kind": analysis_source_kind or ("applied_video_smoothing" if smoothing_document else "source_video"),
+            "file_id": analysis_media.get("file_id"),
+            "stream_name": analysis_media.get("stream_name"),
+            "relative_path": analysis_media.get("relative_path"),
             "fps": float(analysis_media.get("fps") or 0.0),
             "frame_count": int(analysis_media.get("frame_count") or 0),
             "fingerprint": analysis_fingerprint,
@@ -776,14 +936,19 @@ def load_behavior_annotation(dataset_id: str, episode_id: str) -> dict | None:
     frame_count = _safe_int((payload.get("source_video") or {}).get("frame_count"))
     if not _segments_follow_phase_protocol(payload, frame_count or None):
         return None
-    return payload
+    try:
+        manifest, _episode = get_episode(dataset_id, episode_id)
+    except KeyError:
+        manifest = {}
+    return _apply_dataset_task_fallback(payload, manifest)
 
 
-class BehaviorJobManager:
+class BehaviorJobManager(CancellableJobMixin):
     def __init__(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vlm-behavior")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.RLock()
+        self._init_cancellation()
 
     def submit(self, dataset_id: str, episode_id: str, request: BehaviorAnnotationRequest) -> dict:
         manifest, episode = get_episode(dataset_id, episode_id)
@@ -811,6 +976,7 @@ class BehaviorJobManager:
         job = {"id": job_id, "kind": "vlm_behavior", "status": "queued", "progress": 0, "message": "等待 VLM 行为标注", "result": None, "reused": False, "error": None}
         with self._lock:
             self._jobs[job_id] = job
+            self._register_cancellation(job_id)
         self._executor.submit(self._run, job_id, dataset_id, episode_id, request)
         return dict(job)
 
@@ -826,12 +992,21 @@ class BehaviorJobManager:
 
     def _run(self, job_id: str, dataset_id: str, episode_id: str, request: BehaviorAnnotationRequest) -> None:
         try:
-            self._update(job_id, status="running", progress=3, message="准备行为标注")
+            self._start_unless_cancelled(job_id, status="running", progress=3, message="准备行为标注")
             manifest, episode = get_episode(dataset_id, episode_id)
-            result = annotate_episode_behavior(dataset_id, manifest, episode, request, lambda progress, message: self._update(job_id, progress=progress, message=message))
+            def progress(value: float, message: str) -> None:
+                self._raise_if_cancelled(job_id)
+                self._update(job_id, progress=value, message=message)
+
+            result = annotate_episode_behavior(dataset_id, manifest, episode, request, progress)
+            self._raise_if_cancelled(job_id)
             self._update(job_id, status="complete", progress=100, message="VLM 行为标注完成", result=result)
+        except JobCancelled:
+            self._mark_cancelled(job_id)
         except Exception as exc:
             self._update(job_id, status="failed", message=str(exc), error=str(exc), trace=traceback.format_exc(limit=8))
+        finally:
+            self._forget_cancellation(job_id)
 
 
 behavior_jobs = BehaviorJobManager()

@@ -12,15 +12,17 @@ import cv2
 import numpy as np
 
 from .models import registry
+from .job_control import CancellableJobMixin, JobCancelled
 from .schemas import AnalysisRequest
 from .storage import ALICE_ANNOTATION_SCHEMA, dataset_cache_dir, get_episode, get_manifest, read_frame, save_annotations
 
 
-class JobManager:
+class JobManager(CancellableJobMixin):
     def __init__(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vla-analysis")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.RLock()
+        self._init_cancellation()
 
     def submit(self, dataset_id: str, episode_id: str, config: AnalysisRequest) -> dict:
         schema_status = get_manifest(dataset_id).get("schema_profile", {}).get("status")
@@ -32,6 +34,7 @@ class JobManager:
         job = {"id": job_id, "dataset_id": dataset_id, "episode_id": episode_id, "state": "queued", "progress": 0.0, "message": "等待处理", "result": None, "error": None}
         with self._lock:
             self._jobs[job_id] = job
+            self._register_cancellation(job_id)
         self._executor.submit(self._run, job_id, dataset_id, episode_id, config)
         return dict(job)
 
@@ -47,12 +50,23 @@ class JobManager:
 
     def _run(self, job_id: str, dataset_id: str, episode_id: str, config: AnalysisRequest) -> None:
         try:
-            self._update(job_id, state="running", progress=0.01, message="正在读取 Episode")
+            self._start_unless_cancelled(job_id, state="running", progress=0.01, message="正在读取 Episode")
             manifest, episode = get_episode(dataset_id, episode_id)
-            result = analyze_episode(dataset_id, episode, config, lambda progress, message: self._update(job_id, progress=progress, message=message), manifest.get("schema_profile"))
+            result = analyze_episode(
+                dataset_id,
+                episode,
+                config,
+                lambda progress, message: (self._raise_if_cancelled(job_id), self._update(job_id, progress=progress, message=message)),
+                manifest.get("schema_profile"),
+            )
+            self._raise_if_cancelled(job_id)
             self._update(job_id, state="completed", progress=1.0, message="分析完成", result=result)
+        except JobCancelled:
+            self._mark_cancelled(job_id)
         except Exception as exc:
             self._update(job_id, state="failed", message="分析失败", error=str(exc), trace=traceback.format_exc(limit=5))
+        finally:
+            self._forget_cancellation(job_id)
 
 
 def _motion_features(previous: np.ndarray | None, frame: np.ndarray) -> tuple[float, list[int] | None, np.ndarray]:

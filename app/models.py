@@ -275,6 +275,7 @@ def _dedupe_open_vocab_detections(detections: list[dict]) -> list[dict]:
 @dataclass
 class LocalStatus:
     loaded: bool = False
+    loading: bool = False
     kind: str | None = None
     model_path: str | None = None
     device: str = "cpu"
@@ -301,13 +302,42 @@ class ModelRegistry:
         self._vlm_key: str | None = None
         self._current_classes: tuple[str, ...] = ()
         self._class_embedding_cache: dict[tuple[str, ...], Any] = {}
+        self._loader_thread: threading.Thread | None = None
 
     def status(self) -> dict:
-        return {"local": vars(self._local), "vlm": vars(self._vlm)}
+        return {"local": dict(vars(self._local)), "vlm": dict(vars(self._vlm))}
+
+    def configure_local_async(self, config: LocalModelConfig) -> dict:
+        """Load and warm the local model without delaying API readiness."""
+        with self._lock:
+            if self._local.loading:
+                return self.status()
+            self._local = LocalStatus(
+                loading=True,
+                kind=config.kind,
+                model_path=config.model_path,
+                device=config.device,
+                confidence=config.confidence,
+            )
+            self._loader_thread = threading.Thread(
+                target=self._configure_local_worker,
+                args=(config,),
+                name="alice-model-loader",
+                daemon=True,
+            )
+            self._loader_thread.start()
+        return self.status()
+
+    def _configure_local_worker(self, config: LocalModelConfig) -> None:
+        try:
+            self.configure_local(config)
+        except RuntimeError:
+            # The failure is retained in LocalStatus and exposed by /api/health.
+            return
 
     def configure_local(self, config: LocalModelConfig) -> dict:
         with self._lock:
-            self._local = LocalStatus(kind=config.kind, model_path=config.model_path, device=config.device, confidence=config.confidence)
+            self._local = LocalStatus(loading=True, kind=config.kind, model_path=config.model_path, device=config.device, confidence=config.confidence)
             try:
                 import torch
                 from ultralytics import SAM, YOLO
@@ -351,6 +381,7 @@ class ModelRegistry:
                 self._local_model = None
                 self._current_classes = ()
                 self._class_embedding_cache = {}
+                self._local.loading = False
                 self._local.error = str(exc)
                 raise RuntimeError(f"本地模型加载失败: {exc}") from exc
         return self.status()
@@ -742,12 +773,13 @@ class ModelRegistry:
             "files_profiled": inventory.get("files_profiled", 0),
             "field_count": inventory.get("field_count", 0),
             "extension_counts": inventory.get("extension_counts", {}),
+            "sampling": inventory.get("sampling", {}),
             "episode_count": len(episodes),
             "representative_episodes": episodes[:3],
             "candidate_stream_count": len(inventory.get("candidate_streams", [])),
             "candidate_pattern_count": len(candidates),
             "candidate_streams": candidates,
-            "note": "candidate_streams are losslessly grouped by episode-invariant path/field pattern; equivalent_count is the number of real streams represented by the exact source_id",
+            "note": "candidate_streams come from folder/extension-stratified samples and are grouped by episode-invariant path/field pattern; source_id always names a mechanically inspected real stream",
         }
 
     def resolve_episode_membership(self, framework: dict) -> dict:

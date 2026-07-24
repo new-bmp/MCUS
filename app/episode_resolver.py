@@ -123,6 +123,59 @@ def build_episode_framework(files: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_sampled_episode_framework(
+    files: list[dict[str, Any]],
+    focus_ids: set[str] | None = None,
+    max_files: int = 600,
+    max_folders: int = 120,
+    max_per_folder: int = 8,
+) -> dict[str, Any]:
+    """Build a bounded Qwen audit payload while preserving real file IDs."""
+    framework = build_episode_framework(files)
+    focus = focus_ids or set()
+    folders: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in framework["files"]:
+        folder = Path(item["path"]).parent.as_posix()
+        folders[folder].append(item)
+    folder_names = sorted(folders, key=str.casefold)
+    if len(folder_names) > max_folders:
+        indices = {round(index * (len(folder_names) - 1) / (max_folders - 1)) for index in range(max_folders)}
+        folder_names = [folder_names[index] for index in sorted(indices)]
+
+    representatives: dict[str, list[dict[str, Any]]] = {}
+    for folder in folder_names:
+        values = sorted(
+            folders[folder],
+            key=lambda item: (
+                0 if item["file_id"] in focus else 1,
+                0 if item.get("episode_token") is not None else 1,
+                str(item.get("category") or ""),
+                str(item.get("path") or "").casefold(),
+            ),
+        )
+        representatives[folder] = values[:max_per_folder]
+
+    sampled: list[dict[str, Any]] = []
+    for offset in range(max_per_folder):
+        for folder in folder_names:
+            values = representatives[folder]
+            if offset < len(values):
+                sampled.append(values[offset])
+                if len(sampled) >= max_files:
+                    break
+        if len(sampled) >= max_files:
+            break
+    framework["files"] = sampled
+    framework["sampling"] = {
+        "strategy": "folder_stratified_v1",
+        "full_file_count": len(files),
+        "sampled_file_count": len(sampled),
+        "folder_count": len(folders),
+        "sampled_folder_count": len(folder_names),
+    }
+    return framework
+
+
 def _episode_label(key: str, episodes: list[dict[str, Any]], playable_id: str | None = None) -> str:
     if playable_id:
         episode = next((item for item in episodes if item.get("id") == playable_id), None)
@@ -275,6 +328,10 @@ def validate_qwen_episode_plan(
         if file_id not in assigned:
             assigned.add(file_id)
             shared_ids.append(file_id)
+    for file_id in local["unassigned_file_ids"]:
+        if file_id not in assigned:
+            assigned.add(file_id)
+            unassigned_ids.append(file_id)
     for file_id in candidates:
         if file_id not in assigned:
             unassigned_ids.append(file_id)
@@ -290,11 +347,11 @@ def validate_qwen_episode_plan(
     return {
         "schema_version": 1,
         "dataset_fingerprint": framework["dataset_fingerprint"],
-        "status": "qwen_complete",
+        "status": "qwen_partial" if unassigned_ids else "qwen_complete",
         "source": "qwen_guarded",
         "model": model,
         "ai_confirmed": True,
-        "requires_api": False,
+        "requires_api": bool(unassigned_ids),
         "groups": groups,
         "shared_file_ids": shared_ids,
         "unassigned_file_ids": unassigned_ids,

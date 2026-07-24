@@ -13,6 +13,9 @@ import numpy as np
 STRUCTURED_EXTENSIONS = {".json", ".jsonl", ".h5", ".hdf5", ".h5df", ".parquet", ".npz", ".npy", ".csv", ".tsv"}
 MAX_FILES = 300
 MAX_FIELDS = 600
+MAX_FOLDERS = 96
+MAX_FILES_PER_FOLDER = 4
+MAX_EPISODE_SAMPLES = 12
 
 _SKELETON_GROUP_NAMES = {"transforms", "joint_transforms", "skeleton_transforms"}
 _NON_JOINT_TRANSFORM_NAMES = {
@@ -338,22 +341,81 @@ def probe_local_signal_fields(path: Path, max_dimensions: int | None = None) -> 
     return infer_local_signal_fields(_probe_file(path), max_dimensions=max_dimensions)
 
 
+def _even_sample(values: list[Any], limit: int) -> list[Any]:
+    if len(values) <= limit:
+        return values
+    if limit <= 1:
+        return values[:1]
+    indices = {round(index * (len(values) - 1) / (limit - 1)) for index in range(limit)}
+    return [values[index] for index in sorted(indices)]
+
+
+def sample_profile_paths(root: Path, files: list[Path]) -> tuple[list[Path], dict]:
+    """Select representative files across folders instead of taking a prefix."""
+    folders: dict[str, list[Path]] = {}
+    for path in sorted(files, key=lambda item: item.relative_to(root).as_posix().casefold()):
+        relative = path.relative_to(root)
+        folders.setdefault(relative.parent.as_posix(), []).append(path)
+
+    folder_names = _even_sample(sorted(folders, key=str.casefold), MAX_FOLDERS)
+    ranked: dict[str, list[Path]] = {}
+    for folder in folder_names:
+        paths = folders[folder]
+
+        def priority(path: Path) -> tuple[int, str]:
+            suffix = path.suffix.casefold()
+            stem = path.stem.casefold()
+            schema_hint = any(token in stem for token in ("schema", "metadata", "info", "episode", "manifest"))
+            structured = suffix in STRUCTURED_EXTENSIONS
+            return (0 if structured and schema_hint else 1 if structured else 2, path.name.casefold())
+
+        by_extension: dict[str, list[Path]] = {}
+        for path in sorted(paths, key=priority):
+            by_extension.setdefault(path.suffix.casefold() or "<none>", []).append(path)
+        representatives = [items[0] for _, items in sorted(by_extension.items())]
+        remaining = [path for path in sorted(paths, key=priority) if path not in representatives]
+        ranked[folder] = (representatives + remaining)[:MAX_FILES_PER_FOLDER]
+
+    selected: list[Path] = []
+    for offset in range(MAX_FILES_PER_FOLDER):
+        for folder in folder_names:
+            candidates = ranked[folder]
+            if offset < len(candidates):
+                selected.append(candidates[offset])
+                if len(selected) >= MAX_FILES:
+                    break
+        if len(selected) >= MAX_FILES:
+            break
+    return selected, {
+        "strategy": "folder_extension_stratified_v1",
+        "folder_count": len(folders),
+        "folders_sampled": len(folder_names),
+        "files_sampled": len(selected),
+        "max_files_per_folder": MAX_FILES_PER_FOLDER,
+    }
+
+
 def build_inventory(root: Path, episodes: list[dict], included_paths: set[str] | None = None) -> dict:
-    files = [
-        path for path in root.rglob("*")
-        if path.is_file() and (
-            included_paths is None or path.relative_to(root).as_posix() in included_paths
-        )
-    ]
+    if included_paths is None:
+        files = [path for path in root.rglob("*") if path.is_file()]
+    else:
+        # scan_dataset already verified these paths. Avoid a second full stat pass.
+        files = [root / Path(relative) for relative in sorted(included_paths, key=str.casefold)]
     extension_counts: dict[str, int] = {}
     for path in files:
         extension_counts[path.suffix.lower() or "<none>"] = extension_counts.get(path.suffix.lower() or "<none>", 0) + 1
+
+    profiled_files, sampling = sample_profile_paths(root, files)
 
     entries: list[dict] = []
     streams: list[dict] = []
     stream_ids: set[str] = set()
 
-    for episode in episodes:
+    sampled_episodes = _even_sample(
+        sorted(episodes, key=lambda item: str(item.get("relative_path") or item.get("name") or "").casefold()),
+        MAX_EPISODE_SAMPLES,
+    )
+    for episode in sampled_episodes:
         media_streams = episode.get("media_streams") or [episode]
         for media in media_streams:
             stream_id = f"media::{media['relative_path']}"
@@ -363,9 +425,13 @@ def build_inventory(root: Path, episodes: list[dict], included_paths: set[str] |
             stream_ids.add(stream_id)
 
     field_count = 0
-    for path in files[:MAX_FILES]:
+    for path in profiled_files:
         relative = path.relative_to(root).as_posix()
-        entry = {"path": relative, "extension": path.suffix.lower(), "size_bytes": path.stat().st_size}
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            continue
+        entry = {"path": relative, "extension": path.suffix.lower(), "size_bytes": size_bytes}
         if path.suffix.lower() in STRUCTURED_EXTENSIONS and field_count < MAX_FIELDS:
             fields = _probe_file(path)[: max(0, MAX_FIELDS - field_count)]
             entry["fields"] = fields
@@ -404,9 +470,10 @@ def build_inventory(root: Path, episodes: list[dict], included_paths: set[str] |
         "files_profiled": len(entries),
         "field_count": field_count,
         "extension_counts": extension_counts,
-        "episodes": [{key: episode[key] for key in ("id", "name", "type", "relative_path", "fps", "frame_count", "duration", "width", "height")} for episode in episodes],
+        "episodes": [{key: episode[key] for key in ("id", "name", "type", "relative_path", "fps", "frame_count", "duration", "width", "height")} for episode in sampled_episodes],
         "files": entries,
         "candidate_streams": streams,
+        "sampling": sampling,
     }
 
 
