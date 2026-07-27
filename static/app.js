@@ -1146,6 +1146,11 @@
     return String(zh || en || value.label || value.name || value.value || value.source || value.method || "").trim();
   }
   function readableBehaviorPhase(segment) {
+    const skill = behaviorReadableLabel(segment?.skill);
+    if (skill) {
+      const translated = behaviorReadableLabel(segment?.skill_zh);
+      return translated ? `${translated} / ${skill}` : skill;
+    }
     const preferred = behaviorReadableLabel(segment?.phase_label);
     const legacy = behaviorReadableLabel(segment?.phase || segment?.stage_label || segment?.stage || segment?.label);
     const raw = preferred || legacy;
@@ -1170,7 +1175,7 @@
   }
   function clearBehaviorAnnotation() {
     state.behavior = null;
-    $("#behaviorResult").classList.add("hidden"); $("#behaviorSegments").classList.add("hidden"); $("#behaviorInspectorEmpty").classList.remove("hidden");
+    $("#behaviorResult").classList.add("hidden"); $("#behaviorSegments").classList.add("hidden"); $("#behaviorMedium").classList.add("hidden"); $("#behaviorInspectorEmpty").classList.remove("hidden");
     $("#behaviorRemoveSelect").innerHTML = '<option value="">暂无可选动作</option>'; $("#behaviorRemoveSelect").disabled = true; $("#behaviorRemoveButton").disabled = true; $("#behaviorRemoveSummary").textContent = "请先运行 VLM 行为标注";
     refreshTimelineVisibility();
   }
@@ -1204,6 +1209,9 @@
     $("#behaviorDescription").textContent = payload.behavior_description || payload.description || "";
     $("#behaviorConfidence").textContent = `CONF ${Number(payload.confidence || 0).toFixed(2)}`;
     const objectNouns = behaviorTargetNames(Array.isArray(payload.object_nouns) && payload.object_nouns.length ? payload.object_nouns : payload.primary_targets); $("#behaviorTargets").innerHTML = objectNouns.map(name => `<span class="behavior-target" title="VLM 语句物体名词">${esc(name)}</span>`).join("") || '<span class="empty-copy">未识别物体名词</span>';
+    const medium = Array.isArray(payload.medium) ? payload.medium : []; $("#behaviorMedium").classList.toggle("hidden", !medium.length);
+    $("#behaviorMediumRows").innerHTML = medium.map(item => { const start = Number(item.start_frame || 0), end = Number(item.end_frame ?? start); return `<button type="button" data-frame="${start}"><span>${esc(item.description || "未命名子任务")}</span><em>${start.toLocaleString()}–${end.toLocaleString()}</em></button>`; }).join("");
+    $$("#behaviorMediumRows button").forEach(row => row.addEventListener("click", () => updateFrame(Number(row.dataset.frame))));
     const segments = Array.isArray(payload.segments) ? payload.segments : []; $("#behaviorSegments").classList.toggle("hidden", !segments.length);
     const options = behaviorPhaseOptions(segments), select = $("#behaviorRemoveSelect"), previous = select.value;
     select.innerHTML = options.length ? options.map(item => `<option value="${escAttr(item.key)}">${esc(item.label)} · ${item.segmentCount} 段</option>`).join("") : '<option value="">暂无可选动作</option>';

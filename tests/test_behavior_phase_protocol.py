@@ -19,6 +19,7 @@ from app.behavior_annotator import (
     _validate_result,
     annotate_episode_behavior,
 )
+from app.behavior_prompt import META_ACTION_TRANSLATIONS, TRI_LEVEL_PROTOCOL_SCHEMA, TRI_LEVEL_PROTOCOL_VERSION
 from app.models import ModelRegistry
 from app.schemas import BehaviorAnnotationRequest
 
@@ -131,7 +132,7 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
         self.assertEqual(["cup#1", "lid#1", "cup#2"], [item["target_instance"] for item in result["segments"]])
         self.assertEqual([["cup"], ["lid"], ["cup"]], [item["primary_targets"] for item in result["segments"]])
 
-    def test_qwen_prompt_requires_separate_task_and_controlled_phase_protocol(self) -> None:
+    def test_qwen_prompt_uses_tri_level_v3_meta_action_protocol(self) -> None:
         model = ModelRegistry()
         model._vlm = SimpleNamespace(configured=True, endpoint="https://example.invalid/v1", model="fixture")
         model._vlm_key = "fixture-key"
@@ -142,21 +143,43 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
                 [(0, 0.0, frame), (9, 0.9, frame)],
                 self.ontology["categories"],
                 "fixture",
+                video_length=100,
+                duration=10.0,
             )
 
-        prompt = request.call_args.kwargs["content"][0]["text"]
-        self.assertIn("task_label is the high-level task", prompt)
-        self.assertIn("phase_label", prompt)
-        self.assertIn("non-overlapping", prompt)
-        self.assertIn("category-level core object names", prompt)
-        self.assertIn("never inside object names", prompt)
-        self.assertIn("variable-duration", prompt)
-        self.assertIn("never split mechanically into fixed one-second windows", prompt)
-        self.assertIn("object identity changes", prompt)
-        self.assertIn("Never merge adjacent actions that operate on different objects", prompt)
-        self.assertIn("target_instance", prompt)
-        for label in PHASE_LABELS:
-            self.assertIn(label, prompt)
+        system_prompt = request.call_args.kwargs["system_prompt"]
+        user_prompt = request.call_args.kwargs["content"][0]["text"]
+        self.assertIn("三级粒度", system_prompt)
+        self.assertIn("原视频总帧数 = 100", system_prompt)
+        self.assertIn("每个 Fine 片段原则上至少覆盖 5 秒", system_prompt)
+        self.assertIn('"coarse"', system_prompt)
+        self.assertIn('"medium"', system_prompt)
+        self.assertIn('"fine"', system_prompt)
+        self.assertIn("0->0, 1->9", user_prompt)
+        for label, translation in META_ACTION_TRANSLATIONS.items():
+            self.assertIn(f"- {label}: {translation}", system_prompt)
+
+    def test_tri_level_result_preserves_all_levels_and_maps_fine_skills(self) -> None:
+        raw = {
+            "coarse": {"summary": "零件装配"},
+            "medium": [
+                {"start_frame": 0, "end_frame": 49, "description": "右臂抓取插头"},
+                {"start_frame": 50, "end_frame": 99, "description": "右臂插入插头"},
+            ],
+            "fine": [
+                {"start_frame": 0, "end_frame": 49, "description": "右臂抓取插头", "skill": "Grasp"},
+                {"start_frame": 50, "end_frame": 99, "description": "右臂插入插头", "skill": "Insert"},
+            ],
+        }
+
+        result = _validate_result(raw, self.ontology, self.episode, [0, 50, 99])
+
+        self.assertEqual({"version": TRI_LEVEL_PROTOCOL_VERSION, "schema": TRI_LEVEL_PROTOCOL_SCHEMA}, result["annotation_protocol"])
+        self.assertEqual("零件装配", result["task_label"])
+        self.assertEqual("零件装配", result["coarse"]["summary"])
+        self.assertEqual(["Grasp", "Insert"], [item["skill"] for item in result["fine"]])
+        self.assertEqual(["grasp", "manipulate"], [item["phase_label"] for item in result["segments"]])
+        self.assertEqual((0, 99), (result["medium"][0]["start_frame"], result["medium"][-1]["end_frame"]))
 
     def test_malformed_optional_values_do_not_break_protocol_validation(self) -> None:
         raw = {
@@ -259,6 +282,7 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
 
         self.assertEqual(BEHAVIOR_ARTIFACT_VERSION, result["artifact_version"])
         self.assertEqual(3, result["artifact_version"])
+        self.assertEqual(TRI_LEVEL_PROTOCOL_SCHEMA, result["annotation_protocol"]["schema"])
         self.assertEqual("joint_refined", result["boundary_refinement"]["source"])
         self.assertEqual(2, result["boundary_refinement"]["refined_segment_count"])
         self.assertEqual(["reach", "grasp"], [item["phase_label"] for item in result["segments"]])

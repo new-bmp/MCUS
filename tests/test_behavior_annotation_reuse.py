@@ -14,6 +14,7 @@ from app.behavior_annotator import (
     behavior_annotation_status,
     load_behavior_annotation,
 )
+from app.behavior_prompt import TRI_LEVEL_PROTOCOL_SCHEMA, TRI_LEVEL_PROTOCOL_VERSION
 from app.qwen_trim import _source_video_fingerprint
 from app.schemas import BatchAnalysisRequest, BehaviorAnnotationRequest
 
@@ -76,11 +77,15 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
         annotation_path.write_text(json.dumps({
             "schema": "alice/vlm-behavior/v1",
             "artifact_version": BEHAVIOR_ARTIFACT_VERSION,
+            "annotation_protocol": {"version": TRI_LEVEL_PROTOCOL_VERSION, "schema": TRI_LEVEL_PROTOCOL_SCHEMA},
             "dataset_id": "fixture",
             "episode_id": "ep-1",
             "source_video": source_video if fingerprint else {},
             "sampling": {"media_file_id": "media-1", "stream_name": "episode.mp4", "frames": [0, 9]},
             "task_label": "pick",
+            "coarse": {"summary": "pick"},
+            "medium": [{"start_frame": 0, "end_frame": 9, "description": "pick"}],
+            "fine": [{"start_frame": 0, "end_frame": 9, "description": "pick", "skill": "Grasp"}],
             "confidence": 0.9,
             "segments": [{
                 "start_frame": 0,
@@ -130,6 +135,21 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
             path = self.sidecar / "behavior-annotations" / "ep-1.behavior.alice"
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["artifact_version"] = BEHAVIOR_ARTIFACT_VERSION - 1
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            status = behavior_annotation_status("fixture", self.manifest, self.episode)
+            loaded = load_behavior_annotation("fixture", "ep-1")
+
+        self.assertFalse(status["reusable"])
+        self.assertEqual("invalid_behavior_artifact", status["reason"])
+        self.assertIsNone(loaded)
+
+    def test_previous_v3_prompt_schema_requires_rerun(self) -> None:
+        with patch("app.behavior_annotator.dataset_artifact_dir", side_effect=self._artifact_dir):
+            self._write_artifacts(fingerprint=True)
+            path = self.sidecar / "behavior-annotations" / "ep-1.behavior.alice"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload.pop("annotation_protocol")
             path.write_text(json.dumps(payload), encoding="utf-8")
 
             status = behavior_annotation_status("fixture", self.manifest, self.episode)

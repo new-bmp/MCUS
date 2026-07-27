@@ -25,7 +25,7 @@ class FrontendDatasetLazyLoadingContractTests(unittest.TestCase):
         self.assertIn('while (state.datasetCache.size > 3)', self.app)
 
     def test_frontend_cache_version_is_updated(self) -> None:
-        self.assertIn('app.js?v=studio-77', self.index)
+        self.assertIn('app.js?v=studio-78', self.index)
 
     def test_full_completion_refreshes_vlm_panel_and_reports_request_counts(self) -> None:
         self.assertIn('await loadBehaviorAnnotation();', self.app)

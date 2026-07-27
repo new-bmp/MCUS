@@ -16,6 +16,7 @@ import cv2
 import httpx
 import numpy as np
 
+from .behavior_prompt import build_tri_level_prompts
 from .schemas import LocalModelConfig, VLMModelConfig
 from .storage import ROOT
 
@@ -672,55 +673,29 @@ class ModelRegistry:
             max_tokens=6000,
         )
 
-    def annotate_behavior(self, frames: list[tuple[int, float, np.ndarray]], ontology: list[dict], context: str) -> dict:
+    def annotate_behavior(
+        self,
+        frames: list[tuple[int, float, np.ndarray]],
+        ontology: list[dict],
+        context: str,
+        *,
+        video_length: int | None = None,
+        duration: float | None = None,
+    ) -> dict:
         if not self.has_vlm:
             raise RuntimeError("Qwen-VLM is not configured")
-        compact_ontology = [{
-            "label": item["label"],
-            "verbs": item.get("verbs", []),
-            "objects": item.get("objects", []),
-            "descriptions": item.get("descriptions", [])[:4],
-        } for item in ontology]
-        phase_labels = [
-            "idle", "observe", "reach", "grasp", "lift", "transport", "align", "place",
-            "release", "withdraw", "manipulate", "inspect", "unknown",
-        ]
-        phase_guide = {
-            "idle": "no task-relevant motion or waiting",
-            "observe": "look at the scene before approaching a target",
-            "reach": "hand or gripper approaches the target before secure control",
-            "grasp": "contact and closure establish control of the target",
-            "lift": "the controlled object leaves its support surface",
-            "transport": "the held object moves toward its destination",
-            "align": "fine position or orientation adjustment near the destination",
-            "place": "the object makes supported contact at its destination",
-            "release": "the hand or gripper relinquishes control",
-            "withdraw": "the hand or gripper moves away after release",
-            "manipulate": "task-specific continuous interaction not covered above",
-            "inspect": "post-action checking of the result",
-            "unknown": "visual evidence is insufficient for a safer phase",
-        }
-        prompt = (
-            "You are annotating manipulation behavior in a robotics video. Use the supplied controlled behavior vocabulary and concise imperative English style. "
-            "Choose task_label from ontology labels only, or 'other' when no label fits. "
-            "task_label is the high-level task and must remain unchanged across the Episode even when a phase repeats. "
-            "Divide the full video into ordered, non-overlapping, variable-duration manipulation phases that cover every frame from the first supplied frame through the last supplied frame. "
-            "Use visible transition evidence to choose boundaries; never split mechanically into fixed one-second windows. Repeat phases when the task contains multiple manipulation cycles, and explicitly label waiting or no task-relevant motion as idle. "
-            "Start a new segment whenever the manipulated or task-relevant object identity changes during a long operation, even when phase_label remains the same. Never merge adjacent actions that operate on different objects. "
-            "Set target_instance to a stable scene-local identifier such as 'block#1' or 'cup#2' for each manipulated object instance; reuse it while operating on the same instance, change it when the object changes, and use an empty string for idle, observe, inspect, or unknown when no single manipulated instance applies. "
-            f"Every segment phase_label must be exactly one of {phase_labels}; set label equal to phase_label for compatibility. Use unknown rather than inventing another phase. "
-            f"PHASE DEFINITIONS: {json.dumps(phase_guide, ensure_ascii=False, separators=(',', ':'))}. "
-            "object_nouns must list every distinct visible physical object noun mentioned in behavior_description, including manipulated objects, containers, tools, work surfaces, and robot/human hands; use concise lowercase English noun phrases. "
-            "For object_nouns and primary_targets, emit category-level core object names only. Put color, quantity, size, material, position, action, and relationship modifiers in description or evidence, never inside object names. "
-            "primary_targets must contain only objects visibly present in the supplied frames and necessary to perform the behavior. Each target must cite visible_evidence_frames using supplied frame indices. "
-            "Return strict JSON only with schema: {task_label:string,direction:'forward|reverse|unknown',behavior_description:string,confidence:number," 
-            "segments:[{start_frame:int,end_frame:int,phase_label:'idle|observe|reach|grasp|lift|transport|align|place|release|withdraw|manipulate|inspect|unknown',label:string,target_instance:string,description:string,confidence:number,primary_targets:[string]}],"
-            "object_nouns:[string],primary_targets:[{name:string,role:string,confidence:number,visible_evidence_frames:[int],evidence:string}],warnings:[string]}. "
-            f"Dataset context: {context}. ONTOLOGY: {json.dumps(compact_ontology, ensure_ascii=False, separators=(',', ':'))}"
+        del ontology
+        resolved_video_length = max(1, int(video_length or (max((item[0] for item in frames), default=0) + 1)))
+        resolved_duration = float(duration if duration is not None else max((item[1] for item in frames), default=0.0))
+        system_prompt, user_prompt = build_tri_level_prompts(
+            video_length=resolved_video_length,
+            duration=resolved_duration,
+            sampled_frames=[int(item[0]) for item in frames],
+            context=context,
         )
-        content: list[dict] = [{"type": "text", "text": prompt}]
-        for frame_index, timestamp, frame in frames:
-            content.append({"type": "text", "text": f"FRAME {frame_index} TIME {timestamp:.3f}s"})
+        content: list[dict] = [{"type": "text", "text": user_prompt}]
+        for sampled_index, (frame_index, timestamp, frame) in enumerate(frames):
+            content.append({"type": "text", "text": f"SAMPLED_FRAME {sampled_index} ORIGINAL_FRAME {frame_index} TIME {timestamp:.3f}s"})
             ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 76])
             if not ok:
                 continue
@@ -731,7 +706,8 @@ class ModelRegistry:
             api_key=self._vlm_key or "",
             model=self._vlm.model or "",
             content=content,
-            max_tokens=6000,
+            max_tokens=8000,
+            system_prompt=system_prompt,
         )
 
     @staticmethod
@@ -804,8 +780,15 @@ class ModelRegistry:
         )
 
     @staticmethod
-    def _request_json(endpoint: str, api_key: str, model: str, content: list[dict], max_tokens: int) -> dict:
-        text = ModelRegistry._qwen_request(endpoint, api_key, model, content, max_tokens)
+    def _request_json(
+        endpoint: str,
+        api_key: str,
+        model: str,
+        content: list[dict],
+        max_tokens: int,
+        system_prompt: str | None = None,
+    ) -> dict:
+        text = ModelRegistry._qwen_request(endpoint, api_key, model, content, max_tokens, system_prompt=system_prompt)
         try:
             return ModelRegistry._extract_json(text)
         except RuntimeError as first_error:
@@ -814,19 +797,37 @@ class ModelRegistry:
                 "text": "The previous response was not valid JSON. Return the same answer again as compact strict JSON only. Do not use Markdown, comments, trailing commas, or explanatory text. Keep optional warnings and reasons short.",
             }]
             try:
-                retry_text = ModelRegistry._qwen_request(endpoint, api_key, model, retry_content, min(12000, max_tokens * 2))
+                retry_text = ModelRegistry._qwen_request(
+                    endpoint,
+                    api_key,
+                    model,
+                    retry_content,
+                    min(12000, max_tokens * 2),
+                    system_prompt=system_prompt,
+                )
                 return ModelRegistry._extract_json(retry_text)
             except RuntimeError as retry_error:
                 raise RuntimeError(f"Qwen JSON parse failed after retry: {retry_error}") from first_error
 
     @staticmethod
-    def _qwen_request(endpoint: str, api_key: str, model: str, content: list[dict], max_tokens: int) -> str:
+    def _qwen_request(
+        endpoint: str,
+        api_key: str,
+        model: str,
+        content: list[dict],
+        max_tokens: int,
+        system_prompt: str | None = None,
+    ) -> str:
         url = urljoin(endpoint.rstrip("/") + "/", "chat/completions")
         timeout_seconds = max(30.0, float(os.getenv("VLA_QWEN_TIMEOUT", "300")))
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": content})
         response = httpx.post(
             url,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0.0, "max_tokens": max_tokens, "enable_thinking": False, "response_format": {"type": "json_object"}},
+            json={"model": model, "messages": messages, "temperature": 0.0, "max_tokens": max_tokens, "enable_thinking": False, "response_format": {"type": "json_object"}},
             timeout=httpx.Timeout(timeout_seconds, connect=min(30.0, timeout_seconds)),
         )
         response.raise_for_status()

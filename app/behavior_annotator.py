@@ -16,6 +16,12 @@ from typing import Any
 import numpy as np
 
 from .behavior_boundary_refiner import load_episode_joint_pose, refine_behavior_boundaries
+from .behavior_prompt import (
+    META_ACTION_TRANSLATIONS,
+    TRI_LEVEL_PROTOCOL_SCHEMA,
+    TRI_LEVEL_PROTOCOL_VERSION,
+    canonical_meta_action,
+)
 from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .qwen_trim import _source_fingerprints_match, _source_video_fingerprint
@@ -63,6 +69,17 @@ _PHASE_ALIASES = {
     "操作": "manipulate",
     "检查": "inspect",
     "未知": "unknown",
+}
+
+_META_ACTION_PHASES = {
+    "Grasp": "grasp", "Hold": "grasp", "Pinch": "grasp", "Clip": "grasp",
+    "Suction": "grasp", "Catch": "grasp", "TakeOver": "grasp",
+    "Lift": "lift", "Raise height": "lift",
+    "Transport": "transport", "Carry": "transport", "Move": "transport", "HandOver": "transport",
+    "Place": "place", "Drop": "place", "Stack": "place", "Hang": "place",
+    "Release": "release",
+    "Scan": "inspect",
+    "Other": "unknown",
 }
 
 BUILTIN_BEHAVIOR_CATEGORIES = [
@@ -275,6 +292,9 @@ def _payload_is_valid(annotation: dict, target: dict, dataset_id: str, episode: 
         return False
     if artifact_version != BEHAVIOR_ARTIFACT_VERSION:
         return False
+    protocol = annotation.get("annotation_protocol") or {}
+    if protocol.get("version") != TRI_LEVEL_PROTOCOL_VERSION or protocol.get("schema") != TRI_LEVEL_PROTOCOL_SCHEMA:
+        return False
     if str(annotation.get("dataset_id")) != str(dataset_id) or str(target.get("dataset_id")) != str(dataset_id):
         return False
     if str(annotation.get("episode_id")) != str(episode.get("id")) or str(target.get("episode_id")) != str(episode.get("id")):
@@ -284,6 +304,8 @@ def _payload_is_valid(annotation: dict, target: dict, dataset_id: str, episode: 
         _safe_int(episode.get("frame_count")),
     )
     if not _segments_follow_phase_protocol(annotation, frame_count):
+        return False
+    if not _tri_level_fields_are_valid(annotation, frame_count):
         return False
     if not isinstance(target.get("primary_terms"), list):
         return False
@@ -528,6 +550,80 @@ def _normalize_phase_label(value: Any) -> str:
     return label if label in _PHASE_LABEL_SET else "unknown"
 
 
+def _phase_for_meta_action(skill: str) -> str:
+    return _META_ACTION_PHASES.get(skill, "manipulate")
+
+
+def _intervals_are_contiguous(items: Any, frame_count: int, *, require_skill: bool = False) -> bool:
+    if not isinstance(items, list) or not items or frame_count <= 0:
+        return False
+    cursor = 0
+    for item in items:
+        if not isinstance(item, dict):
+            return False
+        if require_skill and item.get("skill") not in META_ACTION_TRANSLATIONS:
+            return False
+        start = _safe_int(item.get("start_frame"), -1)
+        end = _safe_int(item.get("end_frame"), -1)
+        if start != cursor or end < start:
+            return False
+        cursor = end + 1
+    return cursor == frame_count
+
+
+def _tri_level_fields_are_valid(annotation: dict, frame_count: int) -> bool:
+    coarse = annotation.get("coarse")
+    fine = annotation.get("fine")
+    segments = annotation.get("segments")
+    return bool(
+        isinstance(coarse, dict)
+        and str(coarse.get("summary") or "").strip()
+        and _intervals_are_contiguous(annotation.get("medium"), frame_count)
+        and _intervals_are_contiguous(fine, frame_count, require_skill=True)
+        and isinstance(segments, list)
+        and [(item.get("start_frame"), item.get("end_frame")) for item in fine]
+        == [(item.get("start_frame"), item.get("end_frame")) for item in segments]
+    )
+
+
+def _normalize_tri_level_intervals(items: Any, frame_count: int, default_description: str) -> list[dict]:
+    if frame_count <= 0:
+        return []
+    ordered = sorted(
+        (dict(item) for item in _list_value(items)[:40] if isinstance(item, dict)),
+        key=lambda item: (_safe_int(item.get("start_frame")), _safe_int(item.get("end_frame"))),
+    )
+    if not ordered:
+        ordered = [{"start_frame": 0, "end_frame": frame_count - 1, "description": default_description}]
+    splits: list[int] = []
+    previous = 0
+    for index, (left, right) in enumerate(zip(ordered, ordered[1:])):
+        proposed = int(round(((_safe_int(left.get("end_frame")) + 1) + _safe_int(right.get("start_frame"))) / 2.0))
+        minimum = previous + 1
+        maximum = frame_count - (len(ordered) - index - 1)
+        split = max(minimum, min(proposed, maximum))
+        splits.append(split)
+        previous = split
+    output = []
+    for index, item in enumerate(ordered):
+        output.append({
+            "start_frame": 0 if index == 0 else splits[index - 1],
+            "end_frame": frame_count - 1 if index == len(ordered) - 1 else splits[index] - 1,
+            "description": str(item.get("description") or default_description)[:800],
+        })
+    return output
+
+
+def _fine_from_segments(segments: list[dict]) -> list[dict]:
+    return [{
+        "start_frame": int(item.get("start_frame") or 0),
+        "end_frame": int(item.get("end_frame") or item.get("start_frame") or 0),
+        "description": str(item.get("description") or "")[:800],
+        "skill": canonical_meta_action(item.get("skill")),
+        "skill_zh": META_ACTION_TRANSLATIONS[canonical_meta_action(item.get("skill"))],
+    } for item in segments]
+
+
 def _segment_object_signature(segment: dict) -> tuple[str, tuple[str, ...]]:
     instance = str(segment.get("target_instance") or "").strip().casefold()
     targets = []
@@ -567,7 +663,8 @@ def _normalize_phase_segments(segments: list[dict], frame_count: int, fps: float
             min(_safe_int(item.get("end_frame"), item["start_frame"]), frame_count - 1),
         )
         same_object = bool(merged) and _segment_object_signature(item) == _segment_object_signature(merged[-1])
-        if merged and same_object and item["phase_label"] == merged[-1]["phase_label"] and item["start_frame"] <= merged[-1]["end_frame"] + 1:
+        same_skill = bool(merged) and canonical_meta_action(item.get("skill")) == canonical_meta_action(merged[-1].get("skill"))
+        if merged and same_object and same_skill and item["phase_label"] == merged[-1]["phase_label"] and item["start_frame"] <= merged[-1]["end_frame"] + 1:
             merged[-1]["end_frame"] = max(merged[-1]["end_frame"], item["end_frame"])
             merged[-1]["confidence"] = max(
                 _confidence(merged[-1].get("confidence")),
@@ -643,8 +740,61 @@ def _normalize_phase_segments(segments: list[dict], frame_count: int, fps: float
     return merged
 
 
+def _validate_tri_level_result(raw: dict, episode: dict) -> dict:
+    frame_count = max(1, int(episode.get("frame_count") or 1))
+    fps = max(0.01, float(episode.get("fps") or 30.0))
+    coarse_source = raw.get("coarse") if isinstance(raw.get("coarse"), dict) else {}
+    summary = str(coarse_source.get("summary") or "other").strip()[:800] or "other"
+    warnings: list[str] = []
+    fine_segments = []
+    for item in _list_value(raw.get("fine"))[:120]:
+        if not isinstance(item, dict):
+            continue
+        supplied_skill = str(item.get("skill") or "").strip()
+        skill = canonical_meta_action(supplied_skill)
+        if supplied_skill and skill == "Other" and supplied_skill.casefold() != "other":
+            warnings.append(f"Fine skill '{supplied_skill[:80]}' is outside the meta_action vocabulary and was normalized to Other.")
+        start = max(0, min(_safe_int(item.get("start_frame")), frame_count - 1))
+        end = max(start, min(_safe_int(item.get("end_frame"), start), frame_count - 1))
+        fine_segments.append({
+            "start_frame": start,
+            "end_frame": end,
+            "phase_label": _phase_for_meta_action(skill),
+            "label": _phase_for_meta_action(skill),
+            "skill": skill,
+            "skill_zh": META_ACTION_TRANSLATIONS[skill],
+            "description": str(item.get("description") or "")[:800],
+            "confidence": 0.8,
+            "primary_targets": [],
+            "target_instance": "",
+            "boundary_source": "vlm",
+        })
+    fine_segments = _normalize_phase_segments(fine_segments, frame_count, fps)
+    for segment in fine_segments:
+        skill = canonical_meta_action(segment.get("skill"))
+        segment["skill"] = skill
+        segment["skill_zh"] = META_ACTION_TRANSLATIONS[skill]
+    medium = _normalize_tri_level_intervals(raw.get("medium"), frame_count, summary)
+    return {
+        "annotation_protocol": {"version": TRI_LEVEL_PROTOCOL_VERSION, "schema": TRI_LEVEL_PROTOCOL_SCHEMA},
+        "task_label": summary,
+        "direction": "unknown",
+        "behavior_description": summary,
+        "confidence": 0.8 if fine_segments else 0.0,
+        "coarse": {"summary": summary},
+        "medium": medium,
+        "fine": _fine_from_segments(fine_segments),
+        "segments": fine_segments,
+        "object_nouns": [],
+        "primary_targets": [],
+        "warnings": warnings[:30],
+    }
+
+
 def _validate_result(raw: dict, ontology: dict, episode: dict, sampled_frames: list[int]) -> dict:
     raw = raw if isinstance(raw, dict) else {}
+    if isinstance(raw.get("coarse"), dict) or isinstance(raw.get("fine"), list):
+        return _validate_tri_level_result(raw, episode)
     categories = {
         str(item.get("label") or "").casefold(): str(item.get("label") or "")
         for item in _list_value(ontology.get("categories"))
@@ -730,7 +880,8 @@ def _validate_result(raw: dict, ontology: dict, episode: dict, sampled_frames: l
         if noun and noun.casefold() not in seen_nouns:
             seen_nouns.add(noun.casefold())
             object_nouns.append(noun)
-    return {
+    legacy_result = {
+        "annotation_protocol": {"version": TRI_LEVEL_PROTOCOL_VERSION, "schema": TRI_LEVEL_PROTOCOL_SCHEMA, "source_schema": "legacy_compat"},
         "task_label": task_label,
         "direction": direction,
         "behavior_description": str(raw.get("behavior_description") or "")[:1200],
@@ -740,6 +891,14 @@ def _validate_result(raw: dict, ontology: dict, episode: dict, sampled_frames: l
         "primary_targets": targets,
         "warnings": [str(item)[:500] for item in _list_value(raw.get("warnings"))[:30]],
     }
+    legacy_result["coarse"] = {"summary": legacy_result["behavior_description"] or legacy_result["task_label"]}
+    legacy_result["medium"] = _normalize_tri_level_intervals(
+        [{"start_frame": 0, "end_frame": max(0, frame_count - 1), "description": legacy_result["behavior_description"]}],
+        frame_count,
+        legacy_result["task_label"],
+    )
+    legacy_result["fine"] = _fine_from_segments(segments)
+    return legacy_result
 
 
 def annotate_episode_behavior(
@@ -792,11 +951,6 @@ def annotate_episode_behavior(
     if len(frames) < 4:
         raise RuntimeError("可读取的视频关键帧不足，无法进行 VLM 行为标注")
     schema_summary = json.dumps((manifest.get("schema_profile") or {}).get("understanding") or {}, ensure_ascii=False)[:3500]
-    progress(42, "Qwen-VLM 正在标注行为与主要目标")
-    raw = registry.annotate_behavior(frames, ontology["categories"], f"Episode {episode['name']}; schema={schema_summary}")
-    _assert_media_unchanged(primary_media, source_fingerprint, "during the Qwen request")
-    if not same_analysis_source:
-        _assert_media_unchanged(analysis_media, analysis_fingerprint, "during the Qwen request")
     behavior_frame_count = int(
         analysis_media.get("frame_count")
         or primary_media.get("frame_count")
@@ -810,6 +964,17 @@ def annotate_episode_behavior(
         or 30.0
     ))
     timing_episode = {**episode, "frame_count": behavior_frame_count, "fps": behavior_fps}
+    progress(42, "Qwen-VLM 正在生成三级粒度动作标注")
+    raw = registry.annotate_behavior(
+        frames,
+        ontology["categories"],
+        f"Episode {episode['name']}; schema={schema_summary}",
+        video_length=behavior_frame_count,
+        duration=behavior_frame_count / behavior_fps,
+    )
+    _assert_media_unchanged(primary_media, source_fingerprint, "during the Qwen request")
+    if not same_analysis_source:
+        _assert_media_unchanged(analysis_media, analysis_fingerprint, "during the Qwen request")
     result = _apply_dataset_task_fallback(
         _validate_result(raw, ontology, timing_episode, [item[0] for item in frames]),
         manifest,
@@ -829,6 +994,7 @@ def annotate_episode_behavior(
             behavior_frame_count,
             behavior_fps,
         )
+    result["fine"] = _fine_from_segments(result["segments"])
     joint_refined_count = sum(item.get("boundary_source") == "joint_refined" for item in result["segments"])
     boundary_refinement = {
         "source": "joint_refined" if joint_refined_count else "vlm",
@@ -935,6 +1101,13 @@ def load_behavior_annotation(dataset_id: str, episode_id: str) -> dict | None:
         return None
     frame_count = _safe_int((payload.get("source_video") or {}).get("frame_count"))
     if not _segments_follow_phase_protocol(payload, frame_count or None):
+        return None
+    protocol = payload.get("annotation_protocol") or {}
+    if (
+        protocol.get("version") != TRI_LEVEL_PROTOCOL_VERSION
+        or protocol.get("schema") != TRI_LEVEL_PROTOCOL_SCHEMA
+        or not _tri_level_fields_are_valid(payload, frame_count)
+    ):
         return None
     try:
         manifest, _episode = get_episode(dataset_id, episode_id)

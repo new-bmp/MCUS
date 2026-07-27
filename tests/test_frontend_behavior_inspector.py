@@ -35,6 +35,13 @@ class FrontendBehaviorInspectorContractTests(unittest.TestCase):
         self.assertIn(".behavior-segment-card", self.css)
         self.assertIn(".behavior-remove-card", self.css)
 
+    def test_tri_level_annotation_exposes_medium_and_fine_skills(self) -> None:
+        self.assertIn('id="behaviorMedium"', self.html)
+        self.assertIn('id="behaviorMediumRows"', self.html)
+        self.assertIn("Array.isArray(payload.medium)", self.app)
+        self.assertIn("segment?.skill", self.app)
+        self.assertIn("segment?.skill_zh", self.app)
+
     def test_paper_word_is_absent_from_product_copy(self) -> None:
         self.assertNotIn("论文", self.html)
         self.assertNotIn("论文", self.app)
