@@ -161,6 +161,8 @@ def _kind(text: str) -> tuple[str, str]:
         return "action", "command"
     if any(token in lowered for token in ("qpos", "joint_pos", "joint_position", "joint_angle", "joints")):
         return "joint", "position"
+    if any(token in lowered for token in ("endpose", "end_pose", "end_effector_pose", "eef_pose", "tcp_pose")):
+        return "joint", "pose"
     if "observation.state" in lowered or lowered.endswith(".state") or lowered.endswith("/state"):
         return "joint", "state"
     if any(token in lowered for token in ("qvel", "joint_vel", "joint_velocity")):
@@ -316,8 +318,10 @@ def infer_local_signal_fields(fields: list[dict], max_dimensions: int | None = N
                 representation = "delta"
             elif any(token in lowered for token in ("velocity", "qvel", "speed")):
                 representation = "velocity"
-            elif any(token in lowered for token in ("target_qpos", "target_joint", "position_command")):
+            elif any(token in lowered for token in ("target_qpos", "target_joint", "position_command", "endpose", "end_pose", "eef_pose", "tcp_pose")):
                 representation = "absolute"
+        elif modality == "pose" or any(token in lowered for token in ("endpose", "end_pose", "eef_pose", "tcp_pose")):
+            representation = "absolute"
         descriptors.append({
             "field": field_name,
             "kind": kind,

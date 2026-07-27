@@ -21,11 +21,13 @@ from app.curation_pipeline import (
     curation_preflight,
     curation_valid_ranges,
     detect_extreme_values,
+    detect_rot6d_jumps,
     detect_sudden_changes,
     estimate_state_action_alignment,
     inspect_video_quality,
     inspect_behavior_state_consistency,
     inspect_instruction_consistency,
+    inspect_rot6d_jumps,
     load_curation_report,
     merge_dense_quality_marks,
     resolve_post_vlm_review,
@@ -163,6 +165,90 @@ class CurationPipelineTests(unittest.TestCase):
         result = detect_sudden_changes(corrupted, 6.0)
         self.assertTrue(result["mask"][150])
         self.assertGreater(result["event_count"], 0)
+
+    @staticmethod
+    def _yaw_rot6d(angles_degrees: np.ndarray) -> np.ndarray:
+        angles = np.radians(np.asarray(angles_degrees, dtype=np.float64))
+        rotations = np.zeros((angles.size, 3, 3), dtype=np.float64)
+        rotations[:, 0, 0] = np.cos(angles)
+        rotations[:, 0, 1] = -np.sin(angles)
+        rotations[:, 1, 0] = np.sin(angles)
+        rotations[:, 1, 1] = np.cos(angles)
+        rotations[:, 2, 2] = 1.0
+        return rotations[:, :, :2].transpose(0, 2, 1).reshape(-1, 6)
+
+    def test_rot6d_jump_uses_relative_endpose_rotation(self) -> None:
+        angles = np.zeros(120, dtype=np.float64)
+        angles[60:] = 120.0
+
+        result = detect_rot6d_jumps(self._yaw_rot6d(angles), sigma=6.0)
+
+        self.assertEqual(1, result["jump_frame_count"])
+        self.assertTrue(result["mask"][60])
+        self.assertAlmostEqual(120.0, result["max_relative_degrees"], places=5)
+
+    def test_rot6d_jump_accepts_smooth_rotation_and_rejects_degenerate_basis(self) -> None:
+        values = self._yaw_rot6d(np.linspace(0.0, 35.0, 120))
+        clean = detect_rot6d_jumps(values, sigma=6.0)
+        values[40] = 0.0
+        invalid = detect_rot6d_jumps(values, sigma=6.0)
+
+        self.assertEqual(0, clean["event_count"])
+        self.assertTrue(invalid["mask"][40])
+        self.assertEqual(1, invalid["invalid_frame_count"])
+
+    def test_rot6d_bundle_inspection_only_uses_explicit_endpose_semantics(self) -> None:
+        values = np.zeros((80, 15), dtype=np.float64)
+        values[:, 3:9] = self._yaw_rot6d(np.r_[np.zeros(40), np.full(40, 90.0)])
+        bundle = {
+            "joint": values,
+            "action": None,
+            "bindings": [
+                {
+                    "kind": "joint",
+                    "field": "observations/endpose",
+                    "modality": "pose",
+                    "dimension_names": [f"endpose[{index}]" for index in range(9)],
+                    "dimensions": 9,
+                    "column_start": 0,
+                },
+                {
+                    "kind": "joint",
+                    "field": "observations/embedding",
+                    "dimension_names": [f"embedding[{index}]" for index in range(6)],
+                    "dimensions": 6,
+                    "column_start": 9,
+                },
+            ],
+        }
+
+        result = inspect_rot6d_jumps(bundle, sigma=6.0)
+
+        self.assertEqual(1, result["group_count"])
+        self.assertEqual(1, result["event_count"])
+        self.assertTrue(result["mask"][40])
+
+    def test_local_endpose_is_profiled_as_absolute_joint_pose(self) -> None:
+        import h5py
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "episode.h5"
+            with h5py.File(source, "w") as handle:
+                handle.create_dataset("observations/endpose", data=np.zeros((12, 9), dtype=np.float32))
+            episode = {"id": "ep", "frame_count": 12}
+            manifest = {
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.h5", "extension": ".h5", "episode_id": "ep"}],
+                "schema_profile": {"inventory": {"files": []}, "understanding": None},
+            }
+
+            candidates = _signal_candidates(manifest, episode)
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("joint", candidates[0]["kind"])
+        self.assertEqual("pose", candidates[0]["modality"])
+        self.assertEqual("absolute", candidates[0]["representation"])
 
     def test_state_action_alignment_recovers_positive_action_lead(self) -> None:
         rng = np.random.default_rng(4)

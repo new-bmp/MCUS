@@ -312,6 +312,7 @@ def frame(
     index: int = Query(0, ge=0),
     overlay: bool = False,
     joint_overlay: bool = False,
+    joint_indices: bool = False,
     media_file_id: str | None = None,
 ):
     try:
@@ -334,7 +335,7 @@ def frame(
         raise HTTPException(422, "无法读取指定帧")
     if joint_overlay:
         try:
-            image, _ = draw_joint_overlay(image, manifest, episode, index, selected_media)
+            image, _ = draw_joint_overlay(image, manifest, episode, index, selected_media, show_indices=joint_indices)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
     ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 88])

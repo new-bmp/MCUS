@@ -2,6 +2,8 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const state = { dataset: null, datasetCollection: null, datasetCache: new Map(), datasetLoadToken: 0, episode: null, media: null, file: null, fileById: new Map(), episodeById: new Map(), treeGroups: new Map(), treeExpanded: new Set(), treeCollapsed: new Set(), treeAutoCollapse: false, treeSearchTimer: null, treeSelection: null, annotations: null, curation: null, curationStageFilter: null, curationPreflightToken: 0, reviewSelectionToken: 0, changes: null, models: null, pendingSourcePaths: new Set(), analysisOperation: null, analysisJobs: new Map(), analysisMonitors: new Set(), analysisReturnFocus: null, actionProfiles: [], actionMapping: null, actionMappingReturnFocus: null, sensorAlignmentToken: 0, sensorAlignmentJob: null, frame: 0, zoom: 1, playing: false, jointOverlay: false, jointOverlayAvailable: false, yoloOverlay: false, yoloOverlayReport: null, yoloOverlaySamples: [], yoloOverlayLoadToken: 0, yoloOverlaySampleFrame: -1, timer: null, playbackToken: 0, playbackStartedAt: 0, playbackStartFrame: 0, frameImageToken: 0, frameImageResolve: null, frameImageTimeout: null, frameAbortController: null, frameObjectUrl: null, nativePreview: null, previewPollToken: 0, nativeFrameCallback: null, nativePresentedFrame: -1, nativePresentedFrames: 0, nativeMediaTime: null, jointGeometryAbortController: null, jointGeometryLastAt: 0, jointGeometryFrame: -1, jointGeometryDesiredFrame: -1, jointGeometryInFlightFrame: -1, jointGeometryPendingFrame: null, jointGeometryRequestToken: 0, jointGeometryTimer: null, view: "dashboard", treeMode: "episode", frameData: { fileId: null, field: null, index: 0, count: 0, mode: null, follow: true, requestToken: 0, timer: null, pendingIndex: 0, lastRequestAt: 0 }, h5Compare: { index: 0, field: null, count: 0, requestToken: 0, timer: null, pendingIndex: 0 } };
+  state.jointIndices = false;
+  state.jointGeometryCurrent = null;
   const esc = value => { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML; };
   const escAttr = value => esc(value).replaceAll('"', "&quot;");
   const qualityDisplayText = value => String(value ?? "").replaceAll("\u8bba\u6587\u5f0f", "").replaceAll("\u8bba\u6587", "").replace(/\s{2,}/g, " ").trim();
@@ -130,7 +132,7 @@
   }
 
   function renderDataset(manifest) {
-    resetNativePreview(); resetYoloOverlay(true);
+    resetNativePreview(); resetYoloOverlay(true); resetJointIndices();
     state.reviewSelectionToken += 1;
     state.dataset = manifest; state.episode = null; state.media = null; state.file = null; state.fileById = new Map((manifest.files || []).map(file => [file.id, file])); state.episodeById = new Map((manifest.episodes || []).map(episode => [episode.id, episode])); state.treeGroups = new Map(); state.treeExpanded = new Set(); state.treeCollapsed = new Set(); state.treeAutoCollapse = Number(manifest.file_count || manifest.files?.length || 0) > 500; state.treeSelection = null; state.annotations = null; state.curation = null; state.curationStageFilter = null; state.actionMapping = null; state.changes = null; state.pendingSourcePaths = new Set(); state.frame = 0; state.jointOverlay = false; state.jointOverlayAvailable = false; $("#jointOverlayButton").classList.remove("active"); $("#jointOverlayButton").disabled = true; $("#yoloOverlayButton").disabled = true; $("#excludeFileButton").disabled = true; rememberCollectionDataset(manifest); updateTreeSelectionUI();
     hideFrameDataInspector(); clearBehaviorAnnotation(); clearCurationReport(); clearActionMappingResult();
@@ -575,8 +577,13 @@
   function enableEpisodeControls() { const media = state.media || state.episode; ["#manualRangeButton", "#poseRecoveryButton", "#playButton", "#transportPlay", "#prevFrame", "#nextFrame", "#frameSlider", "#zoomIn", "#zoomOut"].forEach(id => $(id).disabled = false); $("#mediaInfo").textContent = `${media.width} x ${media.height} / ${Number(media.fps).toFixed(2)} FPS`; $("#totalTime").textContent = `/ ${fmtTime(media.duration)}`; $("#frameSlider").max = Math.max(0, media.frame_count - 1); $("#frameImage").classList.remove("hidden"); $("#videoPlayer").classList.add("hidden"); $("#viewerEmpty").classList.add("hidden"); updateYoloOverlayAvailability(); }
 
   function setPreviewStatus(message, mode = "running") { const node = $("#previewProxyStatus"); node.textContent = message; node.className = `badge native-preview-status ${mode}`; node.classList.remove("hidden"); }
+  function resetJointIndices() {
+    state.jointIndices = false; state.jointGeometryCurrent = null;
+    const button = $("#jointIndexButton"); if (!button) return;
+    button.disabled = true; button.classList.remove("active"); button.setAttribute("aria-pressed", "false");
+  }
   function resetNativePreview() {
-    state.previewPollToken += 1; state.nativePreview = null; state.nativePresentedFrame = -1; state.nativePresentedFrames = 0; state.nativeMediaTime = null; state.jointGeometryFrame = -1; state.jointGeometryDesiredFrame = -1; state.jointGeometryInFlightFrame = -1; state.jointGeometryPendingFrame = null; state.jointGeometryRequestToken += 1; state.jointGeometryLastAt = 0; clearTimeout(state.jointGeometryTimer); state.jointGeometryTimer = null;
+    state.previewPollToken += 1; state.nativePreview = null; state.nativePresentedFrame = -1; state.nativePresentedFrames = 0; state.nativeMediaTime = null; state.jointGeometryCurrent = null; state.jointGeometryFrame = -1; state.jointGeometryDesiredFrame = -1; state.jointGeometryInFlightFrame = -1; state.jointGeometryPendingFrame = null; state.jointGeometryRequestToken += 1; state.jointGeometryLastAt = 0; clearTimeout(state.jointGeometryTimer); state.jointGeometryTimer = null;
     if (state.jointGeometryAbortController) state.jointGeometryAbortController.abort(); state.jointGeometryAbortController = null;
     const video = $("#videoPlayer"); if (video) { video.pause(); video.removeAttribute("src"); video.load(); }
     $("#jointOverlayCanvas").classList.add("hidden"); $("#videoPlayer").classList.add("hidden"); $("#previewProxyStatus").classList.add("hidden");
@@ -774,6 +781,19 @@
     if (!state.yoloOverlay) { clearYoloOverlayCanvas(); hint.classList.add("hidden"); hint.textContent = ""; return; }
     if (state.yoloOverlayReport) renderYoloOverlayFrame(state.frame); else loadYoloOverlayReport();
   }
+  function placeJointIndexBadge(pointX, pointY, badgeWidth, badgeHeight, width, height, occupied) {
+    const directions = [[.7, -.7], [-.7, -.7], [1, 0], [-1, 0], [0, -1], [.7, .7], [-.7, .7], [0, 1]];
+    let fallback = { x: pointX + 6, y: pointY - badgeHeight - 3, radius: 11 };
+    for (const radius of [11, 20, 29, 38, 47, 56, 65]) {
+      for (const [directionX, directionY] of directions) {
+        const x = Math.max(1, Math.min(width - badgeWidth - 1, Math.round(pointX + directionX * radius - badgeWidth / 2)));
+        const y = Math.max(1, Math.min(height - badgeHeight - 1, Math.round(pointY + directionY * radius - badgeHeight / 2)));
+        const overlaps = occupied.some(box => x < box.right + 2 && x + badgeWidth + 2 > box.left && y < box.bottom + 2 && y + badgeHeight + 2 > box.top);
+        fallback = { x, y, radius }; if (!overlaps) { occupied.push({ left: x, top: y, right: x + badgeWidth, bottom: y + badgeHeight }); return fallback; }
+      }
+    }
+    occupied.push({ left: fallback.x, top: fallback.y, right: fallback.x + badgeWidth, bottom: fallback.y + badgeHeight }); return fallback;
+  }
   function drawJointGeometry(geometry) {
     const canvas = $("#jointOverlayCanvas"), viewer = $("#viewer"); if (!geometry || !state.jointOverlay || !state.nativePreview) { canvas.classList.add("hidden"); return; }
     const geometryFrame = Number(geometry.frame_index ?? state.jointGeometryFrame);
@@ -781,10 +801,24 @@
     const dpr = window.devicePixelRatio || 1, width = viewer.clientWidth, height = viewer.clientHeight; canvas.width = Math.max(1, Math.round(width * dpr)); canvas.height = Math.max(1, Math.round(height * dpr)); canvas.classList.remove("hidden");
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, width, height);
     const scale = Math.min(width / geometry.width, height / geometry.height), offsetX = (width - geometry.width * scale) / 2, offsetY = (height - geometry.height * scale) / 2, points = geometry.points || [];
-    const color = side => side === "left" ? "#4080eb" : side === "right" ? "#ebb448" : "#d9e0e5";
+    const color = side => side === "left" ? "#4080eb" : side === "right" ? "#ebb448" : "#d9e0e5", pointRadius = 2.5;
     ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
     for (const [start, end] of geometry.edges || []) { const a = points[start], b = points[end]; if (!a || !b) continue; ctx.strokeStyle = color(a.side); ctx.beginPath(); ctx.moveTo(offsetX + a.x * scale, offsetY + a.y * scale); ctx.lineTo(offsetX + b.x * scale, offsetY + b.y * scale); ctx.stroke(); }
-    for (const point of points) { ctx.fillStyle = color(point.side); ctx.beginPath(); ctx.arc(offsetX + point.x * scale, offsetY + point.y * scale, 4, 0, Math.PI * 2); ctx.fill(); }
+    for (const point of points) { ctx.fillStyle = color(point.side); ctx.beginPath(); ctx.arc(offsetX + point.x * scale, offsetY + point.y * scale, pointRadius, 0, Math.PI * 2); ctx.fill(); }
+    if (state.jointIndices) {
+      ctx.font = '600 9px "Segoe UI", sans-serif'; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const occupied = [];
+      for (const point of points) {
+        const sourceIndex = Number(point.source_index); if (!Number.isInteger(sourceIndex) || sourceIndex < 0) continue;
+        const label = String(sourceIndex), pointX = offsetX + point.x * scale, pointY = offsetY + point.y * scale;
+        const badgeWidth = Math.max(13, Math.ceil(ctx.measureText(label).width) + 6), badgeHeight = 13;
+        const placement = placeJointIndexBadge(pointX, pointY, badgeWidth, badgeHeight, width, height, occupied), badgeX = placement.x, badgeY = placement.y;
+        if (placement.radius > 16) { ctx.strokeStyle = "rgba(235,240,244,.55)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pointX, pointY); ctx.lineTo(badgeX + badgeWidth / 2, badgeY + badgeHeight / 2); ctx.stroke(); }
+        ctx.fillStyle = "rgba(15,20,24,.88)"; ctx.beginPath();
+        if (typeof ctx.roundRect === "function") ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 3); else ctx.rect(badgeX, badgeY, badgeWidth, badgeHeight);
+        ctx.fill(); ctx.fillStyle = "#fff"; ctx.fillText(label, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2 + .5);
+      }
+    }
     canvas.dataset.jointFrame = String(geometry.frame_index ?? state.jointGeometryFrame);
     const hint = $("#jointOverlayHint"), multiplier = Number(geometry.alignment_multiplier || 1), hz = Number(geometry.sensor_hz || 0);
     hint.classList.remove("hidden");
@@ -829,7 +863,7 @@
       const geometry = await response.json();
       const geometryFrame = Number(geometry.frame_index ?? frame);
       const current = state.jointOverlay && state.nativePreview === preview && state.dataset?.id === datasetId && state.episode?.id === episodeId && state.jointGeometryRequestToken === requestToken && state.jointGeometryDesiredFrame === frame && state.nativePresentedFrame === frame && state.frame === frame && geometryFrame === frame;
-      if (current) { state.jointGeometryFrame = frame; drawJointGeometry(geometry); }
+      if (current) { state.jointGeometryFrame = frame; state.jointGeometryCurrent = geometry; drawJointGeometry(geometry); }
     } catch (error) { if (error.name !== "AbortError" && state.jointGeometryFrame < 0) $("#jointOverlayCanvas").classList.add("hidden"); }
     finally {
       if (state.jointGeometryAbortController === controller) state.jointGeometryAbortController = null;
@@ -841,7 +875,7 @@
   async function updateJointOverlayStatus() {
     const button = $("#jointOverlayButton"), hint = $("#jointOverlayHint"), episodeId = state.episode?.id;
     $("#behaviorAnnotateButton").disabled = !state.dataset?.episodes?.length;
-    state.jointOverlayAvailable = false; state.jointOverlay = false; button.classList.remove("active"); button.disabled = true; hint.classList.add("hidden"); hint.textContent = "";
+    state.jointOverlayAvailable = false; state.jointOverlay = false; resetJointIndices(); button.classList.remove("active"); button.setAttribute("aria-pressed", "false"); button.disabled = true; hint.classList.add("hidden"); hint.textContent = "";
     if (!state.dataset || !episodeId) return;
     loadBehaviorAnnotation();
     try {
@@ -866,7 +900,7 @@
     if (state.frameAbortController) state.frameAbortController.abort();
     if (state.frameImageResolve) state.frameImageResolve(false);
     const requestToken = ++state.frameImageToken;
-    const requestedImageFrame = state.frame, controller = new AbortController(), sourceUrl = `/api/datasets/${encodeURIComponent(state.dataset.id)}/episodes/${encodeURIComponent(state.episode.id)}/frame?index=${requestedImageFrame}&overlay=${overlay}&joint_overlay=${state.jointOverlay}${mediaQuery}&t=${Date.now()}`;
+    const requestedImageFrame = state.frame, controller = new AbortController(), sourceUrl = `/api/datasets/${encodeURIComponent(state.dataset.id)}/episodes/${encodeURIComponent(state.episode.id)}/frame?index=${requestedImageFrame}&overlay=${overlay}&joint_overlay=${state.jointOverlay}&joint_indices=${state.jointIndices}${mediaQuery}&t=${Date.now()}`;
     state.frameAbortController = controller;
     const loaded = new Promise(resolve => {
       let settled = false, pendingObjectUrl = null;
@@ -1728,7 +1762,7 @@
     $("#openFolderButton").addEventListener("click", openFolder); $("#datasetSelect").addEventListener("change", event => loadCollectionDataset(event.target.value)); $("#refreshButton").addEventListener("click", refreshDataset); $("#analyzeSchemaButton").addEventListener("click", understandSchema); $("#excludeFileButton").addEventListener("click", openExcludeFileModal); $("#confirmExcludeFile").addEventListener("click", confirmExcludeFile); $("#manualRangeButton").addEventListener("click", openManualRange); $("#curationPipelineButton").addEventListener("click", event => openAnalysisScope("paper_curation", event.currentTarget)); $("#fullPipelineButton").addEventListener("click", event => openAnalysisScope("full_pipeline", event.currentTarget)); $("#actionMappingButton").addEventListener("click", event => openActionMapping(event.currentTarget)); $("#videoSmoothButton").addEventListener("click", event => openAnalysisScope("video_smoothing", event.currentTarget)); $("#poseRecoveryButton").addEventListener("click", recoverInitialPose); $("#behaviorAnnotateButton").addEventListener("click", annotateBehavior); $("#noActionTrimButton").addEventListener("click", event => openAnalysisScope("no_action_trim", event.currentTarget)); $("#qwenTrimButton").addEventListener("click", event => openAnalysisScope("qwen_trim", event.currentTarget)); $("#cancelAnalysisButton").addEventListener("click", cancelActiveAnalysis); $("#exportFolderButton").addEventListener("click", exportFolder); $("#downloadExport").addEventListener("click", downloadZip); $("#reviewChangesButton").addEventListener("click", openChangeModal); $("#applyChangesButton").addEventListener("click", openChangeModal); $("#confirmApplyChanges").addEventListener("click", applySelectedChanges); $("#changeConfirm").addEventListener("change", updateChangeApplyState); $("#modelButton").addEventListener("click", configureModal); $("#saveModel").addEventListener("click", saveModel);
     $$(".modal-close").forEach(button => button.addEventListener("click", () => $("#modelModal").classList.add("hidden"))); $$(".change-modal-close").forEach(button => button.addEventListener("click", closeChangeModal)); $$(".analysis-scope-close").forEach(button => button.addEventListener("click", closeAnalysisScope)); $$(".action-mapping-close").forEach(button => button.addEventListener("click", closeActionMapping)); $$(".manual-range-close").forEach(button => button.addEventListener("click", closeManualRange)); $$(".exclude-file-close").forEach(button => button.addEventListener("click", closeExcludeFileModal)); $$("input[name='manualRangeState']").forEach(input => input.addEventListener("change", updateManualRangeSummary)); $("#manualRangeStart").addEventListener("input", updateManualRangeSummary); $("#manualRangeEnd").addEventListener("input", updateManualRangeSummary); $("#manualStartCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeStart")); $("#manualEndCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeEnd")); $("#saveManualRange").addEventListener("click", saveManualRange); $$("input[name='analysisScope']").forEach(input => input.addEventListener("change", updateAnalysisScope)); $$("input[name='actionScope']").forEach(input => input.addEventListener("change", updateActionMappingScope)); $("#actionRobotProfile").addEventListener("change", renderActionProfileNote); $("#fullGenerateAction").addEventListener("change", renderFullActionSettings); $("#fullRobotProfile").addEventListener("change", renderFullActionSettings); $("#startActionMapping").addEventListener("click", submitActionMapping); $("#analysisEpisodeSelect").addEventListener("change", updateAnalysisMediaOptions); $("#analysisMediaSelect").addEventListener("change", () => { renderAnalysisMediaMap(); updateCurationPreflight(); }); $("#fillAnalysisMediaByName").addEventListener("click", fillAnalysisMediaByName); $("#startScopedAnalysis").addEventListener("click", submitScopedAnalysis); $("#clearCurationStageFilter").addEventListener("click", () => { state.curationStageFilter = null; $$(".curation-stage-row", $("#curationStageList")).forEach(item => item.classList.remove("active")); renderCurationTrack(); }); $("#modelType").addEventListener("change", () => { const qwen = $("#modelType").value === "qwen"; $("#localModelFields").classList.toggle("hidden", qwen); $("#qwenFields").classList.toggle("hidden", !qwen); });
     $("#treeMode").addEventListener("change", event => { state.treeMode = event.target.value; state.treeGroups = new Map(); state.treeExpanded = new Set(); state.treeCollapsed = new Set(); if (state.treeSelection?.kind === "episode") state.treeSelection = null; renderResolvedTree(); updateTreeSelectionUI(); }); $("#treeSearch").addEventListener("input", () => { clearTimeout(state.treeSearchTimer); state.treeSearchTimer = setTimeout(renderResolvedTree, 120); }); $("#expandButton").addEventListener("click", () => { state.treeAutoCollapse = false; state.treeCollapsed = new Set(); state.treeExpanded = new Set(); renderResolvedTree(); }); $("#collapseButton").addEventListener("click", () => { state.treeAutoCollapse = true; state.treeExpanded = new Set(); state.treeCollapsed = new Set(); renderResolvedTree(); }); $("#themeButton").addEventListener("click", () => document.body.classList.toggle("dark")); $("#detailButton").addEventListener("click", () => $("#inspector").classList.toggle("closed"));
-    $("#frameSlider").addEventListener("input", event => updateFrame(event.target.value)); $("#prevFrame").addEventListener("click", () => updateFrame(state.frame - 1)); $("#nextFrame").addEventListener("click", () => updateFrame(state.frame + 1)); $("#transportPlay").addEventListener("click", togglePlay); $("#playButton").addEventListener("click", togglePlay); $("#jointOverlayButton").addEventListener("click", toggleJointOverlay); $("#yoloOverlayButton").addEventListener("click", toggleYoloOverlay); $$(".segmented button").forEach(button => button.addEventListener("click", () => { $$(".segmented button").forEach(item => item.classList.toggle("active", item === button)); updateFrame(state.frame); })); $("#zoomIn").addEventListener("click", () => zoom(0.1)); $("#zoomOut").addEventListener("click", () => zoom(-0.1));
+    $("#frameSlider").addEventListener("input", event => updateFrame(event.target.value)); $("#prevFrame").addEventListener("click", () => updateFrame(state.frame - 1)); $("#nextFrame").addEventListener("click", () => updateFrame(state.frame + 1)); $("#transportPlay").addEventListener("click", togglePlay); $("#playButton").addEventListener("click", togglePlay); $("#jointOverlayButton").addEventListener("click", toggleJointOverlay); $("#jointIndexButton").addEventListener("click", toggleJointIndices); $("#yoloOverlayButton").addEventListener("click", toggleYoloOverlay); $$(".segmented button").forEach(button => button.addEventListener("click", () => { $$(".segmented button").forEach(item => item.classList.toggle("active", item === button)); updateFrame(state.frame); })); $("#zoomIn").addEventListener("click", () => zoom(0.1)); $("#zoomOut").addEventListener("click", () => zoom(-0.1));
     $("#behaviorRemoveSelect").addEventListener("change", updateBehaviorRemovalState); $("#behaviorRemoveButton").addEventListener("click", removeBehaviorPhase);
     $("#frameDataFollow").addEventListener("change", event => { state.frameData.follow = event.target.checked; if (state.frameData.follow && state.episode) scheduleFrameData(state.frame, true); });
     $("#frameDataField").addEventListener("change", event => { state.frameData.field = event.target.value; if (["hdf5", "numpy", "parquet"].includes(state.frameData.mode)) openFilePreview(state.file, null, state.frameData.field); else loadFrameData(state.frameData.index, state.frameData.field); });
@@ -1738,7 +1772,25 @@
     ["yoloProximityThreshold", "yoloMaxGapSeconds", "yoloMinValidSeconds", "qwenTrimConfidence", "qwenTrimMaxGapSeconds", "qwenTrimMinValidSeconds"].forEach(id => $("#" + id).addEventListener("input", updateTrimSettingOutputs));
     document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("#analysisScopeModal").classList.contains("hidden")) closeAnalysisScope(); });
   }
-  function toggleJointOverlay() { if (!state.jointOverlayAvailable) { const message = "当前 Episode 未发现可投影的 joint/transform 数据，请切换到带 mocap 或 joint state 的 Episode"; toast(message, "error"); setStatus(message); return; } state.jointOverlay = !state.jointOverlay; $("#jointOverlayButton").classList.toggle("active", state.jointOverlay); if (!state.jointOverlay) { state.jointGeometryPendingFrame = null; clearTimeout(state.jointGeometryTimer); state.jointGeometryTimer = null; if (state.jointGeometryAbortController) state.jointGeometryAbortController.abort(); $("#jointOverlayCanvas").classList.add("hidden"); $("#jointOverlayHint").classList.add("hidden"); return; } if (state.nativePreview) requestJointGeometry(state.frame, true); else updateFrame(state.frame); }
+  function toggleJointOverlay() {
+    if (!state.jointOverlayAvailable) { const message = "当前 Episode 未发现可投影的 joint/transform 数据，请切换到带 mocap 或 joint state 的 Episode"; toast(message, "error"); setStatus(message); return; }
+    state.jointOverlay = !state.jointOverlay;
+    const button = $("#jointOverlayButton"); button.classList.toggle("active", state.jointOverlay); button.setAttribute("aria-pressed", String(state.jointOverlay));
+    if (!state.jointOverlay) {
+      state.jointGeometryPendingFrame = null; clearTimeout(state.jointGeometryTimer); state.jointGeometryTimer = null;
+      if (state.jointGeometryAbortController) state.jointGeometryAbortController.abort();
+      resetJointIndices(); $("#jointOverlayCanvas").classList.add("hidden"); $("#jointOverlayHint").classList.add("hidden"); return;
+    }
+    $("#jointIndexButton").disabled = false;
+    if (state.nativePreview) requestJointGeometry(state.frame, true); else updateFrame(state.frame);
+  }
+  function toggleJointIndices() {
+    const button = $("#jointIndexButton"); if (button.disabled || !state.jointOverlay) return;
+    state.jointIndices = !state.jointIndices; button.classList.toggle("active", state.jointIndices); button.setAttribute("aria-pressed", String(state.jointIndices));
+    if (state.nativePreview) {
+      if (state.jointGeometryCurrent) drawJointGeometry(state.jointGeometryCurrent); else requestJointGeometry(state.frame, true);
+    } else updateFrame(state.frame);
+  }
   function zoom(delta) { state.zoom = Math.max(.5, Math.min(2, state.zoom + delta)); $("#frameImage").style.transform = `scale(${state.zoom})`; $("#videoPlayer").style.transform = `scale(${state.zoom})`; $("#yoloOverlayCanvas").style.transform = `scale(${state.zoom})`; $("#jointOverlayCanvas").style.transform = `scale(${state.zoom})`; $("#zoomValue").textContent = `${Math.round(state.zoom * 100)}%`; }
   function togglePlay() {
     if (!state.episode) return;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from functools import lru_cache
+import json
 import threading
 from typing import Any
 
@@ -26,6 +27,7 @@ _COLORS = {
     "shared": (93, 205, 116),
     "unknown": (224, 224, 224),
 }
+_JOINT_POINT_RADIUS = 3
 _CACHE_LOCK = threading.RLock()
 _CANDIDATE_CACHE: dict[tuple, list[dict]] = {}
 _STATUS_CACHE: dict[tuple, dict] = {}
@@ -123,14 +125,35 @@ def _h5_dataset_names(path: Path) -> list[str]:
     return list(_cached_h5_dataset_names(str(path), stat.st_mtime_ns, stat.st_size))
 
 
+def _explicit_h5_joint_order(handle: Any, labels: list[str]) -> list[str] | None:
+    transforms = handle.get("/transforms")
+    if transforms is None or "joint_order" not in transforms.attrs:
+        return None
+    raw = transforms.attrs["joint_order"]
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if isinstance(raw, np.ndarray):
+        raw = raw.tolist()
+    if not isinstance(raw, (list, tuple)):
+        return None
+    order = [item.decode("utf-8") if isinstance(item, bytes) else str(item) for item in raw]
+    if len(order) != len(labels) or len(set(order)) != len(order) or set(order) != set(labels):
+        return None
+    return order
+
+
 @lru_cache(maxsize=64)
 def _cached_h5_transform_points(path_string: str, modified_ns: int, size_bytes: int) -> tuple[tuple[str, ...], np.ndarray | None]:
     import h5py
 
     path = Path(path_string)
     names = _h5_dataset_names(path)
-    labels: list[str] = []
-    trajectories: list[np.ndarray] = []
+    records: list[tuple[str, np.ndarray]] = []
     with h5py.File(path_string, "r") as handle:
         for name in names:
             lowered = name.casefold()
@@ -148,8 +171,14 @@ def _cached_h5_transform_points(path_string: str, modified_ns: int, size_bytes: 
                 item_labels = [f"{stem}_{index:02d}" for index in range(value.shape[1])]
             else:
                 continue
-            labels.extend(item_labels)
-            trajectories.append(value)
+            records.extend(zip(item_labels, np.moveaxis(value, 1, 0)))
+        labels = [label for label, _ in records]
+        explicit_order = _explicit_h5_joint_order(handle, labels)
+        if explicit_order:
+            by_label = {label: value for label, value in records}
+            records = [(label, by_label[label]) for label in explicit_order]
+    labels = [label for label, _ in records]
+    trajectories = [value[:, None, :] for _, value in records]
     if len(labels) < 2 or not trajectories:
         return tuple(), None
     frame_count = min(item.shape[0] for item in trajectories)
@@ -560,6 +589,7 @@ def joint_overlay_geometry(
                     "x": round(x, 3),
                     "y": round(y, 3),
                     "side": _side(labels[point_index]) if labels else "unknown",
+                    "source_index": point_index,
                 })
             edge_records: list[list[int]] = []
             for start, end in semantic_edges:
@@ -588,7 +618,14 @@ def joint_overlay_geometry(
     raise ValueError("当前 Episode 没有可读取或可投影的 joint/transform 数据")
 
 
-def draw_joint_overlay(frame: np.ndarray, manifest: dict, episode: dict, index: int, media: dict | None = None) -> tuple[np.ndarray, dict]:
+def draw_joint_overlay(
+    frame: np.ndarray,
+    manifest: dict,
+    episode: dict,
+    index: int,
+    media: dict | None = None,
+    show_indices: bool = False,
+) -> tuple[np.ndarray, dict]:
     geometry = joint_overlay_geometry(manifest, episode, index, frame.shape[1], frame.shape[0], media)
     output = frame.copy()
     points = geometry["points"]
@@ -598,7 +635,37 @@ def draw_joint_overlay(frame: np.ndarray, manifest: dict, episode: dict, index: 
         cv2.line(output, (round(a["x"]), round(a["y"])), (round(b["x"]), round(b["y"])), color, 2, cv2.LINE_AA)
     for point in points:
         color = _COLORS.get(point.get("side", "unknown"), _COLORS["unknown"])
-        cv2.circle(output, (round(point["x"]), round(point["y"])), 4, color, -1, cv2.LINE_AA)
+        cv2.circle(output, (round(point["x"]), round(point["y"])), _JOINT_POINT_RADIUS, color, -1, cv2.LINE_AA)
+    if show_indices:
+        occupied_badges: list[tuple[int, int, int, int]] = []
+        directions = ((0.7, -0.7), (-0.7, -0.7), (1.0, 0.0), (-1.0, 0.0), (0.0, -1.0), (0.7, 0.7), (-0.7, 0.7), (0.0, 1.0))
+        for point in points:
+            label = str(point.get("source_index", ""))
+            if not label:
+                continue
+            (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.34, 1)
+            badge_width, badge_height = max(13, text_width + 6), text_height + baseline + 4
+            point_x, point_y = round(point["x"]), round(point["y"])
+            x, top, radius = point_x + 6, point_y - badge_height - 3, 11
+            for candidate_radius in (11, 20, 29, 38, 47, 56, 65):
+                found = False
+                for direction_x, direction_y in directions:
+                    candidate_x = round(point_x + direction_x * candidate_radius - badge_width / 2)
+                    candidate_top = round(point_y + direction_y * candidate_radius - badge_height / 2)
+                    candidate_x = min(max(1, candidate_x), max(1, output.shape[1] - badge_width - 1))
+                    candidate_top = min(max(1, candidate_top), max(1, output.shape[0] - badge_height - 1))
+                    if any(candidate_x < right + 2 and candidate_x + badge_width + 2 > left and candidate_top < bottom + 2 and candidate_top + badge_height + 2 > badge_top for left, badge_top, right, bottom in occupied_badges):
+                        continue
+                    x, top, radius, found = candidate_x, candidate_top, candidate_radius, True
+                    break
+                if found:
+                    break
+            y = top + badge_height
+            occupied_badges.append((x, top, x + badge_width, y))
+            if radius > 16:
+                cv2.line(output, (point_x, point_y), (x + badge_width // 2, top + badge_height // 2), (218, 224, 229), 1, cv2.LINE_AA)
+            cv2.rectangle(output, (x, y - badge_height), (x + badge_width, y), (20, 24, 28), -1)
+            cv2.putText(output, label, (x + 3, y - baseline - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (255, 255, 255), 1, cv2.LINE_AA)
     cv2.rectangle(output, (0, 0), (output.shape[1], 30), (18, 21, 25), -1)
     cv2.putText(output, f"JOINTS {geometry['joint_count']}", (9, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
     return output, {key: geometry.get(key) for key in ("source_path", "field", "joint_count", "coordinate_system")}

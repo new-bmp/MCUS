@@ -34,8 +34,9 @@ from .video_smoothing import smooth_video
 
 
 CURATION_SCHEMA = "alice/paper-curation/v1"
-CURATION_PIPELINE_VERSION = 7
+CURATION_PIPELINE_VERSION = 8
 QUALITY_MARK_GAP_SECONDS = 0.3
+ROT6D_ABSOLUTE_JUMP_DEGREES = 45.0
 MAX_SIGNAL_ROWS = 120_000
 MAX_SIGNAL_DIMS = 80
 MAX_REPORT_FINDINGS = 2_000
@@ -576,7 +577,13 @@ def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_co
             semantic_dimensions_known = False
         offsets[candidate["kind"]] = end
         matrices[candidate["kind"]].append(aligned)
-        bindings.append({**candidate, "dimensions": int(aligned.shape[1]), "source_rows": int(series["source_count"])})
+        bindings.append({
+            **candidate,
+            "dimensions": int(aligned.shape[1]),
+            "column_start": start,
+            "column_end": end,
+            "source_rows": int(series["source_count"]),
+        })
     return {
         "joint": np.concatenate(matrices["joint"], axis=1) if matrices["joint"] else None,
         "action": np.concatenate(matrices["action"], axis=1) if matrices["action"] else None,
@@ -637,6 +644,146 @@ def detect_sudden_changes(matrix: np.ndarray, sigma: float) -> dict:
     dynamic_ratio = np.maximum(acceleration / np.maximum(acceleration_t, 1e-9), jerk / np.maximum(jerk_t, 1e-9))
     score = np.clip(np.nanmax(np.minimum(residual_ratio, dynamic_ratio), axis=1) / 2.0, 0.0, 1.0)
     return {"mask": flags, "score": score, "event_count": int(flags.sum())}
+
+
+def _rotation_matrices_from_rot6d(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    rotations = np.asarray(values, dtype=np.float64)
+    if rotations.ndim != 2 or rotations.shape[1] != 6:
+        raise ValueError("rot6d signal must have shape T x 6")
+    finite = np.isfinite(rotations).all(axis=1)
+    first = rotations[:, :3]
+    second = rotations[:, 3:]
+    first_norm = np.linalg.norm(first, axis=1)
+    first_unit = first / np.maximum(first_norm[:, None], 1e-12)
+    second_orthogonal = second - np.sum(first_unit * second, axis=1, keepdims=True) * first_unit
+    second_norm = np.linalg.norm(second_orthogonal, axis=1)
+    second_unit = second_orthogonal / np.maximum(second_norm[:, None], 1e-12)
+    third_unit = np.cross(first_unit, second_unit)
+    valid = finite & (first_norm > 1e-6) & (second_norm > 1e-6)
+    matrices = np.stack((first_unit, second_unit, third_unit), axis=2)
+    matrices[~valid] = np.eye(3, dtype=np.float64)
+    return matrices, valid
+
+
+def detect_rot6d_jumps(
+    values: np.ndarray,
+    sigma: float = 6.0,
+    absolute_threshold_degrees: float = ROT6D_ABSOLUTE_JUMP_DEGREES,
+) -> dict:
+    """Detect frame-to-frame orientation jumps in an end-pose rot6d signal."""
+    matrices, valid = _rotation_matrices_from_rot6d(values)
+    frame_count = int(matrices.shape[0])
+    angles = np.zeros(frame_count, dtype=np.float64)
+    pair_valid = valid & np.r_[False, valid[:-1]]
+    if frame_count > 1:
+        relative = np.einsum("fji,fjk->fik", matrices[:-1], matrices[1:])
+        cosine = np.clip((np.trace(relative, axis1=1, axis2=2) - 1.0) / 2.0, -1.0, 1.0)
+        angles[1:] = np.degrees(np.arccos(cosine))
+    baseline = angles[pair_valid]
+    if baseline.size:
+        median = float(np.median(baseline))
+        mad = float(np.median(np.abs(baseline - median))) * 1.4826
+        robust_threshold = median + float(sigma) * max(mad, 0.25)
+    else:
+        robust_threshold = 0.0
+    threshold = max(float(absolute_threshold_degrees), robust_threshold)
+    invalid = ~valid
+    jumps = pair_valid & (angles > threshold)
+    mask = invalid | jumps
+    score = np.maximum(
+        np.clip(angles / max(threshold, 1e-9), 0.0, 2.0) / 2.0,
+        invalid.astype(np.float64),
+    )
+    return {
+        "mask": mask,
+        "score": score,
+        "event_count": int(mask.sum()),
+        "jump_frame_count": int(jumps.sum()),
+        "invalid_frame_count": int(invalid.sum()),
+        "threshold_degrees": round(threshold, 6),
+        "absolute_threshold_degrees": round(float(absolute_threshold_degrees), 6),
+        "max_relative_degrees": round(float(angles.max(initial=0.0)), 6),
+        "relative_degrees": angles,
+    }
+
+
+_ROT6D_DIMENSION_PATTERN = re.compile(r"^(.*?)(?:rot(?:ation)?[_ .-]?6d|r6d)[_.\[]?([0-5])\]?$", re.IGNORECASE)
+_ENDPOSE_TOKENS = ("endpose", "end_pose", "end pose", "end-effector", "end_effector", "eef_pose", "tcp_pose")
+
+
+def _rot6d_groups_from_bundle(bundle: dict) -> list[dict]:
+    groups: list[dict] = []
+    for binding in bundle.get("bindings") or []:
+        kind = str(binding.get("kind") or "")
+        matrix = bundle.get(kind)
+        if matrix is None:
+            continue
+        start = int(binding.get("column_start") or 0)
+        width = int(binding.get("dimensions") or 0)
+        names = [str(item) for item in binding.get("dimension_names") or []]
+        semantic_text = " ".join([
+            str(binding.get("field") or ""),
+            str(binding.get("role") or ""),
+            str(binding.get("modality") or ""),
+            *names,
+        ]).casefold()
+        explicit: dict[str, dict[int, int]] = {}
+        for local_index, name in enumerate(names[:width]):
+            match = _ROT6D_DIMENSION_PATTERN.match(name.strip())
+            if match:
+                explicit.setdefault(match.group(1).strip("_.[] -").casefold(), {})[int(match.group(2))] = local_index
+        for prefix, members in explicit.items():
+            if set(members) == set(range(6)):
+                groups.append({
+                    "name": prefix or str(binding.get("field") or "rot6d"),
+                    "kind": kind,
+                    "indices": [start + members[index] for index in range(6)],
+                    "source_path": binding.get("relative_path"),
+                    "field": binding.get("field"),
+                })
+        if explicit or not any(token in semantic_text for token in _ENDPOSE_TOKENS):
+            continue
+        if width == 6:
+            local_indices = list(range(6))
+        elif width >= 9:
+            local_indices = list(range(3, 9))
+        else:
+            continue
+        groups.append({
+            "name": str(binding.get("field") or "endpose"),
+            "kind": kind,
+            "indices": [start + index for index in local_indices],
+            "source_path": binding.get("relative_path"),
+            "field": binding.get("field"),
+        })
+    deduplicated = {}
+    for group in groups:
+        key = (group["kind"], tuple(group["indices"]))
+        deduplicated.setdefault(key, group)
+    return list(deduplicated.values())
+
+
+def inspect_rot6d_jumps(bundle: dict, sigma: float) -> dict:
+    frame_count = max((int(np.asarray(bundle.get(kind)).shape[0]) for kind in ("joint", "action") if bundle.get(kind) is not None), default=0)
+    combined_mask = np.zeros(frame_count, dtype=bool)
+    combined_score = np.zeros(frame_count, dtype=np.float64)
+    reports = []
+    for group in _rot6d_groups_from_bundle(bundle):
+        matrix = np.asarray(bundle[group["kind"]], dtype=np.float64)
+        result = detect_rot6d_jumps(matrix[:, group["indices"]], sigma=sigma)
+        combined_mask |= result["mask"]
+        combined_score = np.maximum(combined_score, result["score"])
+        reports.append({
+            **{key: group.get(key) for key in ("name", "kind", "source_path", "field")},
+            **{key: result[key] for key in ("event_count", "jump_frame_count", "invalid_frame_count", "threshold_degrees", "max_relative_degrees")},
+        })
+    return {
+        "mask": combined_mask,
+        "score": combined_score,
+        "event_count": int(combined_mask.sum()),
+        "group_count": len(reports),
+        "groups": reports,
+    }
 
 
 def _aligned_pair(state: np.ndarray, action: np.ndarray, lag: int) -> tuple[np.ndarray, np.ndarray]:
@@ -1178,7 +1325,7 @@ def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | No
     behavior = load_behavior_annotation(dataset_id, episode_id)
     media = episode_media(episode, media_file_id or episode.get("primary_media_file_id"))
     stages = [
-        _stage("s1", "ready" if kinds else "skipped", "可运行" if kinds else "没有已识别的 Joint/Action 数值流"),
+        _stage("s1", "ready" if kinds else "skipped", "将运行通用 Jerk 与 endpose rot6d 相对旋转突变检查" if kinds else "没有已识别的 Joint/Action 数值流"),
         _stage(
             "s2",
             "ready" if s2_ready else "pending" if action_source_ready else "skipped",
@@ -1259,13 +1406,23 @@ def run_episode_curation(
 
     signal_parts = [item for item in (joint, action) if item is not None]
     if signal_parts:
-        progress(18, "S1 突变、加速度与 Jerk 检查")
+        progress(18, "S1 突变、Jerk 与 endpose rot6d 相对旋转检查")
         combined = np.concatenate(signal_parts, axis=1)
         s1 = detect_sudden_changes(combined, request.sudden_change_sigma)
-        invalid |= s1["mask"]
-        motion_score = np.maximum(motion_score, s1["score"])
+        rot6d = inspect_rot6d_jumps(bundle, request.sudden_change_sigma)
+        s1_mask = s1["mask"] | rot6d["mask"]
+        invalid |= s1_mask
+        motion_score = np.maximum(motion_score, np.maximum(s1["score"], rot6d["score"]))
         findings.extend(_mask_findings(s1["mask"], "s1", "reject", "S1 突变/加速度/Jerk 异常", fps, 0.88))
-        stages.append(_stage("s1", "completed", f"检测到 {s1['event_count']} 个异常帧", {"flagged_frame_count": s1["event_count"], "sigma": request.sudden_change_sigma}))
+        findings.extend(_mask_findings(rot6d["mask"], "s1", "reject", "S1 endpose rot6d 相对旋转突变或 6D 基向量无效", fps, 0.94))
+        stages.append(_stage("s1", "completed", f"检测到 {int(s1_mask.sum())} 个异常帧", {
+            "flagged_frame_count": int(s1_mask.sum()),
+            "generic_jump_frame_count": s1["event_count"],
+            "rot6d_jump_frame_count": rot6d["event_count"],
+            "rot6d_group_count": rot6d["group_count"],
+            "rot6d_groups": rot6d["groups"],
+            "sigma": request.sudden_change_sigma,
+        }))
     else:
         stages.append(_stage("s1", "skipped", "没有可读取的 Joint/Action 数值流"))
 
