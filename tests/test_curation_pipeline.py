@@ -30,6 +30,9 @@ from app.curation_pipeline import (
     inspect_rot6d_jumps,
     load_curation_report,
     merge_dense_quality_marks,
+    repair_isolated_spikes,
+    repair_rot6d_spikes,
+    repair_s1_bundle,
     resolve_post_vlm_review,
     source_signature,
     source_signatures_match,
@@ -165,6 +168,78 @@ class CurationPipelineTests(unittest.TestCase):
         result = detect_sudden_changes(corrupted, 6.0)
         self.assertTrue(result["mask"][150])
         self.assertGreater(result["event_count"], 0)
+
+    def test_s1_repairs_short_isolated_spike_and_rechecks_detector(self) -> None:
+        clean = np.sin(np.linspace(0, 12, 300))[:, None]
+        corrupted = clean.copy()
+        corrupted[150] += 20
+        bundle = {
+            "joint": corrupted,
+            "action": None,
+            "bindings": [{
+                "kind": "joint",
+                "relative_path": "episode.h5",
+                "field": "observations/state",
+                "column_start": 0,
+                "column_end": 1,
+                "dimensions": 1,
+                "_source_row_indices": np.arange(300, dtype=np.int64),
+            }],
+        }
+
+        repaired = repair_s1_bundle(bundle, sigma=6.0, max_gap_frames=5)
+
+        self.assertTrue(repaired["before_mask"].any())
+        self.assertFalse(repaired["after_mask"].any())
+        self.assertTrue(repaired["repaired_mask"][150])
+        self.assertAlmostEqual(clean[150, 0], repaired["values"][150, 0], places=5)
+        self.assertTrue(repaired["entries"])
+
+    def test_s1_does_not_repair_long_or_boundary_ranges(self) -> None:
+        values = np.linspace(0.0, 1.0, 30)[:, None]
+        dimensions = np.ones_like(values, dtype=bool)
+        long_mask = np.zeros(30, dtype=bool)
+        long_mask[10:16] = True
+        boundary_mask = np.zeros(30, dtype=bool)
+        boundary_mask[:2] = True
+
+        long = repair_isolated_spikes(values, long_mask, dimensions, max_gap_frames=5)
+        boundary = repair_isolated_spikes(values, boundary_mask, dimensions, max_gap_frames=5)
+
+        self.assertFalse(long["cell_mask"].any())
+        self.assertFalse(boundary["cell_mask"].any())
+
+    def test_s1_does_not_flatten_a_persistent_state_step(self) -> None:
+        values = np.sin(np.linspace(0, 12, 300))[:, None]
+        values[150:] += 3.0
+        bundle = {
+            "joint": values,
+            "action": None,
+            "bindings": [{
+                "kind": "joint",
+                "relative_path": "episode.h5",
+                "field": "observations/state",
+                "column_start": 0,
+                "column_end": 1,
+                "dimensions": 1,
+                "_source_row_indices": np.arange(300, dtype=np.int64),
+            }],
+        }
+
+        result = repair_s1_bundle(bundle, sigma=6.0, max_gap_frames=5)
+
+        self.assertFalse(result["repaired_mask"].any())
+        np.testing.assert_array_equal(values, result["values"])
+
+    def test_rot6d_isolated_spike_uses_rotation_space_interpolation(self) -> None:
+        values = self._yaw_rot6d(np.linspace(0.0, 30.0, 120))
+        values[60] = 0.0
+        detected = detect_rot6d_jumps(values, sigma=6.0)
+
+        repaired = repair_rot6d_spikes(values, detected["mask"], max_gap_frames=5)
+
+        self.assertTrue(repaired["cell_mask"][60].all())
+        self.assertEqual(0, detect_rot6d_jumps(repaired["values"], sigma=6.0)["event_count"])
 
     @staticmethod
     def _yaw_rot6d(angles_degrees: np.ndarray) -> np.ndarray:

@@ -13,6 +13,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as parquet
 
+from .s1_repair import apply_s1_repair, s1_repair_cell_count
+
 
 LEROBOT_CODEBASE_VERSION = "v2.1"
 LEROBOT_CHUNK_SIZE = 1_000
@@ -206,6 +208,8 @@ def _write_episode_parquet(
     episode_index: int,
     frame_offset: int,
     task_index: int,
+    source_relative: str,
+    repair: dict | None,
 ) -> None:
     count = int(source_frames.size)
     chunk_size = max(1, min(256, count))
@@ -224,9 +228,17 @@ def _write_episode_parquet(
             for offset in range(0, count, chunk_size):
                 right = min(count, offset + chunk_size)
                 rows = source_rows[offset:right]
-                left = np.stack([_take_rows(transforms[name], rows) for name in LEFT_HAND_SOURCE_NAMES], axis=1).astype(np.float32)
-                right_hand = np.stack([_take_rows(transforms[name], rows) for name in RIGHT_HAND_SOURCE_NAMES], axis=1).astype(np.float32)
-                camera = _take_rows(transforms["camera"], rows).astype(np.float32)
+                left = np.stack([
+                    apply_s1_repair(_take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows)
+                    for name in LEFT_HAND_SOURCE_NAMES
+                ], axis=1).astype(np.float32)
+                right_hand = np.stack([
+                    apply_s1_repair(_take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows)
+                    for name in RIGHT_HAND_SOURCE_NAMES
+                ], axis=1).astype(np.float32)
+                camera = apply_s1_repair(
+                    _take_rows(transforms["camera"], rows), repair, source_relative, "transforms/camera", rows,
+                ).astype(np.float32)
                 left_wrist = np.concatenate((left[:, 0, :3, 3], _rot6d(left[:, 0])), axis=1)
                 right_wrist = np.concatenate((right_hand[:, 0, :3, 3], _rot6d(right_hand[:, 0])), axis=1)
                 local_frames = np.arange(offset, right, dtype=np.int64)
@@ -251,7 +263,10 @@ def _write_episode_parquet(
                     pa.array(np.full(right - offset, task_index, dtype=np.int64), type=pa.int64()),
                 ], schema=_main_schema()))
                 if body_writer is not None:
-                    body = np.stack([_take_rows(transforms[name], rows) for name in body_names], axis=1).astype(np.float32)
+                    body = np.stack([
+                        apply_s1_repair(_take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows)
+                        for name in body_names
+                    ], axis=1).astype(np.float32)
                     body_writer.write_table(pa.Table.from_arrays([
                         _fixed_float_list(body, len(body_names) * 4 * 4),
                         _fixed_float_list(_confidence_values(confidences, body_names, rows), len(body_names)),
@@ -294,6 +309,7 @@ def write_lerobot_pair(
     manifest: dict,
     episode: dict,
     classification: dict,
+    repair: dict | None = None,
 ) -> dict:
     fps = max(0.01, float(video_info["fps"]))
     width, height = int(video_info["width"]), int(video_info["height"])
@@ -326,6 +342,8 @@ def write_lerobot_pair(
                 episode_index,
                 frame_offset,
                 task_index,
+                source_relative,
+                repair,
             )
             staged_video.replace(video_path)
             if parquet.ParquetFile(data_path).metadata.num_rows != count:
@@ -361,6 +379,8 @@ def write_lerobot_pair(
         "height": height,
         "video_encoder": video_info.get("encoder"),
         "video_encoder_gpu": video_info.get("encoder_gpu"),
+        "s1_repair_applied": s1_repair_cell_count(repair, source_relative, "transforms/") > 0,
+        "s1_repair_cell_count": s1_repair_cell_count(repair, source_relative, "transforms/"),
         "data": str(data_path),
         "body": str(body_path) if body_names else None,
         "mp4": str(video_path),

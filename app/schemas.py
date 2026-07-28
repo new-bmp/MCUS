@@ -58,6 +58,8 @@ class CurationJobRequest(BaseModel):
     episode_ids: list[str] = Field(default_factory=list, min_length=1)
     media_file_ids: dict[str, str] = Field(default_factory=dict)
     sudden_change_sigma: float = Field(default=6.0, ge=3.0, le=12.0)
+    repair_s1_spikes: bool = True
+    s1_max_repair_frames: int = Field(default=5, ge=1, le=15)
     directional_agreement_threshold: float = Field(default=0.65, ge=0.5, le=0.85)
     max_lag_seconds: float = Field(default=0.5, ge=0.1, le=3.0)
     outlier_alpha: float = Field(default=0.1, ge=0.0, le=2.0)

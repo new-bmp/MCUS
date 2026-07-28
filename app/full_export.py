@@ -19,6 +19,7 @@ from .lerobot_export import (
     write_lerobot_pair,
 )
 from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment
+from .s1_repair import apply_s1_repair, load_s1_repair, s1_repair_cell_count
 from .video_smoothing import _create_frame_writer
 
 
@@ -375,6 +376,7 @@ def _write_mano_hdf5(
     episode: dict,
     behavior: dict,
     classification: dict,
+    repair: dict | None = None,
 ) -> None:
     count = int(source_frames.size)
     chunk = max(1, min(128, count))
@@ -397,6 +399,8 @@ def _write_mano_hdf5(
             "created_at": datetime.now(timezone.utc).isoformat(),
             "mano_joint_count": 44,
             "transform_count_with_camera": 45,
+            "s1_repair_applied": s1_repair_cell_count(repair, source_relative, "transforms/") > 0,
+            "s1_repair_cell_count": s1_repair_cell_count(repair, source_relative, "transforms/"),
         })
         mano = output.require_group("mano")
         mano.attrs["joint_names"] = json.dumps(MANO_44_JOINT_NAMES, ensure_ascii=False)
@@ -413,9 +417,24 @@ def _write_mano_hdf5(
         for offset in range(0, count, chunk):
             right = min(count, offset + chunk)
             rows = source_rows[offset:right]
-            values = np.stack([_take_rows(transforms[name], rows) for name in MANO_44_JOINT_NAMES], axis=1).astype(np.float32)
+            values = np.stack([
+                apply_s1_repair(
+                    _take_rows(transforms[name], rows),
+                    repair,
+                    source_relative,
+                    f"transforms/{name}",
+                    rows,
+                )
+                for name in MANO_44_JOINT_NAMES
+            ], axis=1).astype(np.float32)
             transforms_out[offset:right] = values
-            camera_out[offset:right] = _take_rows(transforms["camera"], rows).astype(np.float32)
+            camera_out[offset:right] = apply_s1_repair(
+                _take_rows(transforms["camera"], rows),
+                repair,
+                source_relative,
+                "transforms/camera",
+                rows,
+            ).astype(np.float32)
             confidence_values = np.full((right - offset, 44), np.nan, dtype=np.float32)
             if isinstance(confidences, h5py.Group):
                 for index, name in enumerate(MANO_44_JOINT_NAMES):
@@ -451,6 +470,7 @@ def export_episode(
 ) -> dict:
     if output_format not in SUPPORTED_FULL_OUTPUT_FORMATS:
         raise ValueError(f"Unsupported Full output format: {output_format}")
+    repair = load_s1_repair(curation)
     frame_count = int(smoothed_media.get("frame_count") or episode.get("frame_count") or 0)
     fps = max(0.01, float(smoothed_media.get("fps") or episode.get("fps") or 30.0))
     intervals, filtering = filtered_intervals(
@@ -462,6 +482,7 @@ def export_episode(
         min_clip_seconds=DEFAULT_MIN_CLIP_SECONDS,
     )
     source_path, source_relative, source_count = _find_transform_source(manifest, episode, output_format)
+    repair_cell_count = s1_repair_cell_count(repair, source_relative, "transforms/")
     row_map = _aligned_rows(manifest, episode, source_relative, source_count, frame_count)
     next_episode_numbers: dict[str, int] = {}
     pairs: list[dict] = []
@@ -492,6 +513,7 @@ def export_episode(
                     manifest,
                     episode,
                     classification,
+                    repair,
                 )
                 pair.update({"start_frame": start, "end_frame": end})
                 pairs.append(pair)
@@ -534,6 +556,7 @@ def export_episode(
                     episode,
                     behavior,
                     classification,
+                    repair,
                 )
                 with h5py.File(hdf5_temporary, "r") as output:
                     hdf5_frames = int(output["mano/transforms"].shape[0])
@@ -558,6 +581,8 @@ def export_episode(
                     "height": video_info["height"],
                     "video_encoder": video_info["encoder"],
                     "video_encoder_gpu": video_info["encoder_gpu"],
+                    "s1_repair_applied": repair_cell_count > 0,
+                    "s1_repair_cell_count": repair_cell_count,
                     "mp4": str(video_path),
                     "hdf5": str(hdf5_path),
                 })
@@ -573,6 +598,8 @@ def export_episode(
         "category": categories[0] if len(categories) == 1 else "mixed" if categories else None,
         "categories": categories,
         "output_format": output_format,
+        "s1_repair_applied": repair_cell_count > 0,
+        "s1_repair_cell_count": repair_cell_count,
     }
 
 

@@ -25,7 +25,7 @@ class FrontendDatasetLazyLoadingContractTests(unittest.TestCase):
         self.assertIn('while (state.datasetCache.size > 3)', self.app)
 
     def test_frontend_cache_version_is_updated(self) -> None:
-        self.assertIn('app.js?v=studio-79', self.index)
+        self.assertIn('app.js?v=studio-80', self.index)
 
     def test_full_completion_refreshes_vlm_panel_and_reports_request_counts(self) -> None:
         self.assertIn('await loadBehaviorAnnotation();', self.app)
@@ -39,6 +39,12 @@ class FrontendDatasetLazyLoadingContractTests(unittest.TestCase):
         self.assertIn('id="fullRobotProfile"', self.app)
         self.assertIn('if (state.analysisOperation !== "full_pipeline" || !$("#fullGenerateAction")?.checked) return output;', self.app)
         self.assertIn('full_action_profile_id: profileId', self.app)
+
+    def test_s1_isolated_spike_repair_defaults_to_five_frames(self) -> None:
+        self.assertIn('id="curationRepairS1" checked', self.app)
+        self.assertIn('id="curationS1MaxRepairFrames"', self.app)
+        self.assertIn('repair_s1_spikes: $("#curationRepairS1")?.checked !== false', self.app)
+        self.assertIn('s1_max_repair_frames: Math.round(trimNumber("curationS1MaxRepairFrames", 5))', self.app)
 
 
 if __name__ == "__main__":

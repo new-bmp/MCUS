@@ -14,6 +14,7 @@ import pyarrow.parquet as parquet
 
 from app.full_export import MANO_44_JOINT_NAMES, classify_behavior, export_episode, filtered_intervals, write_dataset_index
 from app.lerobot_export import HAND_21_JOINT_NAMES
+from app.s1_repair import S1_REPAIR_SCHEMA
 
 
 class FullExportTests(unittest.TestCase):
@@ -195,6 +196,79 @@ class FullExportTests(unittest.TestCase):
             combined = json.loads(index.read_text(encoding="utf-8"))
             self.assertEqual(2, combined["pair_count"])
             self.assertEqual({"insert_usb/ep1", "insert_usb/ep2"}, {item["id"] for item in combined["pairs"]})
+
+    def test_lerobot_export_applies_s1_patch_without_modifying_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "output"
+            self._write_video(source_video, 10)
+            self._write_transforms(source_hdf5, 10)
+            manifest = {
+                "id": "dataset",
+                "name": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep"}],
+            }
+            episode = {"id": "ep", "name": "ep", "frame_count": 10, "fps": 10.0}
+            patch_payload = {
+                "schema": S1_REPAIR_SCHEMA,
+                "dataset_id": "dataset",
+                "episode_id": "ep",
+                "entries": [{
+                    "source_path": "episode.hdf5",
+                    "dataset_path": "transforms/leftHand",
+                    "source_rows": [5],
+                    "flat_indices": [3],
+                    "values": [999.0],
+                }],
+            }
+            curation = {
+                "dataset_id": "dataset",
+                "episode_id": "ep",
+                "segments": [{"start_frame": 0, "end_frame": 9, "state": "valid"}],
+                "s1_repair": {"repaired_frame_count": 1, "patch": patch_payload},
+            }
+            behavior = {"task_label": "grasp", "segments": [
+                {"start_frame": 0, "end_frame": 9, "phase_label": "grasp"},
+            ]}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output_root,
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 10, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda _value, _message: None,
+                )
+
+            data = parquet.read_table(result["pairs"][0]["data"])
+            left = np.asarray(data["observation.left_hand.transforms"].combine_chunks().values).reshape(10, 21, 4, 4)
+            self.assertEqual(999.0, left[5, 0, 0, 3])
+            with h5py.File(source_hdf5, "r") as source:
+                self.assertEqual(6.0, source["transforms/leftHand"][5, 0, 3])
+            self.assertTrue(result["s1_repair_applied"])
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                compatibility = export_episode(
+                    root / "compat-output",
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 10, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda _value, _message: None,
+                    output_format="hdf5_mp4",
+                )
+            with h5py.File(compatibility["pairs"][0]["hdf5"], "r") as exported:
+                left_hand_index = MANO_44_JOINT_NAMES.index("leftHand")
+                self.assertEqual(999.0, exported["mano/transforms"][5, left_hand_index, 0, 3])
+                self.assertTrue(exported.attrs["s1_repair_applied"])
+            with h5py.File(source_hdf5, "r") as source:
+                self.assertEqual(6.0, source["transforms/leftHand"][5, 0, 3])
 
     def test_lerobot_accepts_hand_only_source_without_body_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

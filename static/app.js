@@ -1277,6 +1277,17 @@
     const staticField = $("#curationStaticDuration")?.closest("label");
     if (staticField) staticField.before(field);
   }
+  function ensureS1RepairControls() {
+    if ($("#curationRepairS1")) return;
+    const sigmaField = $("#curationSuddenSigma")?.closest("label");
+    if (!sigmaField) return;
+    const enabled = document.createElement("label");
+    enabled.className = "analysis-scope-option";
+    enabled.innerHTML = '<input type="checkbox" id="curationRepairS1" checked><span><b>修复孤立 S1 尖峰</b><small>只修复两侧有可靠锚点的短尖峰，源文件保持只读</small></span>';
+    const maximum = document.createElement("label");
+    maximum.innerHTML = '最大修复帧数<input id="curationS1MaxRepairFrames" type="number" min="1" max="15" step="1" value="5">';
+    sigmaField.after(enabled, maximum);
+  }
   function ensureFullActionControls() {
     if ($("#fullActionSettings")) return;
     const section = document.createElement("section");
@@ -1326,6 +1337,8 @@
   }
   function curationRequestConfig() { return {
     sudden_change_sigma: trimNumber("curationSuddenSigma", 6),
+    repair_s1_spikes: $("#curationRepairS1")?.checked !== false,
+    s1_max_repair_frames: Math.round(trimNumber("curationS1MaxRepairFrames", 5)),
     directional_agreement_threshold: trimNumber("curationDaThreshold", 0.65),
     max_lag_seconds: trimNumber("curationMaxLag", 0.5),
     outlier_alpha: trimNumber("curationOutlierAlpha", 0.1),
@@ -1766,6 +1779,7 @@
   }
   function bind() {
     ensureCurationQualityGapControl();
+    ensureS1RepairControls();
     ensureFullActionControls();
     $$("[data-ribbon]").forEach(button => button.addEventListener("click", () => { $$("[data-ribbon]").forEach(item => item.classList.toggle("active", item === button)); $$("[data-pane]").forEach(pane => pane.classList.toggle("active", pane.dataset.pane === button.dataset.ribbon)); }));
     $$("[data-view-target]").forEach(button => button.addEventListener("click", () => showView(button.dataset.viewTarget)));

@@ -498,6 +498,8 @@ def command_full(args: argparse.Namespace) -> int:
                 "full_output_format": args.output_format,
                 "force_vlm": bool(args.force_vlm),
                 "vlm_sample_count": int(args.vlm_samples),
+                "repair_s1_spikes": not bool(args.no_repair_s1_spikes),
+                "s1_max_repair_frames": int(args.s1_max_repair_frames),
             }
             if args.action_profile:
                 payload.update({
@@ -647,6 +649,8 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--parallel", type=int, default=1, choices=range(1, 33), metavar="N", help="Balanced parallel Full jobs")
     full.add_argument("--force-vlm", action="store_true", help="Do not reuse matching VLM annotations")
     full.add_argument("--vlm-samples", type=int, default=18, choices=range(6, 25), metavar="N")
+    full.add_argument("--no-repair-s1-spikes", action="store_true", help="Detect isolated S1 spikes without repairing them")
+    full.add_argument("--s1-max-repair-frames", type=int, default=5, choices=range(1, 16), metavar="N")
     full.add_argument(
         "--output-format",
         choices=("lerobot", "hdf5_mp4"),

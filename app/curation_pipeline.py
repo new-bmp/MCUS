@@ -17,8 +17,10 @@ from typing import Any, Callable
 
 import cv2
 import numpy as np
+from scipy.interpolate import CubicSpline
 from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
+from scipy.spatial.transform import Rotation, Slerp
 
 from .action_mapping import generate_episode_action, load_episode_action_mapping, validate_episode_action_mapping
 from .behavior_annotator import annotate_episode_behavior, load_behavior_annotation, media_fingerprint_matches
@@ -28,13 +30,14 @@ from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .schema_profiler import infer_local_signal_fields, probe_local_signal_fields
 from .schemas import ActionMappingRequest, BehaviorAnnotationRequest, CurationJobRequest
+from .s1_repair import S1_REPAIR_SCHEMA, load_s1_repair
 from .sensor_alignment import scan_episode_sensor_alignment
 from .storage import dataset_artifact_dir, episode_media, get_manifest, record_change, slugify, storage_slug
 from .video_smoothing import smooth_video
 
 
 CURATION_SCHEMA = "alice/paper-curation/v1"
-CURATION_PIPELINE_VERSION = 8
+CURATION_PIPELINE_VERSION = 9
 QUALITY_MARK_GAP_SECONDS = 0.3
 ROT6D_ABSOLUTE_JUMP_DEGREES = 45.0
 MAX_SIGNAL_ROWS = 120_000
@@ -71,6 +74,10 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
 
 def curation_report_path(dataset_id: str, episode_id: str) -> Path:
     return dataset_artifact_dir(dataset_id, "curation") / f"{storage_slug(episode_id)}.curation.alice"
+
+
+def s1_repair_path(dataset_id: str, episode_id: str) -> Path:
+    return dataset_artifact_dir(dataset_id, "curation-repairs") / f"{storage_slug(episode_id)}.s1-repair.alice"
 
 
 def load_curation_report(dataset_id: str, episode_id: str) -> dict | None:
@@ -507,7 +514,7 @@ def _alignment_stream(alignment: dict, relative_path: str) -> dict | None:
     )
 
 
-def _resample_to_video(series: dict, frame_count: int, alignment_stream: dict | None) -> np.ndarray:
+def _resample_to_video(series: dict, frame_count: int, alignment_stream: dict | None) -> tuple[np.ndarray, np.ndarray]:
     values = np.asarray(series["values"], dtype=np.float64)
     row_indices = np.asarray(series["row_indices"], dtype=np.int64)
     source_count = int(series.get("source_count") or values.shape[0])
@@ -530,7 +537,9 @@ def _resample_to_video(series: dict, frame_count: int, alignment_stream: dict | 
     positions = np.where(use_left, left, positions)
     output = np.full((frame_count, values.shape[1]), np.nan, dtype=np.float64)
     output[valid] = values[positions[valid]]
-    return output
+    source_rows = np.full(frame_count, -1, dtype=np.int64)
+    source_rows[valid] = row_indices[positions[valid]]
+    return output, source_rows
 
 
 def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_count: int | None = None) -> dict:
@@ -550,7 +559,11 @@ def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_co
         try:
             path.relative_to(root)
             series = _read_numeric_series(path, candidate["field"], candidate)
-            aligned = _resample_to_video(series, target_frame_count, _alignment_stream(alignment, candidate["relative_path"]))
+            aligned, source_row_indices = _resample_to_video(
+                series,
+                target_frame_count,
+                _alignment_stream(alignment, candidate["relative_path"]),
+            )
         except Exception as exc:
             warnings.append(f"{candidate['relative_path']} / {candidate['field']}: {str(exc)[:180]}")
             continue
@@ -583,6 +596,7 @@ def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_co
             "column_start": start,
             "column_end": end,
             "source_rows": int(series["source_count"]),
+            "_source_row_indices": source_row_indices,
         })
     return {
         "joint": np.concatenate(matrices["joint"], axis=1) if matrices["joint"] else None,
@@ -643,7 +657,12 @@ def detect_sudden_changes(matrix: np.ndarray, sigma: float) -> dict:
     residual_ratio = residual / np.maximum(residual_t, 1e-9)
     dynamic_ratio = np.maximum(acceleration / np.maximum(acceleration_t, 1e-9), jerk / np.maximum(jerk_t, 1e-9))
     score = np.clip(np.nanmax(np.minimum(residual_ratio, dynamic_ratio), axis=1) / 2.0, 0.0, 1.0)
-    return {"mask": flags, "score": score, "event_count": int(flags.sum())}
+    return {
+        "mask": flags,
+        "score": score,
+        "event_count": int(flags.sum()),
+        "dimension_mask": dimension_flags,
+    }
 
 
 def _rotation_matrices_from_rot6d(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -783,6 +802,295 @@ def inspect_rot6d_jumps(bundle: dict, sigma: float) -> dict:
         "event_count": int(combined_mask.sum()),
         "group_count": len(reports),
         "groups": reports,
+    }
+
+
+def _mask_ranges(mask: np.ndarray) -> list[tuple[int, int]]:
+    padded = np.r_[False, np.asarray(mask, dtype=bool), False]
+    changes = np.diff(padded.astype(np.int8))
+    starts = np.flatnonzero(changes == 1)
+    ends = np.flatnonzero(changes == -1) - 1
+    return [(int(start), int(end)) for start, end in zip(starts, ends)]
+
+
+def _continuous_anchor_columns(values: np.ndarray, start: int, end: int) -> np.ndarray:
+    left = values[start - 1]
+    right = values[end + 1]
+    finite = np.isfinite(left) & np.isfinite(right)
+    before = np.abs(np.diff(values[max(0, start - 12):start], axis=0))
+    after = np.abs(np.diff(values[end + 1:min(values.shape[0], end + 13)], axis=0))
+    local_steps = np.concatenate([item for item in (before, after) if item.size], axis=0)
+    if not local_steps.size:
+        return np.zeros(values.shape[1], dtype=bool)
+    median = np.nanmedian(local_steps, axis=0)
+    mad = np.nanmedian(np.abs(local_steps - median), axis=0) * 1.4826
+    allowed = (end - start + 2) * np.maximum(median + 6.0 * mad, 1e-7) * 2.0
+    return finite & (np.abs(right - left) <= allowed)
+
+
+def repair_isolated_spikes(
+    matrix: np.ndarray,
+    mask: np.ndarray,
+    dimension_mask: np.ndarray,
+    max_gap_frames: int = 5,
+    protected_columns: set[int] | None = None,
+) -> dict:
+    original = np.asarray(matrix, dtype=np.float64)
+    repaired = original.copy()
+    cells = np.zeros(original.shape, dtype=bool)
+    protected = protected_columns or set()
+    ranges = []
+    for start, end in _mask_ranges(mask):
+        length = end - start + 1
+        if start == 0 or end >= original.shape[0] - 1 or length > max_gap_frames:
+            continue
+        dimensions = np.any(dimension_mask[start:end + 1], axis=0)
+        dimensions &= _continuous_anchor_columns(original, start, end)
+        if protected:
+            dimensions[list(protected)] = False
+        selected = np.flatnonzero(dimensions)
+        if not selected.size:
+            continue
+        anchor_indices = np.r_[
+            np.arange(max(0, start - 6), start),
+            np.arange(end + 1, min(original.shape[0], end + 7)),
+        ]
+        successful = []
+        for column in selected:
+            finite = np.isfinite(original[anchor_indices, column])
+            usable = anchor_indices[finite]
+            if (usable < start).sum() < 2 or (usable > end).sum() < 2:
+                continue
+            try:
+                repaired[start:end + 1, column] = CubicSpline(
+                    usable,
+                    original[usable, column],
+                )(np.arange(start, end + 1))
+            except ValueError:
+                continue
+            successful.append(column)
+        if not successful:
+            continue
+        cells[start:end + 1, successful] = True
+        ranges.append((start, end))
+    return {"values": repaired, "cell_mask": cells, "ranges": ranges}
+
+
+def repair_rot6d_spikes(values: np.ndarray, mask: np.ndarray, max_gap_frames: int = 5) -> dict:
+    original = np.asarray(values, dtype=np.float64)
+    repaired = original.copy()
+    cells = np.zeros(original.shape, dtype=bool)
+    ranges = []
+    matrices, valid = _rotation_matrices_from_rot6d(original)
+    for start, end in _mask_ranges(mask):
+        length = end - start + 1
+        if start == 0 or end >= original.shape[0] - 1 or length > max_gap_frames:
+            continue
+        left_index, right_index = start - 1, end + 1
+        if not (valid[left_index] and valid[right_index]):
+            continue
+        relative = matrices[left_index].T @ matrices[right_index]
+        cosine = float(np.clip((np.trace(relative) - 1.0) / 2.0, -1.0, 1.0))
+        if np.degrees(np.arccos(cosine)) > ROT6D_ABSOLUTE_JUMP_DEGREES:
+            continue
+        interpolation = Slerp(
+            [float(left_index), float(right_index)],
+            Rotation.from_matrix(matrices[[left_index, right_index]]),
+        )(np.arange(start, end + 1, dtype=np.float64)).as_matrix()
+        repaired[start:end + 1] = interpolation[:, :, :2].transpose(0, 2, 1).reshape(-1, 6)
+        cells[start:end + 1] = True
+        ranges.append((start, end))
+    return {"values": repaired, "cell_mask": cells, "ranges": ranges}
+
+
+def _combined_column_layout(bundle: dict) -> list[tuple[dict, int, int]]:
+    joint_width = int(bundle["joint"].shape[1]) if bundle.get("joint") is not None else 0
+    layout = []
+    for binding in bundle.get("bindings") or []:
+        offset = 0 if binding.get("kind") == "joint" else joint_width
+        layout.append((binding, offset + int(binding["column_start"]), offset + int(binding["column_end"])))
+    return layout
+
+
+def _writable_repair_target(binding: dict, local_column: int) -> tuple[str, int] | None:
+    suffix = Path(str(binding.get("relative_path") or "")).suffix.casefold()
+    if suffix not in {".h5", ".hdf5", ".h5df"}:
+        return None
+    field = str(binding.get("field") or "").strip("/")
+    if field.endswith("/*") and binding.get("extraction") == "matrix_translation_xyz":
+        members = [str(item).strip("/") for item in binding.get("members") or []]
+        member_index, axis = divmod(local_column, 3)
+        if member_index >= len(members):
+            return None
+        return members[member_index], (3, 7, 11)[axis]
+    if field and not field.endswith("/*"):
+        return field, local_column
+    return None
+
+
+def _restrict_repairs_to_writable_sources(
+    original: np.ndarray,
+    candidate: np.ndarray,
+    cell_mask: np.ndarray,
+    bundle: dict,
+) -> tuple[np.ndarray, np.ndarray]:
+    values = np.asarray(original, dtype=np.float64).copy()
+    accepted = np.zeros(cell_mask.shape, dtype=bool)
+    for binding, combined_start, combined_end in _combined_column_layout(bundle):
+        source_rows = np.asarray(binding.get("_source_row_indices"), dtype=np.int64)
+        if source_rows.shape != (values.shape[0],):
+            continue
+        unique_rows, counts = np.unique(source_rows[source_rows >= 0], return_counts=True)
+        unique = set(unique_rows[counts == 1].tolist())
+        for column in range(combined_start, combined_end):
+            target = _writable_repair_target(binding, column - combined_start)
+            if target is None:
+                continue
+            frames = np.flatnonzero(cell_mask[:, column])
+            frames = np.asarray([frame for frame in frames if int(source_rows[frame]) in unique], dtype=np.int64)
+            if not frames.size:
+                continue
+            values[frames, column] = candidate[frames, column]
+            accepted[frames, column] = True
+    return values, accepted
+
+
+def _repair_patch_entries(original: np.ndarray, repaired: np.ndarray, cell_mask: np.ndarray, bundle: dict) -> list[dict]:
+    grouped: dict[tuple[str, str], list[tuple[int, int, float]]] = {}
+    for binding, combined_start, combined_end in _combined_column_layout(bundle):
+        source_path = str(binding.get("relative_path") or "").replace("\\", "/")
+        source_rows = np.asarray(binding.get("_source_row_indices"), dtype=np.int64)
+        for column in range(combined_start, combined_end):
+            target = _writable_repair_target(binding, column - combined_start)
+            if target is None:
+                continue
+            dataset_path, flat_index = target
+            for frame in np.flatnonzero(cell_mask[:, column]):
+                value = float(repaired[frame, column])
+                if source_rows[frame] >= 0 and np.isfinite(value) and value != original[frame, column]:
+                    grouped.setdefault((source_path, dataset_path), []).append((int(source_rows[frame]), flat_index, value))
+    return [
+        {
+            "source_path": source_path,
+            "dataset_path": dataset_path,
+            "source_rows": [item[0] for item in items],
+            "flat_indices": [item[1] for item in items],
+            "values": [item[2] for item in items],
+        }
+        for (source_path, dataset_path), items in sorted(grouped.items())
+    ]
+
+
+def apply_s1_repair_to_bundle(bundle: dict, repair: dict | None) -> None:
+    if repair is None:
+        return
+    entries: dict[tuple[str, str, int], dict[int, float]] = {}
+    for entry in repair.get("entries") or []:
+        source_path = str(entry.get("source_path") or "").replace("\\", "/").casefold()
+        dataset_path = str(entry.get("dataset_path") or "").strip("/").casefold()
+        for row, flat_index, value in zip(
+            entry.get("source_rows") or [],
+            entry.get("flat_indices") or [],
+            entry.get("values") or [],
+        ):
+            entries.setdefault((source_path, dataset_path, int(flat_index)), {})[int(row)] = float(value)
+    for binding in bundle.get("bindings") or []:
+        kind = str(binding.get("kind") or "")
+        matrix = bundle.get(kind)
+        source_rows = np.asarray(binding.get("_source_row_indices"), dtype=np.int64)
+        if matrix is None or source_rows.shape != (matrix.shape[0],):
+            continue
+        source_path = str(binding.get("relative_path") or "").replace("\\", "/").casefold()
+        output = np.asarray(matrix, dtype=np.float64).copy()
+        start, end = int(binding["column_start"]), int(binding["column_end"])
+        for column in range(start, end):
+            target = _writable_repair_target(binding, column - start)
+            if target is None:
+                continue
+            dataset_path, flat_index = target
+            row_values = entries.get((source_path, dataset_path.casefold(), int(flat_index))) or {}
+            for source_row, value in row_values.items():
+                output[source_rows == source_row, column] = value
+        bundle[kind] = output
+
+
+def repair_s1_bundle(bundle: dict, sigma: float, max_gap_frames: int) -> dict:
+    parts = [item for item in (bundle.get("joint"), bundle.get("action")) if item is not None]
+    original = np.concatenate(parts, axis=1)
+    generic_before = detect_sudden_changes(original, sigma)
+    rot_before = inspect_rot6d_jumps(bundle, sigma)
+    rot_groups = _rot6d_groups_from_bundle(bundle)
+    protected = {
+        (0 if group["kind"] == "joint" else int(bundle["joint"].shape[1]) if bundle.get("joint") is not None else 0) + index
+        for group in rot_groups
+        for index in group["indices"]
+    }
+    protected.update(int(value) for value in (bundle.get("gripper_columns") or {}).get("joint", set()))
+    action_offset = int(bundle["joint"].shape[1]) if bundle.get("joint") is not None else 0
+    protected.update(
+        action_offset + int(value)
+        for value in (bundle.get("gripper_columns") or {}).get("action", set())
+    )
+    generic_candidate = repair_isolated_spikes(
+        original,
+        generic_before["mask"],
+        generic_before["dimension_mask"],
+        max_gap_frames,
+        protected,
+    )
+    candidate = generic_candidate["values"]
+    candidate_cells = generic_candidate["cell_mask"]
+    for group in rot_groups:
+        kind_offset = 0 if group["kind"] == "joint" else int(bundle["joint"].shape[1]) if bundle.get("joint") is not None else 0
+        combined_indices = [kind_offset + index for index in group["indices"]]
+        result = detect_rot6d_jumps(original[:, combined_indices], sigma=sigma)
+        rot_candidate = repair_rot6d_spikes(original[:, combined_indices], result["mask"], max_gap_frames)
+        candidate[:, combined_indices] = rot_candidate["values"]
+        candidate_cells[:, combined_indices] = rot_candidate["cell_mask"]
+    candidate, candidate_cells = _restrict_repairs_to_writable_sources(original, candidate, candidate_cells, bundle)
+    joint_width = int(bundle["joint"].shape[1]) if bundle.get("joint") is not None else 0
+
+    def inspect(values: np.ndarray) -> tuple[dict, dict, np.ndarray]:
+        candidate_bundle = {**bundle}
+        if bundle.get("joint") is not None:
+            candidate_bundle["joint"] = values[:, :joint_width]
+        if bundle.get("action") is not None:
+            candidate_bundle["action"] = values[:, joint_width:]
+        generic = detect_sudden_changes(values, sigma)
+        rot = inspect_rot6d_jumps(candidate_bundle, sigma)
+        return generic, rot, generic["mask"] | rot["mask"]
+
+    _, _, candidate_after_mask = inspect(candidate)
+    accepted_cells = candidate_cells.copy()
+    for start, end in _mask_ranges(np.any(candidate_cells, axis=1)):
+        check_start, check_end = max(0, start - 3), min(original.shape[0] - 1, end + 3)
+        if candidate_after_mask[check_start:check_end + 1].any():
+            accepted_cells[start:end + 1] = False
+    accepted_cells &= ~np.isclose(candidate, original, rtol=0.0, atol=0.0, equal_nan=True)
+    while True:
+        repaired = np.where(accepted_cells, candidate, original)
+        generic_after, rot_after, after_mask = inspect(repaired)
+        rejected = np.zeros(original.shape[0], dtype=bool)
+        for start, end in _mask_ranges(np.any(accepted_cells, axis=1)):
+            check_start, check_end = max(0, start - 3), min(original.shape[0] - 1, end + 3)
+            if after_mask[check_start:check_end + 1].any():
+                rejected[start:end + 1] = True
+        if not rejected.any():
+            break
+        accepted_cells[rejected] = False
+    repaired_frames = np.any(accepted_cells, axis=1)
+    return {
+        "values": repaired,
+        "cell_mask": accepted_cells,
+        "repaired_mask": repaired_frames,
+        "before_mask": generic_before["mask"] | rot_before["mask"],
+        "after_mask": after_mask,
+        "generic_before": generic_before,
+        "rot_before": rot_before,
+        "generic_after": generic_after,
+        "rot_after": rot_after,
+        "entries": _repair_patch_entries(original, repaired, accepted_cells, bundle),
+        "ranges": _mask_ranges(repaired_frames),
     }
 
 
@@ -1403,25 +1711,76 @@ def run_episode_curation(
     invalid = np.zeros(frame_count, dtype=bool)
     review = np.zeros(frame_count, dtype=bool)
     motion_score = np.zeros(frame_count, dtype=np.float64)
+    s1_repair_patch: dict | None = None
+    s1_repair_summary = {
+        "enabled": bool(request.repair_s1_spikes),
+        "method": "bounded_cubic_and_rot6d_slerp_v1",
+        "max_repair_frames": int(request.s1_max_repair_frames),
+        "repaired_frame_count": 0,
+        "repaired_range_count": 0,
+        "artifact_path": None,
+    }
 
     signal_parts = [item for item in (joint, action) if item is not None]
     if signal_parts:
         progress(18, "S1 突变、Jerk 与 endpose rot6d 相对旋转检查")
         combined = np.concatenate(signal_parts, axis=1)
-        s1 = detect_sudden_changes(combined, request.sudden_change_sigma)
-        rot6d = inspect_rot6d_jumps(bundle, request.sudden_change_sigma)
+        s1_before = detect_sudden_changes(combined, request.sudden_change_sigma)
+        rot6d_before = inspect_rot6d_jumps(bundle, request.sudden_change_sigma)
+        before_mask = s1_before["mask"] | rot6d_before["mask"]
+        if request.repair_s1_spikes and before_mask.any():
+            repair = repair_s1_bundle(bundle, request.sudden_change_sigma, request.s1_max_repair_frames)
+            combined = repair["values"]
+            joint_width = int(joint.shape[1]) if joint is not None else 0
+            if joint is not None:
+                joint = combined[:, :joint_width]
+                bundle["joint"] = joint
+            if action is not None:
+                action = combined[:, joint_width:]
+                bundle["action"] = action
+            signal_parts = [item for item in (joint, action) if item is not None]
+            s1 = repair["generic_after"]
+            rot6d = repair["rot_after"]
+            repaired_count = int(repair["repaired_mask"].sum())
+            s1_repair_summary.update({
+                "repaired_frame_count": repaired_count,
+                "repaired_range_count": len(repair["ranges"]),
+                "repaired_ranges": [
+                    {"start_frame": start, "end_frame": end}
+                    for start, end in repair["ranges"]
+                ],
+            })
+            if repaired_count:
+                repair_path = s1_repair_path(dataset_id, str(episode["id"]))
+                s1_repair_summary["artifact_path"] = str(repair_path)
+                s1_repair_patch = {
+                    "schema": S1_REPAIR_SCHEMA,
+                    "dataset_id": dataset_id,
+                    "episode_id": str(episode["id"]),
+                    "created_at": _utc_now(),
+                    "method": s1_repair_summary["method"],
+                    "max_repair_frames": int(request.s1_max_repair_frames),
+                    "repaired_frame_count": repaired_count,
+                    "repaired_ranges": s1_repair_summary["repaired_ranges"],
+                    "entries": repair["entries"],
+                }
+        else:
+            s1 = s1_before
+            rot6d = rot6d_before
         s1_mask = s1["mask"] | rot6d["mask"]
         invalid |= s1_mask
         motion_score = np.maximum(motion_score, np.maximum(s1["score"], rot6d["score"]))
         findings.extend(_mask_findings(s1["mask"], "s1", "reject", "S1 突变/加速度/Jerk 异常", fps, 0.88))
         findings.extend(_mask_findings(rot6d["mask"], "s1", "reject", "S1 endpose rot6d 相对旋转突变或 6D 基向量无效", fps, 0.94))
         stages.append(_stage("s1", "completed", f"检测到 {int(s1_mask.sum())} 个异常帧", {
+            "flagged_frame_count_before_repair": int(before_mask.sum()),
             "flagged_frame_count": int(s1_mask.sum()),
             "generic_jump_frame_count": s1["event_count"],
             "rot6d_jump_frame_count": rot6d["event_count"],
             "rot6d_group_count": rot6d["group_count"],
             "rot6d_groups": rot6d["groups"],
             "sigma": request.sudden_change_sigma,
+            **s1_repair_summary,
         }))
     else:
         stages.append(_stage("s1", "skipped", "没有可读取的 Joint/Action 数值流"))
@@ -1596,6 +1955,12 @@ def run_episode_curation(
     matches, changed_path = source_signatures_match(root, signatures, allowed_paths=allowed_paths)
     if not matches:
         raise RuntimeError(f"Source changed during paper curation; report was not committed: {changed_path or 'unknown source'}")
+    repair_path = s1_repair_path(dataset_id, str(episode["id"]))
+    if s1_repair_patch is not None:
+        s1_repair_patch["source_signatures"] = signatures
+        _write_json_atomic(repair_path, s1_repair_patch)
+    else:
+        repair_path.unlink(missing_ok=True)
     summary = {
         "frame_count": frame_count,
         "valid_frame_count": int((~invalid & ~review).sum()),
@@ -1633,7 +1998,11 @@ def run_episode_curation(
             "cohort_id": (s3_reference or {}).get("cohort_id"),
             "episode_count": int((s3_reference or {}).get("episode_count") or 1),
         },
-        "stream_bindings": bundle["bindings"],
+        "stream_bindings": [
+            {key: value for key, value in binding.items() if not key.startswith("_")}
+            for binding in bundle["bindings"]
+        ],
+        "s1_repair": s1_repair_summary,
         "warnings": [
             *bundle["warnings"],
             *([] if hand_visibility.get("available") else [hand_visibility.get("message") or "整手可见性检查不可用"]),
@@ -1652,12 +2021,13 @@ def run_episode_curation(
     }
     path = curation_report_path(dataset_id, str(episode["id"]))
     _write_json_atomic(path, document)
+    staged_paths = [path, *([repair_path] if s1_repair_patch is not None else [])]
     change = record_change(
         dataset_id,
         "paper_curation",
         str(episode["id"]),
         f"Paper curation: {episode.get('name') or episode['id']}",
-        [path],
+        staged_paths,
         summary,
         used_source_paths,
     )
@@ -1687,6 +2057,7 @@ def finalize_episode_curation(
     progress(12, "读取 S1-S5/C3 有效片段与对齐数值流")
     alignment = scan_episode_sensor_alignment(manifest, episode, force=False)
     bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=frame_count)
+    apply_s1_repair_to_bundle(bundle, load_s1_repair(report))
     progress(45, "C2 基于有效片段 VLM 与 State/Action 做一致性检查")
     c1 = inspect_instruction_consistency(behavior, episode, preliminary_eligible, fps)
     c2 = inspect_behavior_state_consistency(behavior, bundle, preliminary_eligible, fps)
