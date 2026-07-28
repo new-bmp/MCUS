@@ -25,16 +25,19 @@ class FrontendDatasetLazyLoadingContractTests(unittest.TestCase):
         self.assertIn('while (state.datasetCache.size > 3)', self.app)
 
     def test_frontend_cache_version_is_updated(self) -> None:
-        self.assertIn('app.js?v=studio-78', self.index)
+        self.assertIn('app.js?v=studio-79', self.index)
 
     def test_full_completion_refreshes_vlm_panel_and_reports_request_counts(self) -> None:
         self.assertIn('await loadBehaviorAnnotation();', self.app)
         self.assertIn('VLM 请求 ${Number(job.result?.vlm_requested_count || 0)}', self.app)
 
     def test_full_robot_action_is_optional_and_submitted_with_selected_profile(self) -> None:
+        self.assertIn('id="fullOutputFormat"', self.app)
+        self.assertIn('<option value="lerobot" selected>', self.app)
+        self.assertIn('full_output_format: $("#fullOutputFormat")?.value || "lerobot"', self.app)
         self.assertIn('id="fullGenerateAction"', self.app)
         self.assertIn('id="fullRobotProfile"', self.app)
-        self.assertIn('if (state.analysisOperation !== "full_pipeline" || !$("#fullGenerateAction")?.checked) return {};', self.app)
+        self.assertIn('if (state.analysisOperation !== "full_pipeline" || !$("#fullGenerateAction")?.checked) return output;', self.app)
         self.assertIn('full_action_profile_id: profileId', self.app)
 
 

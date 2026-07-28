@@ -154,6 +154,7 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertEqual(2, len(submitted))
         self.assertTrue(all(payload["full_pipeline"] for payload in submitted))
+        self.assertTrue(all(payload["full_output_format"] == "lerobot" for payload in submitted))
         self.assertTrue(all("full_action_profile_id" not in payload for payload in submitted))
 
         action_args = parser.parse_args([
@@ -180,6 +181,7 @@ class RuntimeCliTests(unittest.TestCase):
         selected = parser.parse_args(["full", "dataset", "--all", "--robot", "franka_panda"])
 
         self.assertIsNone(no_robot.action_profile)
+        self.assertEqual("lerobot", no_robot.output_format)
         self.assertEqual("franka_panda", selected.action_profile)
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["full", "dataset", "--all", "--robot", "unknown_robot"])

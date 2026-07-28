@@ -12,13 +12,22 @@ import cv2
 import h5py
 import numpy as np
 
+from .lerobot_export import (
+    HAND_21_JOINT_NAMES,
+    side_hand_joint_names,
+    write_lerobot_metadata,
+    write_lerobot_pair,
+)
 from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment
 from .video_smoothing import _create_frame_writer
 
 
-FULL_DATASET_SCHEMA = "alice/full-mano-dataset/v1"
+FULL_DATASET_SCHEMA = "alice/full-dataset/v2"
+LEGACY_FULL_DATASET_SCHEMA = "alice/full-mano-dataset/v1"
 FULL_PAIR_SCHEMA = "alice/full-mano-pair/v1"
-FULL_EXPORT_PIPELINE_VERSION = 2
+FULL_EXPORT_PIPELINE_VERSION = 3
+DEFAULT_FULL_OUTPUT_FORMAT = "lerobot"
+SUPPORTED_FULL_OUTPUT_FORMATS = {"lerobot", "hdf5_mp4"}
 REMOVED_VLM_PHASES = {"idle", "reach"}
 DEFAULT_MAX_INTERNAL_GAP_SECONDS = 0.25
 DEFAULT_MIN_CLIP_SECONDS = 0.75
@@ -26,16 +35,7 @@ _INDEX_LOCK = threading.RLock()
 
 
 def _side_joint_names(side: str) -> list[str]:
-    names = [f"{side}Forearm", f"{side}Hand"]
-    for finger in ("Thumb", "IndexFinger", "MiddleFinger", "RingFinger", "LittleFinger"):
-        prefix = f"{side}{finger}"
-        names.extend([
-            f"{prefix}Knuckle",
-            f"{prefix}IntermediateBase",
-            f"{prefix}IntermediateTip",
-            f"{prefix}Tip",
-        ])
-    return names
+    return [f"{side}Forearm", *side_hand_joint_names(side)]
 
 
 MANO_44_JOINT_NAMES = tuple([*_side_joint_names("left"), *_side_joint_names("right")])
@@ -63,8 +63,12 @@ def _episode_records(manifest: dict, episode: dict) -> list[dict]:
     ]
 
 
-def _find_transform_source(manifest: dict, episode: dict) -> tuple[Path, str, int]:
+def _find_transform_source(manifest: dict, episode: dict, output_format: str = "hdf5_mp4") -> tuple[Path, str, int]:
     root = Path(str(manifest["root_path"])).expanduser().resolve()
+    required_names = MANO_44_JOINT_NAMES if output_format == "hdf5_mp4" else (
+        *side_hand_joint_names("left"),
+        *side_hand_joint_names("right"),
+    )
     candidates = [
         item for item in _episode_records(manifest, episode)
         if Path(str(item.get("relative_path") or "")).suffix.casefold() in {".h5", ".hdf5", ".h5df"}
@@ -79,18 +83,19 @@ def _find_transform_source(manifest: dict, episode: dict) -> tuple[Path, str, in
                 transforms = source.get("transforms")
                 if not isinstance(transforms, h5py.Group):
                     continue
-                absent = [name for name in (*MANO_44_JOINT_NAMES, "camera") if name not in transforms]
+                absent = [name for name in (*required_names, "camera") if name not in transforms]
                 if absent:
                     missing.extend(absent)
                     continue
-                counts = {int(transforms[name].shape[0]) for name in (*MANO_44_JOINT_NAMES, "camera")}
-                if len(counts) != 1 or any(transforms[name].shape[1:] != (4, 4) for name in (*MANO_44_JOINT_NAMES, "camera")):
+                counts = {int(transforms[name].shape[0]) for name in (*required_names, "camera")}
+                if len(counts) != 1 or any(transforms[name].shape[1:] != (4, 4) for name in (*required_names, "camera")):
                     continue
                 return path, relative, counts.pop()
         except (OSError, KeyError, ValueError):
             continue
     detail = f"; missing: {', '.join(sorted(set(missing))[:8])}" if missing else ""
-    raise RuntimeError(f"Episode has no HDF5 source with MANO 44x4x4 + camera{detail}")
+    required_label = "MANO 44x4x4" if output_format == "hdf5_mp4" else "left/right hand 21x4x4"
+    raise RuntimeError(f"Episode has no HDF5 source with {required_label} + camera{detail}")
 
 
 def _aligned_rows(manifest: dict, episode: dict, relative: str, source_count: int, video_count: int) -> np.ndarray:
@@ -442,7 +447,10 @@ def export_episode(
     curation: dict,
     behavior: dict,
     progress,
+    output_format: str = DEFAULT_FULL_OUTPUT_FORMAT,
 ) -> dict:
+    if output_format not in SUPPORTED_FULL_OUTPUT_FORMATS:
+        raise ValueError(f"Unsupported Full output format: {output_format}")
     frame_count = int(smoothed_media.get("frame_count") or episode.get("frame_count") or 0)
     fps = max(0.01, float(smoothed_media.get("fps") or episode.get("fps") or 30.0))
     intervals, filtering = filtered_intervals(
@@ -453,78 +461,110 @@ def export_episode(
         max_internal_gap_seconds=DEFAULT_MAX_INTERNAL_GAP_SECONDS,
         min_clip_seconds=DEFAULT_MIN_CLIP_SECONDS,
     )
-    source_path, source_relative, source_count = _find_transform_source(manifest, episode)
+    source_path, source_relative, source_count = _find_transform_source(manifest, episode, output_format)
     row_map = _aligned_rows(manifest, episode, source_relative, source_count, frame_count)
     next_episode_numbers: dict[str, int] = {}
     pairs: list[dict] = []
     for position, (start, end) in enumerate(intervals, start=1):
         classification = classify_behavior(behavior, start, end)
         category = classification["category"]
-        category_root = output_root / category
-        category_root.mkdir(parents=True, exist_ok=True)
-        if category not in next_episode_numbers:
-            existing_numbers = [
-                int(match.group(1))
-                for path in category_root.iterdir()
-                if path.is_dir() and (match := re.fullmatch(r"ep(\d+)", path.name, flags=re.IGNORECASE))
-            ]
-            next_episode_numbers[category] = max(existing_numbers, default=0) + 1
         progress(100 * (position - 1) / max(1, len(intervals)), f"准备导出片段 {position}/{len(intervals)}")
-        while True:
-            export_episode_id = f"ep{next_episode_numbers[category]}"
-            next_episode_numbers[category] += 1
-            episode_root = category_root / export_episode_id
+        frames = np.arange(start, end + 1, dtype=np.int64)
+        expected = int(frames.size)
+        if output_format == "lerobot":
+            staging_root = output_root / ".staging"
+            staging_root.mkdir(parents=True, exist_ok=True)
+            video_temporary = staging_root / f".video.{uuid.uuid4().hex}.part.mp4"
             try:
-                episode_root.mkdir(parents=True, exist_ok=False)
-                break
-            except FileExistsError:
-                continue
-        video_path = episode_root / "video.mp4"
-        hdf5_path = episode_root / "data.hdf5"
-        video_temporary = episode_root / f".video.{uuid.uuid4().hex}.part.mp4"
-        hdf5_temporary = episode_root / f".data.{uuid.uuid4().hex}.part.hdf5"
-        try:
-            video_info = _write_video_clip(Path(str(smoothed_media["path"])), video_temporary, start, end)
-            frames = np.arange(start, end + 1, dtype=np.int64)
-            _write_mano_hdf5(
-                hdf5_temporary,
-                source_path,
-                source_relative,
-                row_map[frames],
-                frames,
-                video_info["fps"],
-                manifest,
-                episode,
-                behavior,
-                classification,
-            )
-            expected = end - start + 1
-            with h5py.File(hdf5_temporary, "r") as output:
-                hdf5_frames = int(output["mano/transforms"].shape[0])
-                shape = tuple(output["mano/transforms"].shape[1:])
-                camera_frames = int(output["camera/transform"].shape[0])
-            video_frames = _video_frame_count(video_temporary)
-            if video_frames != expected or hdf5_frames != expected or camera_frames != expected or shape != (44, 4, 4):
-                raise RuntimeError(f"Full pair verification failed: video={video_frames}, hdf5={hdf5_frames}, camera={camera_frames}, expected={expected}")
-            video_temporary.replace(video_path)
-            hdf5_temporary.replace(hdf5_path)
-            pairs.append({
-                "id": f"{category}/{export_episode_id}",
-                "export_episode": export_episode_id,
-                "episode_id": episode["id"],
-                **classification,
-                "start_frame": start,
-                "end_frame": end,
-                "frame_count": expected,
-                "video_encoder": video_info["encoder"],
-                "video_encoder_gpu": video_info["encoder_gpu"],
-                "mp4": str(video_path),
-                "hdf5": str(hdf5_path),
-            })
-            progress(100 * position / max(1, len(intervals)), f"导出 MANO/腕部/视频 {position}/{len(intervals)}")
-        finally:
-            video_temporary.unlink(missing_ok=True)
-            hdf5_temporary.unlink(missing_ok=True)
+                video_info = _write_video_clip(Path(str(smoothed_media["path"])), video_temporary, start, end)
+                if int(video_info.get("frame_count") or 0) != expected or _video_frame_count(video_temporary) != expected:
+                    raise RuntimeError("LeRobot staged video frame count mismatch")
+                pair = write_lerobot_pair(
+                    output_root,
+                    video_temporary,
+                    video_info,
+                    source_path,
+                    source_relative,
+                    source_count,
+                    row_map[frames],
+                    frames,
+                    _phase_labels(behavior, frames),
+                    manifest,
+                    episode,
+                    classification,
+                )
+                pair.update({"start_frame": start, "end_frame": end})
+                pairs.append(pair)
+                progress(100 * position / max(1, len(intervals)), f"导出 LeRobot Episode {position}/{len(intervals)}")
+            finally:
+                video_temporary.unlink(missing_ok=True)
+        else:
+            category_root = output_root / category
+            category_root.mkdir(parents=True, exist_ok=True)
+            if category not in next_episode_numbers:
+                existing_numbers = [
+                    int(match.group(1))
+                    for path in category_root.iterdir()
+                    if path.is_dir() and (match := re.fullmatch(r"ep(\d+)", path.name, flags=re.IGNORECASE))
+                ]
+                next_episode_numbers[category] = max(existing_numbers, default=0) + 1
+            while True:
+                export_episode_id = f"ep{next_episode_numbers[category]}"
+                next_episode_numbers[category] += 1
+                episode_root = category_root / export_episode_id
+                try:
+                    episode_root.mkdir(parents=True, exist_ok=False)
+                    break
+                except FileExistsError:
+                    continue
+            video_path = episode_root / "video.mp4"
+            hdf5_path = episode_root / "data.hdf5"
+            video_temporary = episode_root / f".video.{uuid.uuid4().hex}.part.mp4"
+            hdf5_temporary = episode_root / f".data.{uuid.uuid4().hex}.part.hdf5"
+            try:
+                video_info = _write_video_clip(Path(str(smoothed_media["path"])), video_temporary, start, end)
+                _write_mano_hdf5(
+                    hdf5_temporary,
+                    source_path,
+                    source_relative,
+                    row_map[frames],
+                    frames,
+                    video_info["fps"],
+                    manifest,
+                    episode,
+                    behavior,
+                    classification,
+                )
+                with h5py.File(hdf5_temporary, "r") as output:
+                    hdf5_frames = int(output["mano/transforms"].shape[0])
+                    shape = tuple(output["mano/transforms"].shape[1:])
+                    camera_frames = int(output["camera/transform"].shape[0])
+                video_frames = _video_frame_count(video_temporary)
+                if video_frames != expected or hdf5_frames != expected or camera_frames != expected or shape != (44, 4, 4):
+                    raise RuntimeError(f"Full pair verification failed: video={video_frames}, hdf5={hdf5_frames}, camera={camera_frames}, expected={expected}")
+                video_temporary.replace(video_path)
+                hdf5_temporary.replace(hdf5_path)
+                pairs.append({
+                    "id": f"{category}/{export_episode_id}",
+                    "output_format": "hdf5_mp4",
+                    "export_episode": export_episode_id,
+                    "episode_id": episode["id"],
+                    **classification,
+                    "start_frame": start,
+                    "end_frame": end,
+                    "frame_count": expected,
+                    "fps": video_info["fps"],
+                    "width": video_info["width"],
+                    "height": video_info["height"],
+                    "video_encoder": video_info["encoder"],
+                    "video_encoder_gpu": video_info["encoder_gpu"],
+                    "mp4": str(video_path),
+                    "hdf5": str(hdf5_path),
+                })
+                progress(100 * position / max(1, len(intervals)), f"导出 HDF5/视频 {position}/{len(intervals)}")
+            finally:
+                video_temporary.unlink(missing_ok=True)
+                hdf5_temporary.unlink(missing_ok=True)
     categories = sorted({str(pair["category"]) for pair in pairs})
     return {
         "pairs": pairs,
@@ -532,30 +572,48 @@ def export_episode(
         "transform_source": source_relative,
         "category": categories[0] if len(categories) == 1 else "mixed" if categories else None,
         "categories": categories,
+        "output_format": output_format,
     }
 
 
-def write_dataset_index(output_root: Path, manifest: dict, pairs: list[dict], failures: list[dict]) -> Path:
+def write_dataset_index(
+    output_root: Path,
+    manifest: dict,
+    pairs: list[dict],
+    failures: list[dict],
+    output_format: str = DEFAULT_FULL_OUTPUT_FORMAT,
+) -> Path:
+    if output_format not in SUPPORTED_FULL_OUTPUT_FORMATS:
+        raise ValueError(f"Unsupported Full output format: {output_format}")
     path = output_root / "dataset.json"
     with _INDEX_LOCK:
         existing: dict = {}
         try:
             candidate = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-            if candidate.get("schema") == FULL_DATASET_SCHEMA and str(candidate.get("source_dataset_id") or "") == str(manifest.get("id") or ""):
+            if candidate.get("schema") in {FULL_DATASET_SCHEMA, LEGACY_FULL_DATASET_SCHEMA} and str(candidate.get("source_dataset_id") or "") == str(manifest.get("id") or ""):
                 existing = candidate
         except (OSError, json.JSONDecodeError):
             existing = {}
         combined_by_id = {
-            str(pair.get("id")): pair
+            str(pair.get("id")): {
+                **pair,
+                "output_format": pair.get("output_format") or ("hdf5_mp4" if pair.get("hdf5") else "lerobot"),
+            }
             for pair in existing.get("pairs") or []
             if isinstance(pair, dict) and pair.get("id")
         }
-        combined_by_id.update({str(pair.get("id")): pair for pair in pairs if pair.get("id")})
+        combined_by_id.update({
+            str(pair.get("id")): {**pair, "output_format": pair.get("output_format") or output_format}
+            for pair in pairs if pair.get("id")
+        })
         combined_pairs = list(combined_by_id.values())
         categories: dict[str, int] = {}
+        output_formats: dict[str, int] = {}
         for pair in combined_pairs:
             label = str(pair.get("category") or pair.get("task_label") or "other")
             categories[label] = categories.get(label, 0) + 1
+            pair_format = str(pair.get("output_format") or "unknown")
+            output_formats[pair_format] = output_formats.get(pair_format, 0) + 1
         combined_failures: list[dict] = []
         seen_failures: set[tuple[str, str]] = set()
         for failure in [*(existing.get("failures") or []), *failures]:
@@ -574,6 +632,12 @@ def write_dataset_index(output_root: Path, manifest: dict, pairs: list[dict], fa
             "source_root": manifest.get("root_path"),
             "pipeline_version": FULL_EXPORT_PIPELINE_VERSION,
             "pipeline": ["video_smoothing", "optional_action_s2", "s1_s5_c3", "vlm_non_red_segments", "c1_c2", "drop_idle_reach", "anti_fragment", "classify_and_export"],
+            "default_output_format": DEFAULT_FULL_OUTPUT_FORMAT,
+            "output_formats": output_formats,
+            "hand_joint_names": list(HAND_21_JOINT_NAMES),
+            "hand_joint_count_per_side": 21,
+            "hand_transform_shape": ["T", 21, 4, 4],
+            "body_joint_policy": "every named transform except the two 21-joint hands and camera is written to the body Parquet",
             "mano_joint_names": list(MANO_44_JOINT_NAMES),
             "mano_shape": ["T", 44, 4, 4],
             "camera_shape": ["T", 4, 4],
@@ -591,4 +655,6 @@ def write_dataset_index(output_root: Path, manifest: dict, pairs: list[dict], fa
             "pairs": combined_pairs,
             "failures": combined_failures,
         })
+        if output_format == "lerobot":
+            return write_lerobot_metadata(output_root, manifest, combined_pairs)
     return path

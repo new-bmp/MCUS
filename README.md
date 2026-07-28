@@ -171,26 +171,39 @@ Qwen-VLM 使用 OpenAI-compatible `/chat/completions` API。配置保存在本�
 视频平滑 → S1-S5/C3 → 非红色片段 VLM 标注 → C1/C2 → 去除静止和伸手 → 分类导出
 ```
 
-S1-S5/C3 后的红色片段不会送入 VLM；绿色和黄色片段都会参与标注。C1/C2 结束后只导出最终通过的连续片段，并按 VLM 高层任务标签建立分类目录。例如任务标签为 `插usb` 时：
+S1-S5/C3 后的红色片段不会送入 VLM；绿色和黄色片段都会参与标注。C1/C2 结束后只导出最终通过的连续片段，并使用 VLM 高层任务标签写入 LeRobot task 元数据。
 
 S1 除通用突变、加速度和 Jerk 外，还会对明确标记为 `endpose/rot6d` 的末端位姿计算相邻帧相对旋转角，拒绝旋转跳变及退化的 6D 旋转基向量。普通六维向量不会触发该专用检查。
 
 ```text
 <源数据集>/
   output/
+    data/chunk-000/episode_000000.parquet
+    body/chunk-000/episode_000000.parquet
+    videos/chunk-000/observation.images.main/episode_000000.mp4
+    meta/info.json
+    meta/tasks.parquet
+    meta/episodes/chunk-000/file-000.parquet
+    meta/stats.json
     dataset.json
-    插usb/
-      ep1/
-        data.hdf5
-        video.mp4
-      ep2/
-        data.hdf5
-        video.mp4
 ```
 
-`output` 是固定导出根目录，会被 Alice 的源数据扫描器忽略。重复执行 Full 时不会覆盖已有 Episode；同一分类下继续分配新的 `epN`，`dataset.json` 会合并保留既有配对索引。
+默认数据 Parquet 中左右手分别固定为以下 21 点局部顺序；两只手使用完全相同的 `0-20` 定义：
 
-每对文件严格帧对齐。`data.hdf5` 包含 `mano/transforms [T,44,4,4]`、`camera/transform [T,4,4]`、左右腕 `xyz+rot6d [T,9]`、源帧号、源 HDF5 行号、时间戳和 VLM 阶段标签。源数据缺少真实 44 个手部变换或 camera 变换时，该 Episode 会明确失败，不会使用补零数据。
+| 局部索引 | 节点 |
+|---:|---|
+| 0 | `Hand`（腕部） |
+| 1-4 | `ThumbKnuckle → ThumbIntermediateBase → ThumbIntermediateTip → ThumbTip` |
+| 5-8 | `IndexFingerKnuckle → IndexFingerIntermediateBase → IndexFingerIntermediateTip → IndexFingerTip` |
+| 9-12 | `MiddleFingerKnuckle → MiddleFingerIntermediateBase → MiddleFingerIntermediateTip → MiddleFingerTip` |
+| 13-16 | `RingFingerKnuckle → RingFingerIntermediateBase → RingFingerIntermediateTip → RingFingerTip` |
+| 17-20 | `LittleFingerKnuckle → LittleFingerIntermediateBase → LittleFingerIntermediateTip → LittleFingerTip` |
+
+主数据还包含 camera transform、左右腕 `xyz+rot6d`、VLM phase、源帧号、源 HDF5 行号和时间戳。除左右手这 42 个节点及 `camera` 外，源 HDF5 中所有形状为 `[T,4,4]` 的命名 transform（包括 forearm）都写入独立 Body Parquet，并在 `meta/info.json` 记录顺序。所有 Episode 使用 LeRobot 的全局 `episode_index`、`frame_index`、`index` 和 `task_index`。
+
+`output` 是固定导出根目录，会被 Alice 的源数据扫描器忽略。重复执行 Full 时不会覆盖已有 Episode，而是继续分配新的 LeRobot Episode；`dataset.json` 作为 Alice 审计索引合并保留既有输出。
+
+旧版 HDF5 + MP4 仍可在 Full 对话框选择，或使用 `sh full.sh ... --output-format hdf5_mp4`。该兼容格式继续输出分类目录、`mano/transforms [T,44,4,4]` 与配对视频。默认 LeRobot 只强制要求左右手各 21 个 transform 与 camera；Body 关节按源数据实际存在情况写入。源数据缺少所选格式的必需 transform 时，该 Episode 会明确失败，不会使用补零数据。
 
 ## 无效帧快速索引
 

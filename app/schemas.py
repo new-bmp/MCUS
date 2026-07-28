@@ -70,6 +70,7 @@ class CurationJobRequest(BaseModel):
     vlm_sample_count: int = Field(default=18, ge=6, le=24)
     force_vlm: bool = False
     full_pipeline: bool = False
+    full_output_format: Literal["lerobot", "hdf5_mp4"] = "lerobot"
     full_action_profile_id: str | None = Field(default=None, min_length=1, max_length=80)
     full_action_source_hand: Literal["left", "right"] = "right"
     full_action_coordinate_frame: Literal["camera", "world"] = "camera"

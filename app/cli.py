@@ -495,6 +495,7 @@ def command_full(args: argparse.Namespace) -> int:
                 "episode_ids": episode_ids,
                 "media_file_ids": {episode_id: media_file_ids[episode_id] for episode_id in episode_ids},
                 "full_pipeline": True,
+                "full_output_format": args.output_format,
                 "force_vlm": bool(args.force_vlm),
                 "vlm_sample_count": int(args.vlm_samples),
             }
@@ -525,6 +526,7 @@ def command_full(args: argparse.Namespace) -> int:
         "job_ids": [job["id"] for job in submitted],
         "robot_profile": args.action_profile,
         "action_generation": bool(args.action_profile),
+        "output_format": args.output_format,
         "runtime": runtime,
     }
     if args.detach:
@@ -645,6 +647,12 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--parallel", type=int, default=1, choices=range(1, 33), metavar="N", help="Balanced parallel Full jobs")
     full.add_argument("--force-vlm", action="store_true", help="Do not reuse matching VLM annotations")
     full.add_argument("--vlm-samples", type=int, default=18, choices=range(6, 25), metavar="N")
+    full.add_argument(
+        "--output-format",
+        choices=("lerobot", "hdf5_mp4"),
+        default="lerobot",
+        help="Full output format; LeRobot is the default and HDF5+MP4 is retained for compatibility",
+    )
     full.add_argument(
         "--robot",
         "--action-profile",

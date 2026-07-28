@@ -2135,12 +2135,22 @@ class CurationJobManager(CancellableJobMixin):
                             self._raise_if_cancelled(job_id)
                             update(88 + max(0.0, min(100.0, value)) * 0.12, message)
 
-                        export_result = export_episode(output_root, manifest, episode, analysis_media, payload, behavior, export_update) if behavior else {
+                        export_result = export_episode(
+                            output_root,
+                            manifest,
+                            episode,
+                            analysis_media,
+                            payload,
+                            behavior,
+                            export_update,
+                            output_format=request.full_output_format,
+                        ) if behavior else {
                             "pairs": [],
                             "filtering": {"retained_frame_count": 0, "removed_vlm_frame_count": 0},
                             "transform_source": None,
                             "category": None,
                             "categories": [],
+                            "output_format": request.full_output_format,
                         }
                         all_pairs.extend(export_result["pairs"])
                     item = {
@@ -2183,7 +2193,13 @@ class CurationJobManager(CancellableJobMixin):
                 self._raise_if_cancelled(job_id)
                 self._update(job_id, completed_count=position + 1, progress=round((position + 1) / max(1, total) * 100, 1))
             self._raise_if_cancelled(job_id)
-            index_path = write_dataset_index(output_root, manifest, all_pairs, failures) if output_root is not None else None
+            index_path = write_dataset_index(
+                output_root,
+                manifest,
+                all_pairs,
+                failures,
+                output_format=request.full_output_format,
+            ) if output_root is not None else None
             result = {
                 "dataset_id": dataset_id,
                 "operation": operation,
@@ -2197,6 +2213,7 @@ class CurationJobManager(CancellableJobMixin):
                 "vlm_reused_count": vlm_reused_count,
                 "vlm_skipped_count": vlm_skipped_count,
                 "action_config": full_action,
+                "output_format": request.full_output_format if request.full_pipeline else None,
                 "output_root": str(output_root) if output_root is not None else None,
                 "dataset_index": str(index_path) if index_path is not None else None,
             }

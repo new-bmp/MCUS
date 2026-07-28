@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>alice blue</title>
-  <link rel="stylesheet" href="/static/style.css?v=studio-78">
-  <link rel="stylesheet" href="/static/sidecar.css?v=studio-76">
+  <link rel="stylesheet" href="/static/style.css?v=studio-79">
+  <link rel="stylesheet" href="/static/sidecar.css?v=studio-77">
   <link rel="stylesheet" href="/static/h5-compare.css?v=studio-48">
   <script src="/static/icons.js?v=offline-5"></script>
 </head>
@@ -42,7 +42,7 @@
     </div>
     <div class="ribbon-pane" data-pane="analysis">
       <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button primary" id="curationPipelineButton" disabled title="State / Action / Video 数据质量清洗"><i data-lucide="workflow"></i><span>数据清洗</span></button></div><small>八阶段质量管线</small></div>
-      <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button primary" id="fullPipelineButton" disabled title="平滑、清洗、可选 Action/S2、VLM、C1/C2 与 MANO 配对导出"><i data-lucide="package-check"></i><span>Full</span></button></div><small>一键标准数据集</small></div>
+      <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button primary" id="fullPipelineButton" disabled title="平滑、清洗、可选 Action/S2、VLM、C1/C2 与 LeRobot 导出"><i data-lucide="package-check"></i><span>Full</span></button></div><small>一键标准数据集</small></div>
       <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button primary" id="actionMappingButton" disabled title="从 MANO 与腕部轨迹生成机器人 Action"><i data-lucide="bot"></i><span>生成 Action</span></button></div><small>常见机器人映射</small></div>
       <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button" id="videoSmoothButton" disabled title="光流稳像与清晰度增强"><i data-lucide="scan-line"></i><span>视频平滑</span></button></div><small>稳像与减轻模糊</small></div>
       <div class="ribbon-group"><div class="ribbon-actions"><button class="ribbon-button" id="poseRecoveryButton" disabled title="SLAM / visual odometry pose recovery"><i data-lucide="scan-search"></i><span>SLAM 位姿恢复</span></button></div><small>位姿补全</small></div>
@@ -184,6 +184,6 @@
  <div class="modal-backdrop hidden" id="excludeFileModal"><div class="modal exclude-file-modal"><div class="modal-head"><strong id="excludeFileModalTitle">移出数据集索引</strong><button class="icon-button exclude-file-close" title="关闭"><i data-lucide="x"></i></button></div><div class="modal-body"><div class="exclude-file-context" id="excludeFileContext"></div><div class="exclude-file-warning"><i data-lucide="shield-check"></i><span>只从 alice blue 当前数据集索引中移出，不删除、不移动源文件。以后重扫仍会遵守这条排除记录。</span></div><label>移出原因<input id="excludeFileReason" value="人工排除不符合条目" maxlength="500"></label></div><div class="modal-foot"><button class="button exclude-file-close">取消</button><button class="button primary danger" id="confirmExcludeFile"><i data-lucide="file-minus"></i><span id="confirmExcludeFileLabel">确认移出</span></button></div></div></div>
   <div class="modal-backdrop hidden" id="actionMappingModal"><div class="modal action-mapping-modal" role="dialog" aria-modal="true" aria-labelledby="actionMappingTitle"><div class="modal-head"><strong id="actionMappingTitle" tabindex="-1">生成机器人 Action</strong><button class="icon-button action-mapping-close" title="关闭" aria-label="关闭 Action 映射"><i data-lucide="x"></i></button></div><div class="modal-body"><div class="analysis-scope-kind">从 MANO 与腕部轨迹生成逐帧 Action；源文件保持只读。</div><div class="analysis-scope-options"><label class="analysis-scope-option"><input type="radio" name="actionScope" value="single" checked><span><b>指定 Episode</b><small>只为下方一条数据生成</small></span></label><label class="analysis-scope-option"><input type="radio" name="actionScope" value="all"><span><b>全部 Episode</b><small id="actionAllDescription">依次处理整个数据集</small></span></label></div><label>Episode<select id="actionEpisodeSelect"></select></label><div class="action-settings-grid"><label>机器人 / 控制类型<select id="actionRobotProfile"><option value="generic_bimanual_pose">通用双臂 · 绝对末端 20D</option><option value="generic_bimanual_delta">通用双臂 · 末端增量 14D</option><option value="aloha_bimanual">ALOHA · 双臂末端代理 14D</option><option value="franka_panda">Franka Panda · 单臂末端代理 7D</option><option value="ur5e">UR5 / UR5e · 单臂末端代理 7D</option><option value="xarm7">xArm 7 · 单臂末端代理 7D</option><option value="agilex_piper">AgileX Piper · 单臂末端代理 7D</option></select></label><label id="actionSourceHandField">映射哪只手<select id="actionSourceHand"><option value="right" selected>右手</option><option value="left">左手</option></select></label><label>统一坐标系<select id="actionCoordinateFrame"><option value="camera" selected>当前相机坐标（推荐）</option><option value="world">源数据世界坐标</option></select></label><label>预测未来帧数<input id="actionHorizonFrames" type="number" min="1" max="30" step="1" value="3"></label></div><div class="action-profile-note" id="actionProfileNote">正在读取机器人映射说明…</div><div class="analysis-scope-notice" id="actionMappingNotice">结果逐 Episode 写入 .alicePD/actions；中途终止时已完成结果仍会保留索引。</div></div><div class="modal-foot"><button class="button action-mapping-close">取消</button><button class="button primary" id="startActionMapping"><i data-lucide="bot"></i><span>生成 Action</span></button></div></div></div>
   <div class="toast" id="toast"></div>
-  <script src="/static/app.js?v=studio-78"></script>
+  <script src="/static/app.js?v=studio-79"></script>
 </body>
 </html>
