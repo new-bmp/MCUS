@@ -1,28 +1,5 @@
 # alice blue
 
-## minRE minimal command line pipeline
-
-`minRE` runs without the web UI. It indexes the source in place, then processes
-Episodes one at a time: video smoothing, Qwen VLM behavior annotation, the
-eight-stage curation report, useless-phase removal, aligned cutting, VLM task
-classification, and verified MP4/HDF5 pair export.
-
-```sh
-sh minRE.sh "/data/SPM"
-sh minRE.sh "/data/SPM" --output "/data/SPM_clean"
-sh minRE.sh "/data/SPM" --index-only
-```
-
-Windows PowerShell uses the same arguments:
-
-```powershell
-.\minRE.ps1 "F:\SPM"
-```
-
-The default output is a sibling directory named `<source>_minRE`. Progress and
-resume state are stored in `minre-state.json`; the final searchable pair index
-is `dataset.json`. Re-running the same command resumes completed stages and
-verifies existing pairs before skipping them. Source files are never modified.
 
 VLA 数据集操作有效性审查工具。FastAPI 后端负责目录扫描、媒体解码、模型加载、Qwen 数据结构理解、后台推理、标注持久化和导出。
 
