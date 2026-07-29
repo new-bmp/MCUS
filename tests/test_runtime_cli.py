@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from app.cli import _balanced_full_shards, _select_full_episodes, build_parser, command_full, command_robots
 from app import main as main_module
-from app.episode_resolver import build_sampled_episode_framework
+from app.episode_resolver import build_sampled_episode_framework, episode_key
 from app.models import ModelRegistry
 from app.schema_profiler import MAX_FILES, MAX_FILES_PER_FOLDER, MAX_FOLDERS, build_inventory, sample_profile_paths
 from app.schemas import LocalModelConfig
@@ -43,6 +43,41 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual("single", discovery["mode"])
         self.assertEqual(1, discovery["dataset_count"])
         self.assertEqual(str(root.resolve()), discovery["datasets"][0]["path"])
+
+    def test_alice_full_output_is_one_dataset_instead_of_modality_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("body", "data", "meta", "videos"):
+                (root / name).mkdir()
+            (root / "dataset.json").write_text(
+                '{"schema":"alice/full-dataset/v2"}',
+                encoding="utf-8",
+            )
+            discovery = discover_dataset_roots(root)
+
+        self.assertEqual("single", discovery["mode"])
+        self.assertEqual([str(root.resolve())], [item["path"] for item in discovery["datasets"]])
+
+    def test_standard_lerobot_root_is_one_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "data").mkdir()
+            (root / "videos").mkdir()
+            (root / "meta").mkdir()
+            (root / "meta" / "info.json").write_text("{}", encoding="utf-8")
+            discovery = discover_dataset_roots(root)
+
+        self.assertEqual("single", discovery["mode"])
+
+    def test_alice_lerobot_body_file_uses_same_episode_as_data_and_video(self) -> None:
+        root = Path("dataset")
+        paths = (
+            root / "data" / "chunk-000" / "episode_000007.parquet",
+            root / "body" / "chunk-000" / "episode_000007.parquet",
+            root / "videos" / "chunk-000" / "observation.images.main" / "episode_000007.mp4",
+        )
+
+        self.assertEqual(["episode_7"] * 3, [episode_key(path, root) for path in paths])
 
     def test_full_output_folder_is_ignored_as_source_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
