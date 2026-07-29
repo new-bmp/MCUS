@@ -274,25 +274,46 @@ def _iter_dataset_files(root: Path):
                 continue
 
 
+def _is_self_describing_dataset_root(root: Path) -> bool:
+    """Recognize exported datasets before treating their child folders as peers."""
+    alice_index = root / "dataset.json"
+    if alice_index.is_file():
+        try:
+            payload = json.loads(alice_index.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = None
+        if isinstance(payload, dict) and payload.get("schema") == "alice/full-dataset/v2":
+            return True
+
+    # LeRobot splits one dataset into modality trees. They must stay together
+    # when the top-level folder is selected in the lazy-loading file picker.
+    return (
+        (root / "meta" / "info.json").is_file()
+        and (root / "data").is_dir()
+        and (root / "videos").is_dir()
+    )
+
+
 def discover_dataset_roots(path: str | Path) -> dict:
     """Discover immediate child datasets without scanning their contents."""
     root = Path(path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise ValueError(f"数据集目录不存在: {root}")
     children: list[Path] = []
-    try:
-        with os.scandir(root) as entries:
-            for entry in entries:
-                name = entry.name.casefold()
-                if name in IGNORED_DIRECTORY_NAMES or name.startswith("."):
-                    continue
-                try:
-                    if entry.is_dir(follow_symlinks=False):
-                        children.append(Path(entry.path).resolve())
-                except OSError:
-                    continue
-    except OSError as exc:
-        raise ValueError(f"无法读取目录: {root}") from exc
+    if not _is_self_describing_dataset_root(root):
+        try:
+            with os.scandir(root) as entries:
+                for entry in entries:
+                    name = entry.name.casefold()
+                    if name in IGNORED_DIRECTORY_NAMES or name.startswith("."):
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            children.append(Path(entry.path).resolve())
+                    except OSError:
+                        continue
+        except OSError as exc:
+            raise ValueError(f"无法读取目录: {root}") from exc
     dataset_roots = sorted(children, key=lambda item: item.name.casefold()) if children else [root]
     mode = "collection" if children else "single"
     return {

@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 import pyarrow.parquet as parquet
 
+from app import storage as storage_module
 from app.full_export import MANO_44_JOINT_NAMES, classify_behavior, export_episode, filtered_intervals, write_dataset_index
 from app.lerobot_export import HAND_21_JOINT_NAMES
 from app.s1_repair import S1_REPAIR_SCHEMA
@@ -145,6 +146,19 @@ class FullExportTests(unittest.TestCase):
             combined = json.loads((output_root / "dataset.json").read_text(encoding="utf-8"))
             self.assertEqual("lerobot", combined["default_output_format"])
             self.assertEqual(1, combined["pair_count"])
+
+            discovery = storage_module.discover_dataset_roots(output_root)
+            self.assertEqual("single", discovery["mode"])
+            with patch.object(storage_module, "save_manifest", return_value=None):
+                rescanned = storage_module.scan_dataset(output_root, dataset_id="full-output-rescan")
+            self.assertEqual(1, rescanned["episode_count"])
+            records = {item["relative_path"]: item for item in rescanned["files"]}
+            paired_episode_ids = {
+                records["data/chunk-000/episode_000000.parquet"]["episode_id"],
+                records["body/chunk-000/episode_000000.parquet"]["episode_id"],
+                records["videos/chunk-000/observation.images.main/episode_000000.mp4"]["episode_id"],
+            }
+            self.assertEqual({rescanned["episodes"][0]["id"]}, paired_episode_ids)
 
     def test_hdf5_mp4_remains_an_explicit_compatibility_format(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

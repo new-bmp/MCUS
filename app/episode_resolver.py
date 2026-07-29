@@ -16,6 +16,7 @@ _MODALITY_PARTS = {
     "left", "right", "tactile", "pressure", "sensor", "sensors", "state", "action",
     "joints", "pose", "poses", "mocap", "transforms", "metadata", "meta",
 }
+_LEROBOT_EPISODE_TREES = {"body", "data", "videos"}
 _STEM_NOISE = re.compile(
     r"(?:^|[_-])(left|right|head|wrist|rgb|camera|cam|video|tactile|pressure|state|action|joints?|pose|mocap|transforms?)(?=$|[_-])",
     re.IGNORECASE,
@@ -60,10 +61,11 @@ def episode_key(path: Path, root: Path) -> str:
             return Path(*relative.parts[: index + 1]).as_posix()
 
     token = episode_token(path, root)
-    # LeRobot stores the same episode in separate data/ and videos/ trees.
+    # LeRobot stores the same episode in separate data/videos trees. Alice's
+    # body/ extension follows the same episode numbering contract.
     # An explicit episode_N filename is therefore a dataset-wide boundary.
     if token is not None and _EPISODE_PART.fullmatch(path.stem) and any(
-        part.casefold() in {"data", "videos"} for part in relative.parts[:-1]
+        part.casefold() in _LEROBOT_EPISODE_TREES for part in relative.parts[:-1]
     ):
         return f"episode_{token}"
     if token is not None:
