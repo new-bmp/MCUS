@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation
 from .full_export import _aligned_rows, _find_transform_source, _rot6d, _take_rows
 from .job_control import CancellableJobMixin, JobCancelled
 from .schemas import ActionMappingRequest
+from .sensor_alignment import ensure_episode_time_sync
 from .storage import dataset_artifact_dir, dataset_sidecar_root, get_manifest, storage_slug
 
 
@@ -297,8 +298,18 @@ def _load_episode_transforms(
     episode: dict,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, Path, str, int]:
     source_path, source_relative, source_count = _find_transform_source(manifest, episode)
-    video_count = int(episode.get("frame_count") or source_count)
-    rows = _aligned_rows(manifest, episode, source_relative, source_count, video_count)
+    from .projection_correction import applied_projection_source
+
+    applied = applied_projection_source(manifest, episode)
+    projection_timeline = bool(applied and Path(applied["path"]).resolve() == source_path.resolve())
+    video_count = source_count if projection_timeline else int(episode.get("frame_count") or source_count)
+    rows = np.arange(source_count, dtype=np.int64) if projection_timeline else _aligned_rows(
+        manifest,
+        episode,
+        source_relative,
+        source_count,
+        video_count,
+    )
     required = [
         "camera",
         "leftHand", "leftThumbTip", "leftIndexFingerTip", "leftMiddleFingerKnuckle",
@@ -739,6 +750,8 @@ class ActionMappingJobManager(CancellableJobMixin):
                 episode = episodes[episode_id]
                 self._update(job_id, message=f"{episode['name']} · Action 映射 {position + 1}/{total}")
                 try:
+                    self._update(job_id, message=f"{episode['name']} · T0 时间同步 {position + 1}/{total}")
+                    ensure_episode_time_sync(manifest, episode)
                     report = generate_episode_action(dataset_id, manifest, episode, request)
                     results.append({
                         "episode_id": episode_id,

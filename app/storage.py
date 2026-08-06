@@ -14,9 +14,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
+import numpy as np
 
+from .dataset_format import (
+    build_local_schema_profile,
+    describe_source,
+    inspect_dataset_format,
+    is_self_describing_dataset_root as format_root_is_dataset,
+    write_format_report,
+)
 from .episode_resolver import build_local_episode_plan, episode_key, episode_token
-from .schema_profiler import build_inventory, pending_profile
+from .schema_profiler import build_inventory
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -275,23 +283,8 @@ def _iter_dataset_files(root: Path):
 
 
 def _is_self_describing_dataset_root(root: Path) -> bool:
-    """Recognize exported datasets before treating their child folders as peers."""
-    alice_index = root / "dataset.json"
-    if alice_index.is_file():
-        try:
-            payload = json.loads(alice_index.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = None
-        if isinstance(payload, dict) and payload.get("schema") == "alice/full-dataset/v2":
-            return True
-
-    # LeRobot splits one dataset into modality trees. They must stay together
-    # when the top-level folder is selected in the lazy-loading file picker.
-    return (
-        (root / "meta" / "info.json").is_file()
-        and (root / "data").is_dir()
-        and (root / "videos").is_dir()
-    )
+    """Keep exported and recorder-owned Episode/modality trees together."""
+    return format_root_is_dataset(root)
 
 
 def discover_dataset_roots(path: str | Path) -> dict:
@@ -649,6 +642,38 @@ def _backfill_change_records(manifest: dict) -> None:
             }, [str(item.get("source_path") or "") for item in payload.get("sides", [])])
         except (OSError, ValueError, json.JSONDecodeError):
             continue
+    projection_root = sidecar_root / "projection-correction"
+    for path in projection_root.glob("*.projection.alice"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if payload.get("schema") != "alice/projection-correction/v1":
+                continue
+            episode_id = str(payload.get("episode_id") or path.name.removesuffix(".projection.alice"))
+            corrected_path = path.with_name(path.name.removesuffix(".projection.alice") + ".projection.hdf5")
+            if not corrected_path.is_file():
+                continue
+            retimed_path = path.with_name(path.name.removesuffix(".projection.alice") + ".projection.mp4")
+            artifacts = [path, corrected_path]
+            if int((payload.get("retiming") or {}).get("inserted_frame_count") or 0) > 0:
+                if not retimed_path.is_file():
+                    continue
+                artifacts.append(retimed_path)
+            source_paths = [
+                str(item.get("relative_path") or "")
+                for item in payload.get("source_signatures") or []
+                if str(item.get("relative_path") or "")
+            ]
+            record_change(
+                dataset_id,
+                "projection_correction",
+                episode_id,
+                f"MediaPipe constrained projection correction: {episode_id}",
+                artifacts,
+                payload.get("summary") or {},
+                source_paths,
+            )
+        except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
+            continue
     curation_root = sidecar_root / "curation"
     for path in curation_root.glob("*.curation.alice"):
         try:
@@ -811,6 +836,30 @@ def apply_changes(dataset_id: str, change_ids: list[str]) -> dict:
     sidecar_root = _manifest_sidecar_path(manifest)
     for record in selected:
         kind = record.get("kind")
+        if kind == "projection_correction":
+            metadata_artifacts = [
+                item for item in record.get("artifacts", [])
+                if item.get("schema") == "alice/projection-correction/v1"
+            ]
+            hdf5_artifacts = [
+                item for item in record.get("artifacts", [])
+                if Path(str(item.get("relative_path") or "")).suffix.casefold() in {".h5", ".hdf5", ".h5df"}
+            ]
+            if len(metadata_artifacts) != 1 or len(hdf5_artifacts) != 1:
+                raise ValueError("Projection correction change must contain one metadata file and one corrected HDF5")
+            metadata_path = (sidecar_root / metadata_artifacts[0]["relative_path"]).resolve()
+            corrected_path = (sidecar_root / hdf5_artifacts[0]["relative_path"]).resolve()
+            for artifact, path in ((metadata_artifacts[0], metadata_path), (hdf5_artifacts[0], corrected_path)):
+                try:
+                    path.relative_to(sidecar_root)
+                except ValueError as exc:
+                    raise ValueError("Projection correction artifact escaped .alicePD") from exc
+                if not path.is_file() or _artifact_digest(path) != artifact.get("sha256"):
+                    raise ValueError(f"Projection correction artifact changed after review: {artifact.get('relative_path')}")
+            from .projection_correction import verify_projection_correction_for_apply
+
+            verify_projection_correction_for_apply(manifest, metadata_path)
+            continue
         if kind not in {"qwen_action_trim", "paper_curation"}:
             continue
         expected_schema = "alice/qwen-action-trim/v1" if kind == "qwen_action_trim" else "alice/paper-curation/v1"
@@ -922,16 +971,136 @@ def _file_kind(path: Path) -> tuple[str, str]:
     return "file", "other"
 
 
+def _canonical_fields(descriptor: dict) -> dict:
+    result = {
+        "canonical_kind": str(descriptor.get("kind") or "other"),
+        "modality": str(descriptor.get("modality") or "unknown"),
+        "side": str(descriptor.get("side") or "unknown"),
+        "role": str(descriptor.get("role") or ""),
+        "variant": str(descriptor.get("variant") or "primary"),
+        "synchronized": bool(descriptor.get("synchronized", True)),
+        "canonical_confidence": float(descriptor.get("confidence") or 0.0),
+        "canonical_evidence": str(descriptor.get("evidence") or ""),
+    }
+    for key in ("source_fps", "storage_fps", "sync_fps"):
+        if descriptor.get(key) is not None:
+            result[key] = float(descriptor[key])
+    return result
+
+
+def _media_canonical_fields(record: dict) -> dict:
+    return {
+        key: record.get(key)
+        for key in (
+            "canonical_kind", "modality", "side", "role", "variant",
+            "synchronized", "canonical_confidence", "canonical_evidence",
+            "source_fps", "storage_fps", "sync_fps",
+        )
+    }
+
+
+def _raw_depth_stream(path: Path, record: dict, descriptor: dict, fallback_fps: float | None = None) -> dict | None:
+    """Describe a headerless depth tensor only when its layout is unambiguous."""
+    try:
+        width = int(descriptor.get("width") or 0)
+        height = int(descriptor.get("height") or 0)
+        dtype = np.dtype(str(descriptor.get("dtype") or ""))
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0 or dtype.kind not in "uif" or dtype.itemsize <= 0:
+        return None
+    frame_bytes = width * height * dtype.itemsize
+    try:
+        size_bytes = int(path.stat().st_size)
+    except OSError:
+        return None
+    if frame_bytes <= 0 or size_bytes <= 0 or size_bytes % frame_bytes:
+        return None
+    inferred_count = size_bytes // frame_bytes
+    declared_count = int(descriptor.get("frame_count") or 0)
+    if declared_count > 0 and declared_count != inferred_count:
+        return None
+    frame_count = declared_count or inferred_count
+    try:
+        fps = float(descriptor.get("fps") or fallback_fps or 0.0)
+    except (TypeError, ValueError):
+        fps = 0.0
+    if frame_count <= 0 or fps <= 0.01:
+        return None
+    relative = str(record["relative_path"])
+    group_key = str(record["episode_key"])
+    return {
+        "id": _episode_id(group_key),
+        "name": Path(group_key).name,
+        "episode_key": group_key,
+        "type": "raw_depth",
+        "path": str(path.resolve()),
+        "relative_path": relative,
+        "file_id": record["id"],
+        "stream_name": Path(relative).name,
+        "fps": round(fps, 4),
+        "frame_count": frame_count,
+        "duration": round(frame_count / fps, 4),
+        "width": width,
+        "height": height,
+        "channels": 1,
+        "dtype": str(descriptor.get("dtype") or dtype.name),
+        "numpy_dtype": dtype.str,
+        "bytes_per_frame": frame_bytes,
+        "raw_layout": "contiguous_frames",
+        "is_depth_map": True,
+        "previewable": True,
+        "analysis_eligible": False,
+        "vlm_eligible": False,
+        "smoothing_eligible": False,
+        **_media_canonical_fields(record),
+    }
+
+
+def _canonicalize_inventory(inventory: dict, format_report: dict) -> dict:
+    """Carry the preflight mapping into every inventory stream candidate."""
+    for stream in inventory.get("candidate_streams", []):
+        source_path = str(stream.get("source_path") or "")
+        field = str(stream.get("field")) if stream.get("field") is not None else None
+        shape = stream.get("shape") if isinstance(stream.get("shape"), list) else None
+        descriptor = describe_source(
+            source_path,
+            field=field,
+            shape=shape,
+            dtype=str(stream.get("dtype") or ""),
+            report=format_report,
+        )
+        canonical = _canonical_fields(descriptor)
+        stream.update(canonical)
+        if canonical["canonical_kind"] in {"vision", "joint", "sensor", "action", "timestamp"}:
+            stream["kind"] = canonical["canonical_kind"]
+            stream["modality"] = canonical["modality"]
+            stream["side_hint"] = canonical["side"]
+        if canonical["canonical_kind"] == "vision" and canonical["modality"] == "depth":
+            try:
+                frame_count = int(descriptor.get("frame_count") or (shape or [0])[0])
+                width = int(descriptor.get("width") or 0)
+                height = int(descriptor.get("height") or 0)
+            except (TypeError, ValueError, IndexError):
+                frame_count = width = height = 0
+            if frame_count > 0 and width > 0 and height > 0:
+                stream["shape"] = [frame_count, height, width]
+            if descriptor.get("dtype"):
+                stream["dtype"] = str(descriptor["dtype"])
+    return inventory
+
+
 def _primary_video(records: list[dict]) -> dict:
     def priority(record: dict) -> tuple[int, str]:
         name = Path(record["relative_path"]).stem.lower()
-        if "head_rgb" in name or name in {"rgb", "main", "color"}:
+        modality = str(record.get("modality") or "unknown").casefold()
+        if modality == "rgb" and ("head_rgb" in name or name in {"rgb", "main", "color"}):
             score = 0
-        elif "rgb" in name or "color" in name:
+        elif modality == "rgb" or "rgb" in name or "color" in name:
             score = 1
         elif "wrist" in name:
             score = 3
-        elif "depth" in name or "infrared" in name:
+        elif modality in {"depth", "infrared"} or "depth" in name or "infrared" in name:
             score = 9
         else:
             score = 4
@@ -971,11 +1140,104 @@ def _parquet_timeline_length(path: Path) -> int | None:
         import pyarrow.parquet as parquet
 
         source = parquet.ParquetFile(path)
-        if "frame_index" not in source.schema_arrow.names:
+        if not {"frame_index", "frame_idx"}.intersection(source.schema_arrow.names):
             return None
         return int(source.metadata.num_rows)
     except Exception:
         return None
+
+
+def _normalized_camera_name(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").casefold()).strip("_")
+
+
+def _parquet_video_frame_indices(path: Path) -> dict[str, tuple[int, ...]]:
+    """Return valid native frame indices grouped by Nexus camera name."""
+    try:
+        import pyarrow.parquet as parquet
+
+        source = parquet.ParquetFile(path)
+        if not {"camera", "frame_idx"}.issubset(source.schema_arrow.names):
+            return {}
+        table = parquet.read_table(path, columns=["camera", "frame_idx"])
+        grouped: dict[str, set[int]] = {}
+        for camera, raw_index in zip(table["camera"].to_pylist(), table["frame_idx"].to_pylist(), strict=True):
+            camera_name = _normalized_camera_name(camera)
+            if not camera_name or raw_index is None or isinstance(raw_index, bool):
+                continue
+            try:
+                numeric = float(raw_index)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not np.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
+                continue
+            grouped.setdefault(camera_name, set()).add(int(numeric))
+        return {camera: tuple(sorted(indices)) for camera, indices in grouped.items() if indices}
+    except Exception:
+        return {}
+
+
+def _nexus_stream_camera_candidates(stream: dict) -> list[str]:
+    stem = _normalized_camera_name(Path(str(stream.get("relative_path") or stream.get("stream_name") or "")).stem)
+    if not stem:
+        return []
+    candidates = [stem]
+    if "left_wrist" in stem:
+        candidates.append(stem.replace("left_wrist", "wrist_left"))
+    if "right_wrist" in stem:
+        candidates.append(stem.replace("right_wrist", "wrist_right"))
+    modality = str(stream.get("modality") or "").casefold()
+    if modality == "depth" or "depth" in stem:
+        if "head" in stem:
+            candidates.append("head_depth")
+    else:
+        if "wrist_left" in stem or "left_wrist" in stem:
+            candidates.append("wrist_left")
+        elif "wrist_right" in stem or "right_wrist" in stem:
+            candidates.append("wrist_right")
+        elif "head" in stem:
+            candidates.append("head")
+    for suffix in ("_rgb", "_color", "_video", "_camera"):
+        if stem.endswith(suffix):
+            candidates.append(stem[: -len(suffix)])
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _apply_nexus_video_timestamps(episode: dict, camera_indices: dict[str, tuple[int, ...]]) -> None:
+    """Bound each Nexus media stream by its own timestamped native index range."""
+    streams = list(episode.get("media_streams") or [])
+    for stream in streams:
+        source_count = int(stream.get("source_frame_count") or stream.get("frame_count") or 0)
+        if source_count > 0:
+            stream["source_frame_count"] = source_count
+        match = next(
+            (
+                (camera, camera_indices[camera])
+                for camera in _nexus_stream_camera_candidates(stream)
+                if camera in camera_indices
+            ),
+            None,
+        )
+        if match is None:
+            continue
+        camera, indices = match
+        bounded_indices = [index for index in indices if source_count <= 0 or index < source_count]
+        if not bounded_indices:
+            continue
+        logical_count = max(bounded_indices) + 1
+        stream["frame_count"] = logical_count
+        stream["duration"] = round(logical_count / max(0.01, float(stream.get("fps", 30.0))), 4)
+        stream["timestamp_camera"] = camera
+        stream["timestamp_indexed_frame_count"] = logical_count
+        stream["timestamp_unique_frame_count"] = len(bounded_indices)
+        stream["trimmed_unindexed_frames"] = max(0, source_count - logical_count)
+
+    primary_id = episode.get("primary_media_file_id")
+    primary = next((stream for stream in streams if stream.get("file_id") == primary_id), None)
+    if primary is not None:
+        episode["source_frame_count"] = int(primary.get("source_frame_count") or primary.get("frame_count") or 0)
+        episode["frame_count"] = int(primary.get("frame_count") or 0)
+        episode["duration"] = float(primary.get("duration") or 0.0)
 
 
 def _natural_sort_key(value: str) -> list[tuple[int, object]]:
@@ -1012,26 +1274,40 @@ def _probe_images(paths: list[Path], root: Path, group_key: str) -> dict | None:
     }
 
 
-def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | None = None) -> dict:
+def scan_dataset(
+    path: str | Path,
+    name: str | None = None,
+    dataset_id: str | None = None,
+    camera_profile_id: str | None = None,
+) -> dict:
     ensure_runtime()
     root = Path(path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise ValueError(f"数据集目录不存在: {root}")
-
     existing_sidecar = None
+    existing_manifest = None
     if dataset_id:
         try:
-            existing_sidecar = _manifest_sidecar_path(get_manifest(dataset_id))
+            existing_manifest = get_manifest(dataset_id)
+            existing_sidecar = _manifest_sidecar_path(existing_manifest)
         except KeyError:
             existing_sidecar = None
+    if camera_profile_id is None and existing_manifest:
+        camera_profile_id = str(
+            (existing_manifest.get("camera_calibration") or {}).get("selected_profile_id") or ""
+        ) or None
+    format_report = inspect_dataset_format(root, camera_profile_id=camera_profile_id)
     dataset_id = dataset_id or f"{slugify(name or root.name)}-{uuid.uuid4().hex[:8]}"
     sidecar_root = existing_sidecar or dataset_sidecar_root(root, dataset_id)
     _ensure_sidecar_layout(sidecar_root)
+    format_map_path = write_format_report(sidecar_root / "format-map.json", format_report)
     episodes: list[dict] = []
     indexed_files: list[dict] = []
     auxiliary_files: list[dict] = []
     video_groups: dict[str, list[dict]] = {}
     image_groups: dict[Path, list[Path]] = {}
+    image_group_records: dict[Path, list[dict]] = {}
+    raw_depth_groups: dict[str, list[dict]] = {}
     for item, stat in _iter_dataset_files(root):
         if RUNTIME in item.parents or _is_sidecar_member(item, root):
             continue
@@ -1041,6 +1317,7 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
         suffix = item.suffix.lower()
         relative = item.relative_to(root).as_posix()
         kind, category = _file_kind(item)
+        descriptor = describe_source(relative, report=format_report)
         image_sequence = suffix in IMAGE_EXTENSIONS and item.stem.isdigit()
         group_key = item.parent.relative_to(root).as_posix() if image_sequence else episode_key(item, root)
         if not group_key or group_key == ".":
@@ -1057,12 +1334,16 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
             "category": category,
             "episode_key": group_key,
             "episode_token": episode_token(item, root),
+            **_canonical_fields(descriptor),
         }
         indexed_files.append(record)
         if suffix in VIDEO_EXTENSIONS:
             video_groups.setdefault(group_key, []).append(record)
         elif suffix in IMAGE_EXTENSIONS:
             image_groups.setdefault(item.parent, []).append(item)
+            image_group_records.setdefault(item.parent, []).append(record)
+        elif suffix == ".raw" and record["canonical_kind"] == "vision" and record["modality"] == "depth":
+            raw_depth_groups.setdefault(group_key, []).append(record)
 
     video_results: dict[str, list[tuple[dict, dict]]] = {}
 
@@ -1092,6 +1373,12 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
         for record, stream in video_results.get(group_key, []):
             stream["file_id"] = record["id"]
             stream["stream_name"] = Path(record["relative_path"]).name
+            stream.update(_media_canonical_fields(record))
+            stream["is_depth_map"] = record.get("modality") == "depth"
+            stream["previewable"] = True
+            stream["analysis_eligible"] = record.get("modality") == "rgb"
+            stream["vlm_eligible"] = record.get("modality") == "rgb"
+            stream["smoothing_eligible"] = record.get("modality") == "rgb"
             media_streams.append(stream)
             readable_records.append(record)
         if not media_streams:
@@ -1111,43 +1398,124 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
         group_key = parent.relative_to(root).as_posix() or parent.name
         episode = _probe_images(paths, root, group_key)
         if episode:
+            records = image_group_records.get(parent, [])
+            representative_record = records[0] if records else None
             episode["media_files"] = [path.relative_to(root).as_posix() for path in sorted(paths)]
             episode["primary_media_file_id"] = None
-            episode["media_streams"] = [{
+            image_stream = {
                 key: value for key, value in episode.items()
                 if key in {"type", "path", "relative_path", "frames", "fps", "frame_count", "duration", "width", "height"}
-            }]
+            }
+            if representative_record:
+                image_stream.update(_media_canonical_fields(representative_record))
+                image_stream["file_ids"] = [record["id"] for record in records]
+                image_stream["is_depth_map"] = representative_record.get("modality") == "depth"
+                image_stream["analysis_eligible"] = representative_record.get("modality") == "rgb"
+                image_stream["vlm_eligible"] = representative_record.get("modality") == "rgb"
+                image_stream["smoothing_eligible"] = False
+                episode.update(_media_canonical_fields(representative_record))
+            episode["media_streams"] = [image_stream]
             episodes.append(episode)
 
     episodes_by_key = {episode["episode_key"]: episode for episode in episodes}
-    parquet_lengths: dict[str, list[int]] = {}
-    for record in indexed_files:
-        if record["extension"] != ".parquet" or record["episode_key"] not in episodes_by_key:
+    for group_key, records in raw_depth_groups.items():
+        existing = episodes_by_key.get(group_key)
+        fallback_fps = float(existing.get("fps") or 0.0) if existing else None
+        depth_streams = []
+        for record in records:
+            descriptor = describe_source(record["relative_path"], report=format_report)
+            stream = _raw_depth_stream(root / record["relative_path"], record, descriptor, fallback_fps)
+            if stream:
+                depth_streams.append(stream)
+        if not depth_streams:
             continue
-        length = _parquet_timeline_length(root / record["relative_path"])
-        if length is not None:
-            parquet_lengths.setdefault(record["episode_key"], []).append(length)
-    for key, lengths in parquet_lengths.items():
-        episode = episodes_by_key[key]
-        data_frame_count = max(lengths)
-        media_frame_count = int(episode.get("frame_count", 0) or 0)
-        logical_frame_count = min(data_frame_count, media_frame_count) if media_frame_count else data_frame_count
-        episode["source_media_frame_count"] = media_frame_count
-        episode["data_frame_count"] = data_frame_count
-        episode["frame_count"] = logical_frame_count
-        episode["duration"] = round(logical_frame_count / max(0.01, float(episode.get("fps", 30.0))), 4)
-        episode["alignment"] = {
-            "source": "parquet_frame_index",
-            "logical_frame_count": logical_frame_count,
-            "data_frame_count": data_frame_count,
-            "source_media_frame_count": media_frame_count,
-            "trimmed_media_frames": max(0, media_frame_count - logical_frame_count),
-        }
-        for stream in episode.get("media_streams", []):
-            stream_count = int(stream.get("frame_count", 0) or 0)
-            stream["source_frame_count"] = stream_count
-            stream["frame_count"] = min(logical_frame_count, stream_count) if stream_count else logical_frame_count
-            stream["duration"] = round(stream["frame_count"] / max(0.01, float(stream.get("fps", 30.0))), 4)
+        if existing is not None:
+            existing.setdefault("media_streams", []).extend(depth_streams)
+            existing["media_files"] = [
+                str(stream.get("relative_path") or "")
+                for stream in existing["media_streams"]
+                if stream.get("relative_path")
+            ]
+            continue
+        primary_stream = depth_streams[0]
+        episode = dict(primary_stream)
+        episode["id"] = _episode_id(group_key)
+        episode["name"] = Path(group_key).name
+        episode["episode_key"] = group_key
+        episode["primary_media_file_id"] = primary_stream["file_id"]
+        episode["media_files"] = [stream["relative_path"] for stream in depth_streams]
+        episode["media_streams"] = depth_streams
+        episodes.append(episode)
+        episodes_by_key[group_key] = episode
+
+    episodes_by_key = {episode["episode_key"]: episode for episode in episodes}
+    if format_report.get("format_family") == "nexus_multimodal":
+        # Nexus media streams are intentionally multi-rate.  For example, the
+        # head RGB, wrist RGB and raw depth streams may all have different FPS
+        # and native frame counts, while video_timestamps.parquet contains a
+        # denser event timeline.  Keep every media probe intact and let the
+        # dedicated sensor-alignment layer map timestamps between streams.
+        for episode in episodes_by_key.values():
+            episode["alignment"] = {
+                "source": "sensor_alignment",
+                "media_frame_count_policy": "per_stream_video_timestamp_index",
+                "primary_media_frame_count": int(episode.get("frame_count", 0) or 0),
+            }
+        for record in indexed_files:
+            if record["extension"] != ".parquet" or record["episode_key"] not in episodes_by_key:
+                continue
+            filename = Path(record["relative_path"]).name.casefold()
+            episode = episodes_by_key[record["episode_key"]]
+            if filename == "video_timestamps.parquet":
+                camera_indices = _parquet_video_frame_indices(root / record["relative_path"])
+                if camera_indices:
+                    _apply_nexus_video_timestamps(episode, camera_indices)
+                    episode["alignment"]["video_timestamp_frame_counts"] = {
+                        camera: max(indices) + 1 for camera, indices in camera_indices.items()
+                    }
+                    episode["alignment"]["primary_media_frame_count"] = int(episode.get("frame_count", 0) or 0)
+                continue
+            if filename == "sync.parquet":
+                length = _parquet_timeline_length(root / record["relative_path"])
+                if length is not None:
+                    canonical_count = max(int(episode.get("canonical_sync_frame_count", 0) or 0), length)
+                    episode["canonical_sync_frame_count"] = canonical_count
+                    episode["alignment"]["canonical_sync_frame_count"] = canonical_count
+                    sync_fps = float(episode.get("sync_fps") or 0.0)
+                    if sync_fps <= 0.01 and float(episode.get("duration") or 0.0) > 0.0:
+                        sync_fps = canonical_count / float(episode["duration"])
+                    if sync_fps > 0.01:
+                        episode["canonical_sync_fps"] = round(sync_fps, 4)
+                        episode["alignment"]["canonical_sync_fps"] = round(sync_fps, 4)
+    else:
+        parquet_lengths: dict[str, list[int]] = {}
+        for record in indexed_files:
+            if record["extension"] != ".parquet" or record["episode_key"] not in episodes_by_key:
+                continue
+            length = _parquet_timeline_length(root / record["relative_path"])
+            if length is not None:
+                parquet_lengths.setdefault(record["episode_key"], []).append(length)
+        for key, lengths in parquet_lengths.items():
+            episode = episodes_by_key[key]
+            data_frame_count = max(lengths)
+            media_frame_count = int(episode.get("frame_count", 0) or 0)
+            logical_frame_count = min(data_frame_count, media_frame_count) if media_frame_count else data_frame_count
+            episode["source_media_frame_count"] = media_frame_count
+            episode["data_frame_count"] = data_frame_count
+            episode["frame_count"] = logical_frame_count
+            episode["duration"] = round(logical_frame_count / max(0.01, float(episode.get("fps", 30.0))), 4)
+            episode["alignment"] = {
+                "source": "parquet_frame_index",
+                "logical_frame_count": logical_frame_count,
+                "data_frame_count": data_frame_count,
+                "source_media_frame_count": media_frame_count,
+                "trimmed_media_frames": max(0, media_frame_count - logical_frame_count),
+            }
+            for stream in episode.get("media_streams", []):
+                stream_count = int(stream.get("frame_count", 0) or 0)
+                stream["source_frame_count"] = stream_count
+                stream["frame_count"] = min(logical_frame_count, stream_count) if stream_count else logical_frame_count
+                stream["duration"] = round(stream["frame_count"] / max(0.01, float(stream.get("fps", 30.0))), 4)
 
     episodes.sort(key=lambda item: _natural_sort_key(item["episode_key"]))
     if not episodes:
@@ -1159,6 +1527,12 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
     indexed_files.sort(key=lambda item: item["relative_path"].lower())
 
     episode_resolution = build_local_episode_plan(indexed_files, episodes)
+    inventory = _canonicalize_inventory(
+        build_inventory(root, episodes, {item["relative_path"] for item in indexed_files}),
+        format_report,
+    )
+    schema_profile = build_local_schema_profile(inventory, format_report)
+    persisted_format_report = {**format_report, "artifact_path": str(format_map_path)}
     manifest = {
         "id": dataset_id,
         "name": name or root.name,
@@ -1173,6 +1547,7 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
             "exports": "exports",
             "auxiliary_index": "auxiliary/source-files.json",
             "invalid_frame_indices": "indices/invalid",
+            "format_map": "format-map.json",
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "episode_count": len(episodes),
@@ -1188,7 +1563,11 @@ def scan_dataset(path: str | Path, name: str | None = None, dataset_id: str | No
         "episodes": episodes,
         "files": indexed_files,
         "episode_resolution": episode_resolution,
-        "schema_profile": pending_profile(build_inventory(root, episodes, {item["relative_path"] for item in indexed_files})),
+        "format_family": format_report.get("format_family"),
+        "format_map_path": str(format_map_path),
+        "format_map": persisted_format_report,
+        "camera_calibration": dict(format_report.get("camera_calibration") or {}),
+        "schema_profile": schema_profile,
     }
     manifest = apply_exclusions(manifest)
     _write_json_atomic(sidecar_root / "auxiliary" / "source-files.json", {
@@ -1244,6 +1623,110 @@ def manifest_registry_path(dataset_id: str) -> Path:
     return preferred
 
 
+def _backfill_manifest_timebases(manifest: dict) -> bool:
+    """Upgrade legacy Nexus manifests without rescanning the source dataset."""
+    format_map = manifest.get("format_map") or {}
+    family = str(format_map.get("format_family") or manifest.get("format_family") or "").casefold()
+    if family != "nexus_multimodal":
+        return False
+
+    declared_streams = [item for item in format_map.get("declared_streams") or [] if isinstance(item, dict)]
+
+    def normalized_path(value) -> str:
+        return str(value or "").replace("\\", "/").strip("/").casefold()
+
+    def positive_fps(*values) -> float | None:
+        for value in values:
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if np.isfinite(number) and number > 0.01:
+                return number
+        return None
+
+    master_sync_fps = None
+    for declared in declared_streams:
+        declared_path = normalized_path(declared.get("source_path_template"))
+        if declared_path.endswith("meta/sync.parquet") or (
+            str(declared.get("kind") or "").casefold() == "timestamp"
+            and str(declared.get("variant") or "").casefold() == "synchronized"
+        ):
+            master_sync_fps = positive_fps(
+                declared.get("sync_fps"),
+                declared.get("storage_fps"),
+                declared.get("fps"),
+            )
+            if master_sync_fps is not None:
+                break
+
+    def declared_for(relative_path: str) -> dict:
+        normalized = normalized_path(relative_path)
+        matches = [
+            item for item in declared_streams
+            if normalized_path(item.get("source_path_template"))
+            and (
+                normalized == normalized_path(item.get("source_path_template"))
+                or normalized.endswith("/" + normalized_path(item.get("source_path_template")))
+            )
+        ]
+        return max(matches, key=lambda item: len(normalized_path(item.get("source_path_template"))), default={})
+
+    changed = False
+
+    def set_missing(target: dict, key: str, value: float | None) -> None:
+        nonlocal changed
+        if value is None or positive_fps(target.get(key)) is not None:
+            return
+        target[key] = round(float(value), 6)
+        changed = True
+
+    for episode in manifest.get("episodes") or []:
+        primary_id = str(episode.get("primary_media_file_id") or "")
+        primary_stream = None
+        for stream in episode.get("media_streams") or []:
+            declared = declared_for(str(stream.get("relative_path") or ""))
+            native_fps = positive_fps(
+                declared.get("source_fps"),
+                declared.get("actual_fps"),
+                declared.get("storage_fps"),
+                declared.get("fps"),
+                stream.get("fps"),
+            )
+            storage_fps = positive_fps(
+                declared.get("storage_fps"),
+                declared.get("fps"),
+                native_fps,
+            )
+            sync_fps = positive_fps(declared.get("sync_fps"), master_sync_fps)
+            set_missing(stream, "source_fps", native_fps)
+            set_missing(stream, "storage_fps", storage_fps)
+            set_missing(stream, "sync_fps", sync_fps)
+            if str(stream.get("file_id") or "") == primary_id:
+                primary_stream = stream
+        primary_stream = primary_stream or next(iter(episode.get("media_streams") or []), None)
+        if isinstance(primary_stream, dict):
+            set_missing(episode, "source_fps", positive_fps(primary_stream.get("source_fps"), primary_stream.get("fps")))
+            set_missing(episode, "storage_fps", positive_fps(primary_stream.get("storage_fps"), primary_stream.get("fps")))
+            set_missing(episode, "sync_fps", positive_fps(primary_stream.get("sync_fps"), master_sync_fps))
+        set_missing(episode, "canonical_sync_fps", positive_fps(episode.get("sync_fps"), master_sync_fps))
+        alignment = episode.setdefault("alignment", {})
+        if "canonical_sync_fps" not in alignment and positive_fps(episode.get("canonical_sync_fps")) is not None:
+            alignment["canonical_sync_fps"] = episode["canonical_sync_fps"]
+            changed = True
+    return changed
+
+
+def _repair_manifest_display_name(manifest: dict) -> bool:
+    name = str(manifest.get("name") or "").strip()
+    replacement = Path(str(manifest.get("root_path") or "")).name.strip()
+    visibly_corrupt = "\ufffd" in name or (name.count("?") >= 3 and name.count("?") >= len(name) // 3)
+    if not visibly_corrupt or not replacement or replacement == name:
+        return False
+    manifest["name"] = replacement
+    return True
+
+
 def get_manifest(dataset_id: str) -> dict:
     path = manifest_registry_path(dataset_id)
     if not path.exists():
@@ -1259,10 +1742,14 @@ def get_manifest(dataset_id: str) -> dict:
         manifest = json.loads(sidecar_manifest.read_text(encoding="utf-8"))
     else:
         manifest = registry
+    changed = _backfill_manifest_timebases(manifest)
+    changed = _repair_manifest_display_name(manifest) or changed
     if not manifest.get("episode_resolution") and manifest.get("files"):
         manifest["episode_resolution"] = build_local_episode_plan(
             manifest.get("files", []), manifest.get("episodes", [])
         )
+        changed = True
+    if changed:
         save_manifest(manifest)
     return manifest
 
@@ -1275,6 +1762,7 @@ def list_manifests() -> list[dict]:
             registry = json.loads(path.read_text(encoding="utf-8"))
             manifest_path = registry.get("manifest_path")
             manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8")) if manifest_path else registry
+            _repair_manifest_display_name(manifest)
             summary = {
                 key: manifest[key]
                 for key in ("id", "name", "root_path", "created_at", "episode_count", "frame_count")
@@ -1438,6 +1926,30 @@ def read_frame(episode: dict, index: int):
     index = max(0, min(int(index), max(0, episode["frame_count"] - 1)))
     if episode["type"] == "images":
         return cv2.imread(episode["frames"][index])
+    if episode["type"] == "raw_depth":
+        try:
+            width = int(episode["width"])
+            height = int(episode["height"])
+            dtype = np.dtype(str(episode.get("numpy_dtype") or episode["dtype"]))
+            frame_bytes = int(episode.get("bytes_per_frame") or width * height * dtype.itemsize)
+            with Path(str(episode["path"])).open("rb") as source:
+                source.seek(index * frame_bytes)
+                payload = source.read(frame_bytes)
+            if len(payload) != frame_bytes:
+                return None
+            depth = np.frombuffer(payload, dtype=dtype, count=width * height).reshape(height, width)
+            finite = np.isfinite(depth) & (depth > 0)
+            if not finite.any():
+                normalized = np.zeros((height, width), dtype=np.uint8)
+            else:
+                low, high = np.percentile(depth[finite].astype(np.float64), (1.0, 99.0))
+                if high <= low:
+                    high = low + 1.0
+                normalized = np.clip((depth.astype(np.float64) - low) * 255.0 / (high - low), 0, 255).astype(np.uint8)
+                normalized[~finite] = 0
+            return cv2.applyColorMap(normalized, cv2.COLORMAP_TURBO)
+        except (KeyError, OSError, TypeError, ValueError):
+            return None
     capture = cv2.VideoCapture(episode["path"])
     if not capture.isOpened():
         return None
@@ -1457,6 +1969,51 @@ def episode_media(episode: dict, media_file_id: str | None = None) -> dict:
     if stream is None:
         raise KeyError(media_file_id)
     return {**episode, **stream, "id": episode["id"], "name": episode["name"]}
+
+
+_MEDIA_ELIGIBILITY_REQUIREMENTS = {
+    "analysis": ("analysis_eligible", "普通视频分析"),
+    "analysis_vlm": ("vlm_eligible", "分析中的 Qwen-VLM 复核"),
+    "no_action_trim": ("analysis_eligible", "无动作裁剪"),
+    "video_smoothing": ("smoothing_eligible", "视频平滑"),
+    "vlm_behavior": ("vlm_eligible", "VLM 行为标注"),
+    "qwen_trim": ("vlm_eligible", "Qwen 动作裁剪"),
+    "projection_correction": ("analysis_eligible", "MediaPipe 二维投影偏差矫正"),
+}
+
+
+def require_media_eligibility(media: dict, operation: str) -> dict:
+    """Reject non-RGB or explicitly ineligible media before expensive work."""
+    requirement = _MEDIA_ELIGIBILITY_REQUIREMENTS.get(str(operation))
+    if requirement is None:
+        raise ValueError(f"未知媒体操作: {operation}")
+    eligibility_key, label = requirement
+    modality = str(media.get("modality") or "missing").strip().casefold()
+    eligible = media.get(eligibility_key)
+    if modality == "rgb" and eligible is True:
+        return media
+    stream_name = str(
+        media.get("stream_name")
+        or media.get("relative_path")
+        or media.get("file_id")
+        or media.get("name")
+        or "未命名媒体"
+    )
+    eligibility_state = "true" if eligible is True else "false" if eligible is False else "missing"
+    depth_like = (
+        modality in {"depth", "infrared", "ir"}
+        or media.get("is_depth_map") is True
+        or str(media.get("type") or "").casefold() == "raw_depth"
+    )
+    detail = (
+        "Depth/IR 仍可用于文件预览，但禁止进入分析、VLM、视频平滑和裁剪任务。"
+        if depth_like
+        else "请在导入格式确认中选择明确标记为 RGB 且具备该任务资格的媒体流。"
+    )
+    raise ValueError(
+        f"{label}拒绝媒体流 {stream_name}：要求 modality=rgb 且 {eligibility_key}=true；"
+        f"当前 modality={modality}, {eligibility_key}={eligibility_state}。{detail}"
+    )
 
 
 def annotation_path(dataset_id: str, episode_id: str) -> Path:

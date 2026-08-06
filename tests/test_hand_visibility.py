@@ -7,6 +7,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from app.egodex_mano import required_egodex_mano_names
 from app.full_export import MANO_44_JOINT_NAMES
 from app.hand_visibility import inspect_full_hand_visibility
 
@@ -23,13 +24,18 @@ class HandVisibilityTests(unittest.TestCase):
             )
             camera = np.repeat(np.eye(4, dtype=np.float32)[None], frame_count, axis=0)
             output.create_dataset("transforms/camera", data=camera)
-            for index, name in enumerate(MANO_44_JOINT_NAMES):
+            transform_names = tuple(dict.fromkeys((
+                *MANO_44_JOINT_NAMES,
+                *required_egodex_mano_names("left"),
+                *required_egodex_mano_names("right"),
+            )))
+            for index, name in enumerate(transform_names):
                 transforms = np.repeat(np.eye(4, dtype=np.float32)[None], frame_count, axis=0)
                 transforms[:, 0, 3] = ((index % 5) - 2) * 0.04
                 transforms[:, 1, 3] = ((index % 4) - 1.5) * 0.04
                 transforms[:, 2, 3] = 1.0
-                if name == "rightThumbTip":
-                    transforms[2, 0, 3] = 1.0
+                if name.startswith("right"):
+                    transforms[2, 0, 3] += 2.0
                 output.create_dataset(f"transforms/{name}", data=transforms)
         episode = {"id": "ep", "name": "episode_0", "frame_count": frame_count, "fps": 30.0, "width": 100, "height": 100}
         manifest = {
@@ -53,6 +59,7 @@ class HandVisibilityTests(unittest.TestCase):
         self.assertFalse(left["invalid_mask"].any())
         self.assertEqual(right["invalid_mask"].tolist(), both["invalid_mask"].tolist())
         self.assertEqual(21, right["metrics"]["sides"]["right"]["joint_count"])
+        self.assertEqual("egodex_full_skeleton_fk", right["metrics"]["hand_geometry_source"])
 
     def test_missing_intrinsics_skips_without_rejecting_frames(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -43,6 +43,8 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
             "relative_path": "episode.mp4",
             "fps": 30.0,
             "frame_count": 10,
+            "modality": "rgb",
+            "vlm_eligible": True,
             "primary_media_file_id": "media-1",
             "media_streams": [{
                 "file_id": "media-1",
@@ -52,6 +54,8 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
                 "relative_path": "episode.mp4",
                 "fps": 30.0,
                 "frame_count": 10,
+                "modality": "rgb",
+                "vlm_eligible": True,
             }],
         }
         self.manifest = {"id": "fixture", "episodes": [self.episode]}
@@ -74,6 +78,10 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
         }
         if fingerprint:
             source_video["fingerprint"] = _source_video_fingerprint({"path": str(self.source)})
+        analysis_video = {
+            **source_video,
+            "kind": "source_video",
+        }
         annotation_path.write_text(json.dumps({
             "schema": "alice/vlm-behavior/v1",
             "artifact_version": BEHAVIOR_ARTIFACT_VERSION,
@@ -81,7 +89,15 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
             "dataset_id": "fixture",
             "episode_id": "ep-1",
             "source_video": source_video if fingerprint else {},
-            "sampling": {"media_file_id": "media-1", "stream_name": "episode.mp4", "frames": [0, 9]},
+            "analysis_video": analysis_video if fingerprint else {
+                "kind": "source_video",
+                "file_id": "media-1",
+                "stream_name": "episode.mp4",
+                "relative_path": "episode.mp4",
+                "frame_count": 10,
+            },
+            "timeline": {"frame_space": "analysis_video", "frame_count": 10, "fps": 30.0},
+            "sampling": {"frame_space": "analysis_video", "media_file_id": "media-1", "stream_name": "episode.mp4", "frames": [0, 9], "allowed_ranges": None},
             "task_label": "pick",
             "coarse": {"summary": "pick"},
             "medium": [{"start_frame": 0, "end_frame": 9, "description": "pick"}],
@@ -158,6 +174,40 @@ class BehaviorAnnotationReuseTests(unittest.TestCase):
         self.assertFalse(status["reusable"])
         self.assertEqual("invalid_behavior_artifact", status["reason"])
         self.assertIsNone(loaded)
+
+    def test_analysis_frame_count_mismatch_is_not_reused(self) -> None:
+        with patch("app.behavior_annotator.dataset_artifact_dir", side_effect=self._artifact_dir):
+            self._write_artifacts(fingerprint=True)
+            analysis_media = {**self.episode["media_streams"][0], "frame_count": 12}
+            status = behavior_annotation_status(
+                "fixture",
+                self.manifest,
+                self.episode,
+                source_media_file_id="media-1",
+                analysis_media=analysis_media,
+            )
+
+        self.assertFalse(status["reusable"])
+        self.assertEqual("analysis_frame_count_mismatch", status["reason"])
+
+    def test_changed_curation_ranges_are_not_reused(self) -> None:
+        with patch("app.behavior_annotator.dataset_artifact_dir", side_effect=self._artifact_dir):
+            self._write_artifacts(fingerprint=True)
+            path = self.sidecar / "behavior-annotations" / "ep-1.behavior.alice"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["sampling"]["allowed_ranges"] = [{"start_frame": 0, "end_frame": 4}]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            status = behavior_annotation_status(
+                "fixture",
+                self.manifest,
+                self.episode,
+                source_media_file_id="media-1",
+                analysis_media=self.episode["media_streams"][0],
+                analysis_frame_ranges=[(0, 9)],
+            )
+
+        self.assertFalse(status["reusable"])
+        self.assertEqual("curation_ranges_changed", status["reason"])
 
     def test_single_episode_reuses_before_api_configuration_check(self) -> None:
         manager = BehaviorJobManager()

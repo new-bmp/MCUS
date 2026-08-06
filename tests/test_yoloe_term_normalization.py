@@ -108,6 +108,8 @@ class YoloeTermNormalizationTests(unittest.TestCase):
                 "fps": 1.0,
                 "width": 16,
                 "height": 16,
+                "modality": "rgb",
+                "analysis_eligible": True,
             }
             with (
                 patch("app.no_action_trim._target_path", return_value=target),

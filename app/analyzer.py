@@ -14,7 +14,8 @@ import numpy as np
 from .models import registry
 from .job_control import CancellableJobMixin, JobCancelled
 from .schemas import AnalysisRequest
-from .storage import ALICE_ANNOTATION_SCHEMA, dataset_cache_dir, get_episode, get_manifest, read_frame, save_annotations
+from .sensor_alignment import ensure_episode_time_sync
+from .storage import ALICE_ANNOTATION_SCHEMA, dataset_cache_dir, get_episode, read_frame, require_media_eligibility, save_annotations
 
 
 class JobManager(CancellableJobMixin):
@@ -25,7 +26,11 @@ class JobManager(CancellableJobMixin):
         self._init_cancellation()
 
     def submit(self, dataset_id: str, episode_id: str, config: AnalysisRequest) -> dict:
-        schema_status = get_manifest(dataset_id).get("schema_profile", {}).get("status")
+        manifest, episode = get_episode(dataset_id, episode_id)
+        require_media_eligibility(episode, "analysis")
+        if config.use_vlm:
+            require_media_eligibility(episode, "analysis_vlm")
+        schema_status = manifest.get("schema_profile", {}).get("status")
         if schema_status != "completed":
             raise RuntimeError("请先使用 Qwen-VLM 完成数据集结构理解和 vision/joint 映射")
         if not registry.has_local and not (config.use_vlm and registry.has_vlm):
@@ -52,6 +57,8 @@ class JobManager(CancellableJobMixin):
         try:
             self._start_unless_cancelled(job_id, state="running", progress=0.01, message="正在读取 Episode")
             manifest, episode = get_episode(dataset_id, episode_id)
+            self._update(job_id, progress=0.02, message="T0 正在建立统一时间轴")
+            ensure_episode_time_sync(manifest, episode)
             result = analyze_episode(
                 dataset_id,
                 episode,
@@ -141,6 +148,9 @@ def _group_samples(samples: list[dict], fps: float, idle_duration: float) -> lis
 
 
 def analyze_episode(dataset_id: str, episode: dict, config: AnalysisRequest, progress, schema_profile: dict | None = None) -> dict:
+    require_media_eligibility(episode, "analysis")
+    if config.use_vlm:
+        require_media_eligibility(episode, "analysis_vlm")
     fps = float(episode["fps"])
     stride = max(1, int(round(fps / config.sample_fps)))
     indices = list(range(0, episode["frame_count"], stride))

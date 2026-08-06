@@ -60,7 +60,7 @@ if [ "$SETUP" -eq 1 ]; then
     "$PYTHON" -m pip install -r "$ROOT/requirements.txt"
 fi
 
-if ! "$PYTHON" -c 'import fastapi,uvicorn,cv2,ultralytics,httpx,h5py,pyarrow,imageio_ffmpeg,scipy,torch' >/dev/null 2>&1; then
+if ! "$PYTHON" -c 'import fastapi,uvicorn,cv2,mediapipe,ultralytics,httpx,h5py,pyarrow,imageio_ffmpeg,scipy,torch' >/dev/null 2>&1; then
     echo "Project dependencies are incomplete. Run: sh run.sh --setup" >&2
     exit 1
 fi

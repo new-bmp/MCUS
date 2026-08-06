@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+.streamlit/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Output
+output/
+*.mp4
+*.mov
+*.avi
+
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Media files (user videos)
+assets/*.mp4
+assets/*.mov
+assets/*.MOV
+
+# Logs
+*.log

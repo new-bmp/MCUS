@@ -47,7 +47,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
     }
 
-    & $python -c "import fastapi,uvicorn,cv2,ultralytics,httpx,h5py,pyarrow,imageio_ffmpeg,scipy,torch" 2>$null
+    & $python -c "import fastapi,uvicorn,cv2,mediapipe,ultralytics,httpx,h5py,pyarrow,imageio_ffmpeg,scipy,torch" 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "Project dependencies are incomplete. Run .\run.ps1 -Setup once."
     }

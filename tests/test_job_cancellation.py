@@ -48,6 +48,7 @@ class JobCancellationTests(unittest.TestCase):
         try:
             with (
                 patch("app.batch_jobs.get_manifest", return_value=manifest),
+                patch("app.batch_jobs.ensure_episode_time_sync", return_value={"gate": {"status": "ready"}}),
                 patch("app.batch_jobs.pose_recovery_status", return_value={"available": True, "artifact_exists": False, "needed": True}),
                 patch("app.batch_jobs.recover_episode_pose", side_effect=recover),
             ):
@@ -69,7 +70,15 @@ class JobCancellationTests(unittest.TestCase):
         manager._executor.shutdown(wait=True, cancel_futures=True)
         manager._executor = _DeferredExecutor()
         episode = {"id": "ep-1", "name": "EP 1", "primary_media_file_id": "video"}
-        media = {"file_id": "video", "path": "source.mp4", "frame_count": 10}
+        media = {
+            "file_id": "video",
+            "path": "source.mp4",
+            "frame_count": 10,
+            "modality": "rgb",
+            "analysis_eligible": True,
+            "vlm_eligible": True,
+            "smoothing_eligible": True,
+        }
         with patch("app.curation_pipeline.get_manifest", return_value={"episodes": [episode]}), patch("app.curation_pipeline.episode_media", return_value=media):
             job = manager.submit("dataset-1", CurationJobRequest(episode_ids=["ep-1"], media_file_ids={"ep-1": "video"}))
         self.assertIn(("dataset-1", "ep-1"), manager._reservations)
@@ -84,7 +93,7 @@ class JobCancellationTests(unittest.TestCase):
         manager._executor.shutdown(wait=True, cancel_futures=True)
         manager._executor = _DeferredExecutor()
         episode = {"id": "ep-1", "name": "EP 1"}
-        media = {"file_id": "video", "path": "source.mp4", "frame_count": 10}
+        media = {"file_id": "video", "path": "source.mp4", "frame_count": 10, "modality": "rgb", "vlm_eligible": True}
         with (
             patch("app.qwen_trim.registry", SimpleNamespace(has_vlm=True)),
             patch("app.qwen_trim.get_manifest", return_value={"episodes": [episode]}),

@@ -17,7 +17,7 @@ import httpx
 import numpy as np
 
 from .behavior_prompt import build_tri_level_prompts
-from .schemas import LocalModelConfig, VLMModelConfig
+from .schemas import HandPoseModelConfig, LocalModelConfig, VLMModelConfig
 from .storage import ROOT
 
 
@@ -30,6 +30,7 @@ _OPEN_VOCAB_HAND_KEYS = {value.casefold() for value in OPEN_VOCAB_HAND_CLASSES}
 OPEN_VOCAB_DEFAULT_IMAGE_SIZE = 960
 OPEN_VOCAB_FALLBACK_IMAGE_SIZE = 1280
 OPEN_VOCAB_DEFAULT_CONFIDENCE = 0.12
+MEDIAPIPE_HAND_LANDMARKER_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
 _OPEN_VOCAB_CLASS_ALIASES = {
     "block": ("jenga block", "building block"),
     "grape": ("grapes",),
@@ -251,6 +252,72 @@ def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int
     return max(minimum, min(maximum, value))
 
 
+def _mediapipe_hand_landmarker_path() -> Path:
+    configured = os.getenv("ALICE_MEDIAPIPE_HAND_MODEL", "").strip()
+    candidates: list[Path] = []
+    if configured:
+        requested = Path(configured).expanduser()
+        # Relative model paths are project-relative, not dependent on the
+        # process working directory (the service may be launched elsewhere).
+        candidates.append(requested if requested.is_absolute() else ROOT / requested)
+        candidates.append(requested)
+    candidates.extend([
+        ROOT / "hand_landmarker.task",
+        ROOT / "models" / "hand_landmarker.task",
+        ROOT / "mediapipe" / "hand_landmarker.task",
+    ])
+    seen: set[str] = set()
+    for candidate in candidates:
+        path = candidate.expanduser().resolve()
+        key = str(path).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file() and path.stat().st_size >= 1024 * 1024:
+            return path
+    target = (ROOT / "models" / "hand_landmarker.task").resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".task.download")
+    try:
+        with httpx.stream("GET", MEDIAPIPE_HAND_LANDMARKER_URL, follow_redirects=True, timeout=120.0) as response:
+            response.raise_for_status()
+            with temporary.open("wb") as output:
+                for chunk in response.iter_bytes(1024 * 1024):
+                    output.write(chunk)
+        if temporary.stat().st_size < 1024 * 1024:
+            raise RuntimeError("Downloaded MediaPipe hand_landmarker.task is incomplete")
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
+
+
+def _alicepose_model_path(configured: str = "") -> Path:
+    requested = str(configured or "").strip()
+    requested_path = Path(requested).expanduser() if requested else None
+    basename = requested_path.name if requested_path and requested_path.name else "Alicepose-21k-v1.pt"
+    candidates = [requested_path] if requested_path else []
+    candidates.extend([
+        ROOT / basename,
+        ROOT / "models" / basename,
+        Path.home() / "Desktop" / "alice blue" / basename,
+        Path.home() / "Desktop" / basename,
+    ])
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        path = candidate if candidate.is_absolute() else ROOT / candidate
+        resolved = path.expanduser().resolve()
+        key = str(resolved).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved.is_file() and resolved.stat().st_size >= 1024 * 1024:
+            return resolved
+    raise FileNotFoundError(f"AlicePose model not found: {requested or basename}")
+
+
 def _box_iou(left: list[float], right: list[float]) -> float:
     x1, y1 = max(left[0], right[0]), max(left[1], right[1])
     x2, y2 = min(left[2], right[2]), min(left[3], right[3])
@@ -294,19 +361,50 @@ class VLMStatus:
     error: str | None = None
 
 
+@dataclass
+class HandPoseStatus:
+    loaded: bool = False
+    loading: bool = False
+    backend: str | None = None
+    model_path: str | None = None
+    device: str = "cpu"
+    confidence: float = 0.1
+    family: str | None = None
+    keypoint_count: int | None = None
+    warmup_ms: float | None = None
+    error: str | None = None
+
+
 class ModelRegistry:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._local_model: Any = None
         self._local = LocalStatus()
+        self._hand_pose_model: Any = None
+        self._hand_pose = HandPoseStatus()
         self._vlm = VLMStatus()
         self._vlm_key: str | None = None
         self._current_classes: tuple[str, ...] = ()
         self._class_embedding_cache: dict[tuple[str, ...], Any] = {}
         self._loader_thread: threading.Thread | None = None
+        self._hand_pose_loader_thread: threading.Thread | None = None
 
     def status(self) -> dict:
-        return {"local": dict(vars(self._local)), "vlm": dict(vars(self._vlm))}
+        return {
+            "local": dict(vars(self._local)),
+            "hand_pose": dict(vars(self._hand_pose)),
+            "vlm": dict(vars(self._vlm)),
+        }
+
+    def close(self) -> None:
+        with self._lock:
+            model = self._hand_pose_model
+            self._hand_pose_model = None
+            if model is not None and hasattr(model, "close"):
+                try:
+                    model.close()
+                except Exception:
+                    pass
 
     def configure_local_async(self, config: LocalModelConfig) -> dict:
         """Load and warm the local model without delaying API readiness."""
@@ -345,7 +443,17 @@ class ModelRegistry:
 
                 device = config.device
                 if device == "auto":
-                    device = "0" if torch.cuda.is_available() else "cpu"
+                    configured_device = os.getenv("ALICE_LOCAL_MODEL_DEVICE", "").strip()
+                    if configured_device:
+                        device = configured_device
+                    elif torch.cuda.is_available():
+                        try:
+                            free_bytes, _ = torch.cuda.mem_get_info(0)
+                        except (RuntimeError, TypeError):
+                            free_bytes = 0
+                        device = "0" if int(free_bytes) >= 3 * 1024**3 else "cpu"
+                    else:
+                        device = "cpu"
                 if device not in {"cpu", "mps"} and not (device.isdigit() and torch.cuda.is_available()):
                     raise RuntimeError(f"请求的设备 {device} 不可用")
 
@@ -387,6 +495,138 @@ class ModelRegistry:
                 raise RuntimeError(f"本地模型加载失败: {exc}") from exc
         return self.status()
 
+    def configure_hand_pose_async(self, config: HandPoseModelConfig) -> dict:
+        """Load the dedicated 21-point hand pose model without replacing YOLOE."""
+        with self._lock:
+            if self._hand_pose.loading:
+                return self.status()
+            self._hand_pose = HandPoseStatus(
+                loading=True,
+                backend=config.kind,
+                model_path=config.model_path,
+                device=config.device,
+                confidence=config.confidence,
+            )
+            self._hand_pose_loader_thread = threading.Thread(
+                target=self._configure_hand_pose_worker,
+                args=(config,),
+                name="alice-hand-pose-loader",
+                daemon=True,
+            )
+            self._hand_pose_loader_thread.start()
+        return self.status()
+
+    def _configure_hand_pose_worker(self, config: HandPoseModelConfig) -> None:
+        try:
+            self.configure_hand_pose(config)
+        except RuntimeError:
+            return
+
+    def configure_hand_pose(self, config: HandPoseModelConfig) -> dict:
+        with self._lock:
+            self._hand_pose = HandPoseStatus(
+                loading=True,
+                backend=config.kind,
+                model_path=config.model_path,
+                device=config.device,
+                confidence=config.confidence,
+            )
+            try:
+                if config.kind == "mediapipe":
+                    import mediapipe as mp
+                    from mediapipe.tasks import python as mp_python
+                    from mediapipe.tasks.python import vision
+
+                    previous = self._hand_pose_model
+                    asset_path = _mediapipe_hand_landmarker_path()
+                    options = vision.HandLandmarkerOptions(
+                        base_options=mp_python.BaseOptions(model_asset_path=str(asset_path)),
+                        running_mode=vision.RunningMode.IMAGE,
+                        num_hands=2,
+                        min_hand_detection_confidence=max(0.1, min(0.9, float(config.confidence))),
+                        min_hand_presence_confidence=max(0.1, min(0.9, float(config.confidence))),
+                        min_tracking_confidence=max(0.1, min(0.9, float(config.confidence))),
+                    )
+                    model = vision.HandLandmarker.create_from_options(options)
+                    warmup = np.zeros((320, 320, 3), dtype=np.uint8)
+                    started = time.perf_counter()
+                    model.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(warmup, cv2.COLOR_BGR2RGB)))
+                    warmup_ms = round((time.perf_counter() - started) * 1000, 1)
+                    if previous is not None and previous is not model and hasattr(previous, "close"):
+                        try:
+                            previous.close()
+                        except Exception:
+                            pass
+                    self._hand_pose_model = model
+                    self._hand_pose = HandPoseStatus(
+                        loaded=True,
+                        backend="mediapipe",
+                        model_path=str(asset_path),
+                        device="cpu",
+                        confidence=config.confidence,
+                        family="MediaPipe Hands",
+                        keypoint_count=21,
+                        warmup_ms=warmup_ms,
+                    )
+                    return self.status()
+
+                import torch
+                from ultralytics import YOLO
+
+                device = config.device
+                if device == "auto":
+                    configured_device = os.getenv("ALICE_HAND_POSE_DEVICE", "").strip()
+                    if configured_device:
+                        device = configured_device
+                    elif torch.cuda.is_available():
+                        try:
+                            free_bytes, _ = torch.cuda.mem_get_info(0)
+                        except (RuntimeError, TypeError):
+                            free_bytes = 0
+                        # Large pose weights plus four guided crops need more
+                        # headroom than a 2 GB laptop GPU can provide.  A800
+                        # and other datacenter cards remain on CUDA.
+                        device = "0" if int(free_bytes) >= 3 * 1024**3 else "cpu"
+                    else:
+                        device = "cpu"
+                if device not in {"cpu", "mps"} and not (device.isdigit() and torch.cuda.is_available()):
+                    raise RuntimeError(f"Requested hand-pose device is unavailable: {device}")
+                resolved = str(_alicepose_model_path(config.model_path))
+                model = YOLO(resolved, task="pose", verbose=False)
+                torch_device = f"cuda:{device}" if device.isdigit() else device
+                model.to(torch_device)
+                keypoint_shape = getattr(model.model, "kpt_shape", None)
+                keypoint_count = int(keypoint_shape[0]) if isinstance(keypoint_shape, (list, tuple)) and keypoint_shape else 0
+                if keypoint_count != 21:
+                    raise RuntimeError(f"AlicePose correction requires 21 keypoints, model exposes {keypoint_count or 'unknown'}")
+                warmup = np.zeros((320, 320, 3), dtype=np.uint8)
+                started = time.perf_counter()
+                model.predict(source=warmup, device=device, imgsz=320, conf=max(0.005, min(0.1, config.confidence)), verbose=False)
+                warmup_ms = round((time.perf_counter() - started) * 1000, 1)
+                previous = self._hand_pose_model
+                if previous is not None and previous is not model and hasattr(previous, "close"):
+                    try:
+                        previous.close()
+                    except Exception:
+                        pass
+                self._hand_pose_model = model
+                self._hand_pose = HandPoseStatus(
+                    loaded=True,
+                    backend="alicepose",
+                    model_path=resolved,
+                    device=device,
+                    confidence=config.confidence,
+                    family=type(model.model).__name__,
+                    keypoint_count=keypoint_count,
+                    warmup_ms=warmup_ms,
+                )
+            except Exception as exc:
+                self._hand_pose_model = None
+                self._hand_pose.loading = False
+                self._hand_pose.error = str(exc)
+                raise RuntimeError(f"Hand-pose model load failed: {exc}") from exc
+        return self.status()
+
     def configure_vlm(self, config: VLMModelConfig) -> dict:
         endpoint = config.endpoint.rstrip("/")
         candidate = VLMStatus(False, endpoint, config.model, None)
@@ -414,6 +654,10 @@ class ModelRegistry:
         return self._local.loaded and self._local_model is not None
 
     @property
+    def has_hand_pose(self) -> bool:
+        return self._hand_pose.loaded and self._hand_pose_model is not None
+
+    @property
     def has_vlm(self) -> bool:
         return self._vlm.configured and bool(self._vlm_key)
 
@@ -426,6 +670,146 @@ class ModelRegistry:
             if self._local.family == "YOLOE":
                 self._set_yoloe_classes(COCO80)
             return self._infer_yolo(frame)
+
+    def infer_hand_pose_batch(self, images: list[np.ndarray]) -> list[dict | None]:
+        if not self.has_hand_pose:
+            raise RuntimeError("Hand-pose detector is not loaded")
+        if not images:
+            return []
+        candidates_by_image = self.infer_hand_pose_full_frame_batch(images)
+        return [
+            max(
+                candidates,
+                key=lambda item: float(item.get("box_confidence") or 0.0)
+                * (0.5 + 0.5 * float(np.mean(np.asarray(item.get("confidence"), dtype=np.float64)))),
+            )
+            if candidates else None
+            for candidates in candidates_by_image
+        ]
+
+    @staticmethod
+    def _mediapipe_candidates(result: Any, width: int, height: int) -> list[dict]:
+        landmarks = list(getattr(result, "hand_landmarks", None) or getattr(result, "multi_hand_landmarks", None) or [])
+        handedness = list(getattr(result, "handedness", None) or getattr(result, "multi_handedness", None) or [])
+        world_landmarks = list(getattr(result, "hand_world_landmarks", None) or getattr(result, "multi_hand_world_landmarks", None) or [])
+        output: list[dict] = []
+        for index, hand in enumerate(landmarks):
+            hand_points = list(getattr(hand, "landmark", None) or hand)
+            points = np.asarray(
+                [(float(point.x) * width, float(point.y) * height) for point in hand_points],
+                dtype=np.float64,
+            )
+            if points.shape != (21, 2):
+                continue
+            classification = None
+            if index < len(handedness):
+                values = list(getattr(handedness[index], "classification", None) or handedness[index] or [])
+                classification = values[0] if values else None
+            label = str(
+                getattr(classification, "category_name", None)
+                or getattr(classification, "label", "")
+                or ""
+            ).strip().casefold() or None
+            score = float(getattr(classification, "score", 0.0) or 0.0)
+            if not math.isfinite(score) or score <= 0.0:
+                score = 0.5
+            low, high = np.min(points, axis=0), np.max(points, axis=0)
+            margin = max(6.0, float(np.max(high - low)) * 0.08)
+            candidate = {
+                "keypoints": points,
+                # MediaPipe Hands does not expose an independent confidence
+                # for every landmark.  Keep this global value explicit; the
+                # correction pipeline adds topology, in-frame and temporal
+                # quality before it can influence 3D.
+                "confidence": np.full(21, score, dtype=np.float64),
+                "box_confidence": score,
+                "box": [
+                    max(0.0, float(low[0] - margin)),
+                    max(0.0, float(low[1] - margin)),
+                    min(float(width - 1), float(high[0] + margin)),
+                    min(float(height - 1), float(high[1] + margin)),
+                ],
+                "handedness": label,
+                "handedness_score": score,
+                "backend": "mediapipe",
+            }
+            if index < len(world_landmarks):
+                world_points = list(getattr(world_landmarks[index], "landmark", None) or world_landmarks[index])
+                world = np.asarray(
+                    [(float(point.x), float(point.y), float(point.z)) for point in world_points],
+                    dtype=np.float64,
+                )
+                if world.shape == (21, 3):
+                    candidate["world_landmarks"] = world
+            output.append(candidate)
+        return output
+
+    @staticmethod
+    def _ultralytics_pose_candidates(result: Any) -> list[dict]:
+        output: list[dict] = []
+        if result.keypoints is None or not len(result.keypoints):
+            return output
+        points = result.keypoints.xy.detach().cpu().numpy()
+        keypoint_confidence = result.keypoints.conf
+        confidences = (
+            keypoint_confidence.detach().cpu().numpy()
+            if keypoint_confidence is not None
+            else np.ones(points.shape[:2], dtype=np.float64)
+        )
+        box_confidences = (
+            result.boxes.conf.detach().cpu().numpy()
+            if result.boxes is not None
+            else np.ones(len(points), dtype=np.float64)
+        )
+        boxes = (
+            result.boxes.xyxy.detach().cpu().numpy()
+            if result.boxes is not None and result.boxes.xyxy is not None
+            else np.zeros((len(points), 4), dtype=np.float64)
+        )
+        for candidate, confidence, box_confidence, box in zip(points, confidences, box_confidences, boxes):
+            if candidate.shape != (21, 2):
+                continue
+            output.append({
+                "keypoints": candidate.astype(np.float64),
+                "confidence": confidence.astype(np.float64),
+                "box_confidence": float(box_confidence),
+                "box": np.asarray(box, dtype=np.float64).tolist(),
+                "handedness": None,
+                "handedness_score": 0.0,
+                "backend": "alicepose",
+            })
+        return output
+
+    def infer_hand_pose_full_frame_batch(self, images: list[np.ndarray]) -> list[list[dict]]:
+        """Detect up to two hands in each full image without source-guided crops."""
+        if not self.has_hand_pose:
+            raise RuntimeError("Hand-pose detector is not loaded")
+        if not images:
+            return []
+        if self._hand_pose.backend == "mediapipe":
+            import mediapipe as mp
+
+            output: list[list[dict]] = []
+            with self._lock:
+                for image in images:
+                    if image is None or not image.size:
+                        output.append([])
+                        continue
+                    rgb = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2RGB)
+                    result = self._hand_pose_model.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb)))
+                    output.append(self._mediapipe_candidates(result, image.shape[1], image.shape[0]))
+            return output
+        with self._lock:
+            results = self._hand_pose_model.predict(
+                source=images,
+                device=self._hand_pose.device,
+                imgsz=640,
+                conf=min(0.01, max(0.005, float(self._hand_pose.confidence))),
+                iou=0.5,
+                max_det=5,
+                verbose=False,
+            )
+        return [self._ultralytics_pose_candidates(result) for result in results]
 
     def _set_yoloe_classes(self, classes: list[str]) -> None:
         normalized = tuple(dict.fromkeys(str(value).strip() for value in classes if str(value).strip()))
@@ -655,6 +1039,9 @@ class ModelRegistry:
             "You are a robotics VLA dataset schema analyst. Analyze only the supplied, mechanically inspected inventory. "
             "Do not invent paths or fields. Identify dataset family, episode organization, vision streams, joint/proprio streams, "
             "left/right/bimanual separation, multi-camera streams, pressure/force/torque/tactile sensors, actions and timestamps. "
+            "When canonical_evidence is recorder_metadata or canonical_confidence is at least 0.95, copy kind, modality, side, role and variant exactly; "
+            "these are recorder contracts, not suggestions. Include every such authoritative candidate stream. "
+            "Candidates whose kind is other and modality is unknown may be classified from their real path, field, shape and dtype evidence. "
             "Associate each vision stream with the joint and sensor streams representing the same hand/arm and explain time alignment. "
             "Every source_id must exactly match an id from candidate_streams. Return JSON only with this schema: "
             "{format_family:string,format_confidence:number,summary:string,episode_organization:string,"
@@ -717,7 +1104,11 @@ class ModelRegistry:
 
         representatives: dict[tuple, dict] = {}
         for stream in inventory.get("candidate_streams", []):
-            if stream.get("kind") not in {"vision", "joint", "sensor", "action", "timestamp"}:
+            kind = str(stream.get("kind") or "other")
+            canonical_kind = str(stream.get("canonical_kind") or kind)
+            supported = {"vision", "joint", "sensor", "action", "timestamp"}
+            unknown_generic = kind == "other" and canonical_kind == "other"
+            if kind not in supported and not unknown_generic:
                 continue
             shape = stream.get("shape")
             shape_pattern = ["*", *shape[1:]] if isinstance(shape, list) and shape else shape

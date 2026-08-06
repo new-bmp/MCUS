@@ -57,7 +57,7 @@ class VideoSmoothingTests(unittest.TestCase):
                 result = smooth_video(
                     "dataset",
                     {"id": "episode", "name": "episode"},
-                    {"path": str(source), "file_id": "video", "stream_name": "video", "relative_path": "source.mp4"},
+                    {"path": str(source), "file_id": "video", "stream_name": "video", "relative_path": "source.mp4", "modality": "rgb", "smoothing_eligible": True},
                     lambda _value, _message: None,
                 )
 
@@ -100,7 +100,7 @@ class VideoSmoothingTests(unittest.TestCase):
                 result = smooth_video(
                     "dataset",
                     {"id": "episode", "name": "episode"},
-                    {"path": str(source), "file_id": "video", "stream_name": "video", "relative_path": "source.mp4"},
+                    {"path": str(source), "file_id": "video", "stream_name": "video", "relative_path": "source.mp4", "modality": "rgb", "smoothing_eligible": True},
                     lambda _value, message: messages.append(message),
                 )
 

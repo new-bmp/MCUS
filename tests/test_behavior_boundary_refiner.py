@@ -80,11 +80,19 @@ class BehaviorBoundaryRefinerTests(unittest.TestCase):
             "app.sensor_alignment.scan_episode_sensor_alignment", return_value={"streams": []}
         ) as scan:
             result = load_episode_joint_pose(
-                {"root_path": "fixture"}, {"id": "ep", "frame_count": 8}, frame_count=8
+                {"root_path": "fixture"},
+                {"id": "ep", "frame_count": 8},
+                frame_count=8,
+                reference_media_file_id="wrist-left",
             )
 
         np.testing.assert_array_equal(joint, result)
-        scan.assert_called_once()
+        scan.assert_called_once_with(
+            {"root_path": "fixture"},
+            {"id": "ep", "frame_count": 8},
+            force=False,
+            reference_media_file_id="wrist-left",
+        )
         self.assertEqual(8, load.call_args.kwargs["frame_count"])
 
 

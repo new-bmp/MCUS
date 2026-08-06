@@ -12,7 +12,8 @@ import cv2
 import numpy as np
 
 from .preview_proxy import _ffmpeg_executable
-from .storage import change_is_applied, dataset_artifact_dir, record_change, slugify
+from .full_run import full_run_stage_dir
+from .storage import change_is_applied, dataset_artifact_dir, record_change, require_media_eligibility, slugify
 
 
 VIDEO_SMOOTHING_SCHEMA = "alice/video-smoothing/v2"
@@ -25,8 +26,12 @@ _PROCESSING_GPU_LOCK = threading.Lock()
 _PROCESSING_GPU_CURSOR = 0
 
 
-def _artifact_paths(dataset_id: str, episode_id: str, stream_name: str) -> tuple[Path, Path]:
-    root = dataset_artifact_dir(dataset_id, "video-smoothing") / slugify(episode_id)
+def _artifact_paths(dataset_id: str, episode_id: str, stream_name: str, run_id: str | None = None) -> tuple[Path, Path]:
+    root = (
+        full_run_stage_dir(dataset_id, run_id, episode_id, "smoothing")
+        if run_id
+        else dataset_artifact_dir(dataset_id, "video-smoothing") / slugify(episode_id)
+    )
     root.mkdir(parents=True, exist_ok=True)
     stem = slugify(Path(stream_name).stem or "video")
     return root / f"{stem}.smoothed.mp4", root / f"{stem}.smooth.alice"
@@ -350,12 +355,14 @@ def smooth_video(
     smoothing: float = 0.9,
     sharpen_strength: float = 0.32,
     border_zoom: float = 1.025,
+    run_id: str | None = None,
 ) -> dict:
+    require_media_eligibility(media, "video_smoothing")
     source_path = Path(str(media.get("path") or ""))
     if not source_path.is_file():
         raise ValueError(f"视频不存在: {media.get('relative_path') or source_path}")
 
-    output_path, manifest_path = _artifact_paths(dataset_id, episode["id"], str(media.get("stream_name") or source_path.name))
+    output_path, manifest_path = _artifact_paths(dataset_id, episode["id"], str(media.get("stream_name") or source_path.name), run_id)
     temporary_video = output_path.with_name(output_path.stem + ".part.mp4")
     capture = cv2.VideoCapture(str(source_path))
     if not capture.isOpened():
@@ -516,6 +523,7 @@ def smooth_video(
         "schema": VIDEO_SMOOTHING_SCHEMA,
         "dataset_id": dataset_id,
         "episode_id": episode["id"],
+        "full_run_id": run_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source_policy": "Source video remains read-only; the enhanced video is stored only in .alicePD.",
         "source_video": {

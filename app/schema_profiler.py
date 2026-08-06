@@ -150,15 +150,26 @@ def _side(text: str) -> str:
 
 
 def _kind(text: str) -> tuple[str, str]:
-    lowered = text.lower()
-    if any(token in lowered for token in ("rgb", "image", "camera", "vision", "video", "depth", "color")):
-        modality = "depth" if "depth" in lowered else "rgb"
-        return "vision", modality
+    lowered = text.lower().replace("\\", "/")
+    leaf = lowered.rsplit("/", 1)[-1]
+    # Field semantics take precedence over a parent folder name such as
+    # `camera/`.  Otherwise `camera/head_imu.h5::imu/gyro` is incorrectly
+    # classified as RGB merely because the recorder groups it with cameras.
+    if any(token in leaf for token in ("timestamp", "timestamps", "master_ts", "sensor_ts", "time_ns", "time_us", "time_ms", "frame_time")):
+        return "timestamp", "time"
+    if any(token in lowered for token in ("action", "command", "control", "target_qpos", "target_joint")):
+        return "action", "command"
     if any(token in lowered for token in ("pressure", "tactile", "force", "torque", "wrench", "load_cell", "ft_sensor")):
         modality = "pressure" if "pressure" in lowered else "tactile" if "tactile" in lowered else "force_torque"
         return "sensor", modality
-    if any(token in lowered for token in ("action", "command", "control", "target_qpos", "target_joint")):
-        return "action", "command"
+    if any(token in lowered for token in ("/imu", "imu/", "_imu", "accelerometer", "accel", "gyroscope", "gyro")):
+        return "sensor", "imu"
+    if leaf == "joints" and any(token in lowered for token in ("mocap", "dexweave", "glove", "hand_device")):
+        # Nexus/DexWeave stores six uint8 device channels under `joints`; they
+        # are human-hand sensor channels, not a robot State or Action vector.
+        return "sensor", "hand_device"
+    if any(token in lowered for token in ("skeleton", "keypoint", "mocap", "wrist_quat")):
+        return "joint", "pose"
     if any(token in lowered for token in ("qpos", "joint_pos", "joint_position", "joint_angle", "joints")):
         return "joint", "position"
     if any(token in lowered for token in ("endpose", "end_pose", "end_effector_pose", "eef_pose", "tcp_pose")):
@@ -169,8 +180,9 @@ def _kind(text: str) -> tuple[str, str]:
         return "joint", "velocity"
     if any(token in lowered for token in ("gripper", "proprio", "robot_state", "arm_state")):
         return "joint", "state"
-    if any(token in lowered for token in ("timestamp", "time_ns", "time_us", "time_ms", "frame_time")):
-        return "timestamp", "time"
+    if any(token in lowered for token in ("rgb", "image", "camera", "vision", "video", "depth", "color")):
+        modality = "depth" if "depth" in lowered else "rgb"
+        return "vision", modality
     return "other", "unknown"
 
 
@@ -258,6 +270,7 @@ def infer_local_signal_fields(fields: list[dict], max_dimensions: int | None = N
     descriptors: list[dict] = []
     skeleton_groups: dict[str, dict[int, list[dict]]] = {}
     skeleton_fields: set[str] = set()
+    native_skeleton_fields: set[str] = set()
     for field in fields:
         field_name = str(field.get("key") or "")
         shape = _signal_shape(field.get("shape"))
@@ -299,10 +312,70 @@ def infer_local_signal_fields(fields: list[dict], max_dimensions: int | None = N
 
     for field in fields:
         field_name = str(field.get("key") or "")
+        shape = _signal_shape(field.get("shape"))
+        lowered = field_name.replace("\\", "/").casefold()
+        if (
+            not shape
+            or len(shape) != 3
+            or shape[-1] < 3
+            or not _numeric_dtype(field.get("dtype"))
+            or not any(token in lowered for token in ("skeleton", "keypoint"))
+        ):
+            continue
+        node_count = int(shape[1])
+        retained_nodes = node_count
+        if max_dimensions is not None:
+            retained_nodes = min(retained_nodes, max(1, int(max_dimensions) // 3))
+        dimension_names = [
+            f"node_{node:02d}.{axis}"
+            for node in range(retained_nodes)
+            for axis in ("x", "y", "z")
+        ]
+        descriptors.append({
+            "field": field_name,
+            "kind": "joint",
+            "modality": "pose",
+            "shape": [int(shape[0]), len(dimension_names)],
+            "source_shape": shape,
+            "dtype": str(field.get("dtype") or "float"),
+            "side_hint": "unknown",
+            "role": "hand_skeleton",
+            "representation": "absolute",
+            "dimension_names": dimension_names,
+            "members": [],
+            "gripper_indices": [],
+            "embodiment_id": f"native-hand-{node_count}",
+            "node_count": node_count,
+            "confidence": 0.98,
+            "evidence": "local_native_skeleton_tensor",
+            "extraction": "skeleton_xyz",
+        })
+        native_skeleton_fields.add(field_name)
+
+    for field in fields:
+        field_name = str(field.get("key") or "")
         if field_name in skeleton_fields:
+            continue
+        if field_name in native_skeleton_fields:
+            continue
+        if native_skeleton_fields and field_name.replace("\\", "/").rsplit("/", 1)[-1].casefold() == "wrist_quat":
+            # The same orientation is already embedded per node in the native
+            # skeleton tensor.  Keeping a standalone quaternion in S1 would
+            # make harmless q/-q sign changes look like numeric jumps.
             continue
         shape = _signal_shape(field.get("shape"))
         if not shape or len(shape) > 2 or not _numeric_dtype(field.get("dtype")):
+            continue
+        leaf = field_name.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        try:
+            byte_device_channels = leaf == "joints" and np.dtype(str(field.get("dtype"))).kind in "iu" and np.dtype(str(field.get("dtype"))).itemsize <= 1
+        except (TypeError, ValueError):
+            byte_device_channels = False
+        if byte_device_channels:
+            # A bare byte-valued `joints` vector is ambiguous and commonly
+            # represents glove/device channels.  The inventory layer can use
+            # the full source path to classify it safely; do not promote it to
+            # robot State here.
             continue
         kind, modality = _kind(field_name)
         if kind not in {"joint", "action"}:
@@ -423,8 +496,22 @@ def build_inventory(root: Path, episodes: list[dict], included_paths: set[str] |
         media_streams = episode.get("media_streams") or [episode]
         for media in media_streams:
             stream_id = f"media::{media['relative_path']}"
-            modality = "image_sequence" if media["type"] == "images" else "video"
-            stream = {"id": stream_id, "source_path": media["relative_path"], "field": None, "kind": "vision", "modality": modality, "side_hint": _side(media["relative_path"]), "shape": [media["frame_count"], media["height"], media["width"], 3], "dtype": "uint8", "evidence": "decoded_media"}
+            modality = str(media.get("modality") or ("image_sequence" if media["type"] == "images" else "video"))
+            is_depth = modality == "depth" or bool(media.get("is_depth_map"))
+            channels = 1 if is_depth else 3
+            stream = {
+                "id": stream_id,
+                "source_path": media["relative_path"],
+                "field": None,
+                "kind": "vision",
+                "modality": modality,
+                "side_hint": str(media.get("side") or _side(media["relative_path"])),
+                "shape": [media["frame_count"], media["height"], media["width"], channels],
+                "dtype": str(media.get("dtype") or ("uint16" if is_depth else "uint8")),
+                "role": str(media.get("role") or ("depth_map" if is_depth else "camera_stream")),
+                "variant": str(media.get("variant") or "primary"),
+                "evidence": "decoded_raw_depth" if media.get("type") == "raw_depth" else "decoded_media",
+            }
             streams.append(stream)
             stream_ids.add(stream_id)
 
@@ -450,7 +537,26 @@ def build_inventory(root: Path, episodes: list[dict], included_paths: set[str] |
                     continue
                 local = local_by_field.get(field_key)
                 kind, modality = (local["kind"], local["modality"]) if local else _kind(f"{relative}/{field_key}")
-                streams.append({"id": stream_id, "source_path": relative, "field": field_key, "kind": kind, "modality": modality, "side_hint": (local or {}).get("side_hint") or _side(f"{relative}/{field_key}"), "shape": field.get("shape"), "dtype": field.get("dtype"), "evidence": (local or {}).get("evidence") or "field_name_heuristic"})
+                local_side = str((local or {}).get("side_hint") or "unknown")
+                streams.append({
+                    "id": stream_id,
+                    "source_path": relative,
+                    "field": field_key,
+                    "kind": kind,
+                    "modality": modality,
+                    "side_hint": local_side if local_side != "unknown" else _side(f"{relative}/{field_key}"),
+                    "shape": field.get("shape"),
+                    "dtype": field.get("dtype"),
+                    "evidence": (local or {}).get("evidence") or "field_name_heuristic",
+                    **({
+                        key: local[key]
+                        for key in (
+                            "role", "representation", "dimension_names", "gripper_indices",
+                            "embodiment_id", "extraction", "node_count", "source_shape", "confidence",
+                        )
+                        if key in local
+                    } if local else {}),
+                })
                 stream_ids.add(stream_id)
             for local in local_signals:
                 field_key = str(local["field"])
@@ -485,60 +591,195 @@ def pending_profile(inventory: dict) -> dict:
     return {"status": "awaiting_vlm", "inventory": inventory, "understanding": None, "warnings": ["Qwen-VLM has not analyzed this dataset schema."], "updated_at": datetime.now(timezone.utc).isoformat()}
 
 
+_SUPPORTED_UNDERSTANDING_KINDS = {"vision", "joint", "sensor", "action", "timestamp"}
+_CANONICAL_LOCK_CONFIDENCE = 0.95
+
+
+def _bounded_confidence(value: Any, fallback: float = 0.0) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return max(0.0, min(1.0, float(fallback)))
+
+
+def _authoritative_canonical_stream(stream: dict) -> bool:
+    """Return whether recorder/local canonical classification outranks Qwen.
+
+    Filename/shape heuristics intentionally remain editable by Qwen.  Recorder
+    declarations and future high-confidence canonical adapters are treated as
+    data contracts so a tactile/IMU/depth stream cannot become an Action or a
+    Joint merely because a language model proposed the same-shaped category.
+    """
+    canonical_kind = str(stream.get("canonical_kind") or stream.get("kind") or "")
+    if canonical_kind not in _SUPPORTED_UNDERSTANDING_KINDS:
+        return False
+    evidence = str(stream.get("canonical_evidence") or "").strip().casefold()
+    confidence = _bounded_confidence(stream.get("canonical_confidence"), 0.0)
+    return evidence == "recorder_metadata" or evidence.startswith("recorder_metadata:") or confidence >= _CANONICAL_LOCK_CONFIDENCE
+
+
+def _canonical_value(stream: dict, key: str, fallback_key: str | None = None, default: Any = "") -> Any:
+    value = stream.get(key)
+    if value is None and fallback_key:
+        value = stream.get(fallback_key)
+    return default if value is None else value
+
+
+def _validated_stream(actual: dict, proposed: dict, *, canonical_locked: bool) -> dict | None:
+    canonical_kind = str(_canonical_value(actual, "canonical_kind", "kind", "other"))
+    canonical_confidence = _bounded_confidence(actual.get("canonical_confidence"), 0.0)
+    actual_kind = str(actual.get("kind") or "other")
+    proposed_kind = proposed.get("kind")
+    if canonical_locked:
+        final_kind = canonical_kind
+    else:
+        final_kind = proposed_kind if proposed_kind in _SUPPORTED_UNDERSTANDING_KINDS else actual_kind
+    if final_kind not in _SUPPORTED_UNDERSTANDING_KINDS:
+        return None
+
+    shape = actual.get("shape") if isinstance(actual.get("shape"), list) else []
+    dimension_count = int(shape[-1]) if len(shape) > 1 and isinstance(shape[-1], int) else None
+    proposed_dimensions = proposed.get("dimension_names") if isinstance(proposed.get("dimension_names"), list) else []
+    actual_dimensions = actual.get("dimension_names") if isinstance(actual.get("dimension_names"), list) else []
+    dimension_names = [
+        str(item)[:120]
+        for item in (proposed_dimensions or actual_dimensions)
+        if str(item).strip()
+    ][:MAX_FIELDS]
+
+    proposed_grippers = proposed.get("gripper_indices") if isinstance(proposed.get("gripper_indices"), list) else None
+    actual_grippers = actual.get("gripper_indices") if isinstance(actual.get("gripper_indices"), list) else []
+    gripper_indices = []
+    for value in proposed_grippers if proposed_grippers is not None else actual_grippers:
+        try:
+            index = int(value)
+        except (TypeError, ValueError):
+            continue
+        if index >= 0 and (dimension_count is None or index < dimension_count):
+            gripper_indices.append(index)
+
+    representation_source = (
+        (actual.get("representation") or "unknown")
+        if canonical_locked
+        else (proposed.get("representation") or actual.get("representation") or "unknown")
+    )
+    representation = str(representation_source)
+    if representation not in {"absolute", "delta", "velocity", "unknown"}:
+        representation = "unknown"
+
+    if canonical_locked:
+        modality = str(actual.get("modality") or "unknown")
+        side = str(_canonical_value(actual, "side", "side_hint", "unknown"))
+        role = str(actual.get("role") or "")
+        evidence = str(actual.get("canonical_evidence") or actual.get("evidence") or "canonical_mapping")
+        confidence = canonical_confidence or _bounded_confidence(actual.get("confidence"), 0.95)
+    else:
+        modality = str(proposed.get("modality") or actual.get("modality") or "unknown")
+        proposed_side = proposed.get("side")
+        side = str(proposed_side if proposed_side in {"left", "right", "shared", "unknown"} else _canonical_value(actual, "side_hint", "side", "unknown"))
+        role = str(proposed.get("role") or actual.get("role") or "")
+        evidence = str(proposed.get("evidence") or actual.get("evidence") or "")
+        confidence = _bounded_confidence(proposed.get("confidence"), 0.5)
+
+    proposed_embodiment = str(proposed.get("embodiment_id") or "").strip()
+    actual_embodiment = str(actual.get("embodiment_id") or "").strip()
+    return {
+        "source_id": str(actual.get("id") or proposed.get("source_id") or ""),
+        "kind": final_kind,
+        "modality": modality,
+        "side": side if side in {"left", "right", "shared", "unknown"} else "unknown",
+        "role": role,
+        "representation": representation,
+        "dimension_names": dimension_names,
+        "gripper_indices": sorted(set(gripper_indices)),
+        "embodiment_id": proposed_embodiment or actual_embodiment or None,
+        "confidence": confidence,
+        "evidence": evidence,
+        "source_path": actual.get("source_path"),
+        "field": actual.get("field"),
+        "shape": actual.get("shape"),
+        "dtype": actual.get("dtype"),
+        "variant": str(actual.get("variant") or "primary"),
+        "extraction": str(actual.get("extraction") or ""),
+        "node_count": actual.get("node_count"),
+        "canonical_locked": canonical_locked,
+        "canonical_kind": canonical_kind,
+        "canonical_confidence": canonical_confidence,
+        "canonical_evidence": str(actual.get("canonical_evidence") or ""),
+    }
+
+
 def validate_understanding(inventory: dict, raw: dict) -> tuple[dict, list[str]]:
     candidates = {stream["id"]: stream for stream in inventory.get("candidate_streams", [])}
     warnings: list[str] = []
     streams = []
-    for proposed in raw.get("streams", []):
+    accepted_ids: set[str] = set()
+    for proposed in raw.get("streams") or []:
+        if not isinstance(proposed, dict):
+            warnings.append("Qwen returned a malformed stream entry and it was discarded.")
+            continue
         source_id = str(proposed.get("source_id", ""))
         if source_id not in candidates:
             warnings.append(f"Qwen returned an unknown stream and it was discarded: {source_id}")
             continue
+        if source_id in accepted_ids:
+            warnings.append(f"Qwen returned a duplicate stream and the duplicate was discarded: {source_id}")
+            continue
         actual = candidates[source_id]
-        proposed_kind = proposed.get("kind")
-        final_kind = proposed_kind if proposed_kind in {"vision", "joint", "sensor", "action", "timestamp"} else actual["kind"]
-        if final_kind == "other":
+        canonical_locked = _authoritative_canonical_stream(actual)
+        stream = _validated_stream(actual, proposed, canonical_locked=canonical_locked)
+        if stream is None:
             warnings.append(f"Stream discarded because Qwen did not assign a supported kind: {source_id}")
             continue
-        shape = actual.get("shape") if isinstance(actual.get("shape"), list) else []
-        dimension_count = int(shape[-1]) if len(shape) > 1 and isinstance(shape[-1], int) else None
-        dimension_names = [str(item)[:120] for item in proposed.get("dimension_names", []) if str(item).strip()][:MAX_FIELDS]
-        gripper_indices = []
-        for value in proposed.get("gripper_indices", []):
-            try:
-                index = int(value)
-            except (TypeError, ValueError):
-                continue
-            if index >= 0 and (dimension_count is None or index < dimension_count):
-                gripper_indices.append(index)
-        representation = str(proposed.get("representation") or "unknown")
-        if representation not in {"absolute", "delta", "velocity", "unknown"}:
-            representation = "unknown"
-        streams.append({
-            "source_id": source_id,
-            "kind": final_kind,
-            "modality": str(proposed.get("modality") or actual["modality"]),
-            "side": proposed.get("side") if proposed.get("side") in {"left", "right", "shared", "unknown"} else actual["side_hint"],
-            "role": str(proposed.get("role") or ""),
-            "representation": representation,
-            "dimension_names": dimension_names,
-            "gripper_indices": sorted(set(gripper_indices)),
-            "embodiment_id": str(proposed.get("embodiment_id") or "").strip() or None,
-            "confidence": max(0.0, min(1.0, float(proposed.get("confidence", 0.5)))),
-            "evidence": str(proposed.get("evidence") or actual["evidence"]),
-            "source_path": actual["source_path"],
-            "field": actual["field"],
-            "shape": actual["shape"],
-            "dtype": actual["dtype"],
-        })
+        if canonical_locked:
+            conflicts = []
+            canonical_fields = {
+                "kind": stream["kind"],
+                "modality": stream["modality"],
+                "side": stream["side"],
+                "role": stream["role"],
+                "variant": stream["variant"],
+                "extraction": stream["extraction"],
+            }
+            for key, canonical_value in canonical_fields.items():
+                proposed_value = proposed.get(key)
+                if proposed_value is not None and proposed_value != "" and str(proposed_value) != str(canonical_value):
+                    conflicts.append(key)
+            if conflicts:
+                warnings.append(
+                    f"Qwen classification was ignored for authoritative canonical stream {source_id}: "
+                    + ", ".join(conflicts)
+                )
+        streams.append(stream)
+        accepted_ids.add(source_id)
+
+    restored_ids = []
+    for source_id, actual in candidates.items():
+        if source_id in accepted_ids or not _authoritative_canonical_stream(actual):
+            continue
+        stream = _validated_stream(actual, {}, canonical_locked=True)
+        if stream is None:
+            continue
+        streams.append(stream)
+        accepted_ids.add(source_id)
+        restored_ids.append(source_id)
+    if restored_ids:
+        preview = ", ".join(restored_ids[:8])
+        suffix = "" if len(restored_ids) <= 8 else f" (+{len(restored_ids) - 8} more)"
+        warnings.append(
+            f"Restored {len(restored_ids)} authoritative canonical stream(s) omitted by Qwen: {preview}{suffix}"
+        )
 
     valid_streams = {stream["source_id"]: stream for stream in streams}
     valid_ids = set(valid_streams)
     associations = []
-    for relation in raw.get("associations", []):
+    for relation in raw.get("associations") or []:
+        if not isinstance(relation, dict):
+            warnings.append("Qwen returned a malformed association and it was discarded.")
+            continue
         vision_id = str(relation.get("vision_id", ""))
-        joint_ids = [str(item) for item in relation.get("joint_ids", []) if str(item) in valid_ids and valid_streams[str(item)]["kind"] == "joint"]
-        sensor_ids = [str(item) for item in relation.get("sensor_ids", []) if str(item) in valid_ids and valid_streams[str(item)]["kind"] == "sensor"]
+        joint_ids = [str(item) for item in relation.get("joint_ids") or [] if str(item) in valid_ids and valid_streams[str(item)]["kind"] == "joint"]
+        sensor_ids = [str(item) for item in relation.get("sensor_ids") or [] if str(item) in valid_ids and valid_streams[str(item)]["kind"] == "sensor"]
         if vision_id not in valid_ids or valid_streams[vision_id]["kind"] != "vision":
             warnings.append(f"Association discarded because vision stream is unknown: {vision_id}")
             continue
@@ -549,14 +790,14 @@ def validate_understanding(inventory: dict, raw: dict) -> tuple[dict, list[str]]
             "side": relation.get("side") if relation.get("side") in {"left", "right", "shared", "unknown"} else "unknown",
             "time_alignment": str(relation.get("time_alignment") or "unknown"),
             "timestamp_id": str(relation.get("timestamp_id")) if relation.get("timestamp_id") in valid_ids and valid_streams[str(relation.get("timestamp_id"))]["kind"] == "timestamp" else None,
-            "confidence": max(0.0, min(1.0, float(relation.get("confidence", 0.5)))),
+            "confidence": _bounded_confidence(relation.get("confidence"), 0.5),
             "reason": str(relation.get("reason") or ""),
         })
 
-    warnings.extend(str(item) for item in raw.get("warnings", [])[:30])
+    warnings.extend(str(item) for item in (raw.get("warnings") or [])[:30])
     understanding = {
         "format_family": str(raw.get("format_family") or "unknown"),
-        "format_confidence": max(0.0, min(1.0, float(raw.get("format_confidence", 0.0)))),
+        "format_confidence": _bounded_confidence(raw.get("format_confidence"), 0.0),
         "summary": str(raw.get("summary") or ""),
         "episode_organization": str(raw.get("episode_organization") or "unknown"),
         "streams": streams,

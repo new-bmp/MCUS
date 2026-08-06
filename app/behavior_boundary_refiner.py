@@ -22,13 +22,15 @@ def load_episode_joint_pose(
     *,
     frame_count: int | None = None,
     alignment: dict | None = None,
+    reference_media_file_id: str | None = None,
 ) -> np.ndarray | None:
     """Load the same real, video-aligned Joint Pose used by paper curation.
 
     Missing/unsupported joint data is an optional refinement input, not a
     behavior-annotation failure, so this adapter returns ``None`` on failure.
     ``alignment`` can be supplied by a caller that has already scanned the
-    Episode; otherwise the normal cached alignment scan is used.
+    Episode; otherwise the cached alignment for ``reference_media_file_id``
+    is used. Omitting the media id preserves the primary-video behavior.
     """
 
     try:
@@ -42,7 +44,12 @@ def load_episode_joint_pose(
             return None
         resolved_alignment = alignment
         if resolved_alignment is None:
-            resolved_alignment = scan_episode_sensor_alignment(manifest, episode, force=False)
+            resolved_alignment = scan_episode_sensor_alignment(
+                manifest,
+                episode,
+                force=False,
+                reference_media_file_id=reference_media_file_id,
+            )
         bundle = _load_signal_bundle(manifest, episode, resolved_alignment or {}, frame_count=target_count)
         values = bundle.get("joint")
         if values is None:

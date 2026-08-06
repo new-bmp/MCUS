@@ -12,6 +12,14 @@ import cv2
 import h5py
 import numpy as np
 
+from .egodex_mano import (
+    EGODEX_MANO_REVISION,
+    fit_egodex_mano_template,
+    has_egodex_mano_source,
+    required_egodex_mano_names,
+    retarget_egodex_mano_frame,
+    source_is_retargeted,
+)
 from .lerobot_export import (
     HAND_21_JOINT_NAMES,
     side_hand_joint_names,
@@ -64,12 +72,35 @@ def _episode_records(manifest: dict, episode: dict) -> list[dict]:
     ]
 
 
-def _find_transform_source(manifest: dict, episode: dict, output_format: str = "hdf5_mp4") -> tuple[Path, str, int]:
+def _find_transform_source(
+    manifest: dict,
+    episode: dict,
+    output_format: str = "hdf5_mp4",
+    *,
+    prefer_applied: bool = True,
+) -> tuple[Path, str, int]:
     root = Path(str(manifest["root_path"])).expanduser().resolve()
     required_names = MANO_44_JOINT_NAMES if output_format == "hdf5_mp4" else (
         *side_hand_joint_names("left"),
         *side_hand_joint_names("right"),
     )
+    if prefer_applied:
+        from .projection_correction import applied_projection_source
+
+        applied = applied_projection_source(manifest, episode)
+    else:
+        applied = None
+    if applied is not None:
+        try:
+            with h5py.File(applied["path"], "r") as source:
+                transforms = source.get("transforms")
+                if isinstance(transforms, h5py.Group):
+                    names = (*required_names, "camera")
+                    counts = {int(transforms[name].shape[0]) for name in names if name in transforms}
+                    if len(counts) == 1 and all(name in transforms and transforms[name].shape[1:] == (4, 4) for name in names):
+                        return Path(applied["path"]), str(applied.get("source_relative_path") or "projection-correction.hdf5"), counts.pop()
+        except (OSError, KeyError, ValueError):
+            pass
     candidates = [
         item for item in _episode_records(manifest, episode)
         if Path(str(item.get("relative_path") or "")).suffix.casefold() in {".h5", ".hdf5", ".h5df"}
@@ -102,7 +133,7 @@ def _find_transform_source(manifest: dict, episode: dict, output_format: str = "
 def _aligned_rows(manifest: dict, episode: dict, relative: str, source_count: int, video_count: int) -> np.ndarray:
     if source_count == video_count:
         return np.arange(video_count, dtype=np.int64)
-    alignment = load_sensor_alignment(str(manifest["id"]), str(episode["id"])) or scan_episode_sensor_alignment(manifest, episode)
+    alignment = load_sensor_alignment(manifest, str(episode["id"])) or scan_episode_sensor_alignment(manifest, episode)
     stream = next((
         item for item in alignment.get("streams") or []
         if str(item.get("relative_path") or "").replace("\\", "/").casefold() == relative.casefold()
@@ -401,6 +432,8 @@ def _write_mano_hdf5(
             "transform_count_with_camera": 45,
             "s1_repair_applied": s1_repair_cell_count(repair, source_relative, "transforms/") > 0,
             "s1_repair_cell_count": s1_repair_cell_count(repair, source_relative, "transforms/"),
+            "hand_geometry_schema": "mano21_kinematic_retarget",
+            "hand_geometry_revision": EGODEX_MANO_REVISION,
         })
         mano = output.require_group("mano")
         mano.attrs["joint_names"] = json.dumps(MANO_44_JOINT_NAMES, ensure_ascii=False)
@@ -412,21 +445,51 @@ def _write_mano_hdf5(
         output["wrist"].attrs["rot6d_convention"] = "first_two_rotation_columns"
         transforms = source["transforms"]
         confidences = source.get("confidences")
+        already_retargeted = source_is_retargeted(source)
+        templates = {
+            side: (
+                None
+                if already_retargeted or not has_egodex_mano_source(transforms, side)
+                else fit_egodex_mano_template(transforms, side)
+            )
+            for side in ("left", "right")
+        }
         left_index = MANO_44_JOINT_NAMES.index("leftHand")
         right_index = MANO_44_JOINT_NAMES.index("rightHand")
         for offset in range(0, count, chunk):
             right = min(count, offset + chunk)
             rows = source_rows[offset:right]
-            values = np.stack([
-                apply_s1_repair(
+            required_names = tuple(dict.fromkeys((
+                *MANO_44_JOINT_NAMES,
+                *required_egodex_mano_names("left"),
+                *required_egodex_mano_names("right"),
+            )))
+            available_names = tuple(name for name in required_names if name in transforms)
+            blocks = {
+                name: apply_s1_repair(
                     _take_rows(transforms[name], rows),
                     repair,
                     source_relative,
                     f"transforms/{name}",
                     rows,
                 )
-                for name in MANO_44_JOINT_NAMES
-            ], axis=1).astype(np.float32)
+                for name in available_names
+            }
+            values = np.stack([blocks[name] for name in MANO_44_JOINT_NAMES], axis=1).astype(np.float32)
+            for side, destination_index in (("left", left_index), ("right", right_index)):
+                template = templates[side]
+                if template is None:
+                    hand_values = np.stack([blocks[name] for name in side_hand_joint_names(side)], axis=1)
+                else:
+                    required = required_egodex_mano_names(side)
+                    hand_values = np.stack([
+                        retarget_egodex_mano_frame(
+                            {name: blocks[name][local_index] for name in required},
+                            template,
+                        )
+                        for local_index in range(len(rows))
+                    ])
+                values[:, destination_index:destination_index + 21] = hand_values.astype(np.float32)
             transforms_out[offset:right] = values
             camera_out[offset:right] = apply_s1_repair(
                 _take_rows(transforms["camera"], rows),
@@ -467,9 +530,21 @@ def export_episode(
     behavior: dict,
     progress,
     output_format: str = DEFAULT_FULL_OUTPUT_FORMAT,
+    run_id: str | None = None,
+    timeline_id: str | None = None,
 ) -> dict:
     if output_format not in SUPPORTED_FULL_OUTPUT_FORMATS:
         raise ValueError(f"Unsupported Full output format: {output_format}")
+    format_map = manifest.get("format_map") or {}
+    capabilities = format_map.get("capabilities") or {}
+    if capabilities and capabilities.get("can_full_export") is False:
+        blocking_issues = [
+            str(item.get("message") or "")
+            for item in format_map.get("issues") or []
+            if item.get("severity") in {"warning", "error"}
+        ]
+        detail = "；".join(item for item in blocking_issues if item) or "源数据没有可验证的左右手 21 点变换与相机变换"
+        raise RuntimeError(f"当前格式可执行清洗与标注，但不能安全执行固定 MANO/LeRobot Full 导出：{detail}")
     repair = load_s1_repair(curation)
     frame_count = int(smoothed_media.get("frame_count") or episode.get("frame_count") or 0)
     fps = max(0.01, float(smoothed_media.get("fps") or episode.get("fps") or 30.0))
@@ -515,7 +590,7 @@ def export_episode(
                     classification,
                     repair,
                 )
-                pair.update({"start_frame": start, "end_frame": end})
+                pair.update({"start_frame": start, "end_frame": end, "full_run_id": run_id, "timeline_id": timeline_id})
                 pairs.append(pair)
                 progress(100 * position / max(1, len(intervals)), f"导出 LeRobot Episode {position}/{len(intervals)}")
             finally:
@@ -572,6 +647,8 @@ def export_episode(
                     "output_format": "hdf5_mp4",
                     "export_episode": export_episode_id,
                     "episode_id": episode["id"],
+                    "full_run_id": run_id,
+                    "timeline_id": timeline_id,
                     **classification,
                     "start_frame": start,
                     "end_frame": end,
@@ -598,6 +675,8 @@ def export_episode(
         "category": categories[0] if len(categories) == 1 else "mixed" if categories else None,
         "categories": categories,
         "output_format": output_format,
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
         "s1_repair_applied": repair_cell_count > 0,
         "s1_repair_cell_count": repair_cell_count,
     }
@@ -609,6 +688,8 @@ def write_dataset_index(
     pairs: list[dict],
     failures: list[dict],
     output_format: str = DEFAULT_FULL_OUTPUT_FORMAT,
+    run_id: str | None = None,
+    timeline_ids: dict[str, str] | None = None,
 ) -> Path:
     if output_format not in SUPPORTED_FULL_OUTPUT_FORMATS:
         raise ValueError(f"Unsupported Full output format: {output_format}")
@@ -656,9 +737,11 @@ def write_dataset_index(
             "created_at": existing.get("created_at") or now,
             "updated_at": now,
             "source_dataset_id": manifest.get("id"),
+            "full_run_id": run_id,
+            "timeline_ids": dict(timeline_ids or {}),
             "source_root": manifest.get("root_path"),
             "pipeline_version": FULL_EXPORT_PIPELINE_VERSION,
-            "pipeline": ["video_smoothing", "optional_action_s2", "s1_s5_c3", "vlm_non_red_segments", "c1_c2", "drop_idle_reach", "anti_fragment", "classify_and_export"],
+            "pipeline": ["video_smoothing", "nexus_pressure_empty_p1_when_applicable", "optional_action_s2", "s1_s5_c3", "vlm_non_red_segments", "c1_c2", "drop_idle_reach", "anti_fragment", "classify_and_export"],
             "default_output_format": DEFAULT_FULL_OUTPUT_FORMAT,
             "output_formats": output_formats,
             "hand_joint_names": list(HAND_21_JOINT_NAMES),
@@ -668,6 +751,7 @@ def write_dataset_index(
             "mano_joint_names": list(MANO_44_JOINT_NAMES),
             "mano_shape": ["T", 44, 4, 4],
             "camera_shape": ["T", 4, 4],
+            "camera_intrinsic": next((pair.get("camera_intrinsic") for pair in combined_pairs if pair.get("camera_intrinsic")), None),
             "wrist_pose_shape": ["T", 9],
             "wrist_pose_fields": ["x", "y", "z", "rot6d_0", "rot6d_1", "rot6d_2", "rot6d_3", "rot6d_4", "rot6d_5"],
             "removed_vlm_phases": sorted(REMOVED_VLM_PHASES),

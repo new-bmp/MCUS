@@ -22,17 +22,19 @@ from .behavior_prompt import (
     TRI_LEVEL_PROTOCOL_VERSION,
     canonical_meta_action,
 )
+from .full_run import full_run_stage_dir
 from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .qwen_trim import _source_fingerprints_match, _source_video_fingerprint
 from .schemas import BehaviorAnnotationRequest
-from .storage import dataset_artifact_dir, episode_media, get_episode, read_frame, record_change, slugify
+from .sensor_alignment import ensure_episode_time_sync
+from .storage import dataset_artifact_dir, episode_media, get_episode, read_frame, record_change, require_media_eligibility, slugify
 from .video_smoothing import preferred_smoothed_media
 
 
 BEHAVIOR_SCHEMA = "alice/vlm-behavior/v1"
 TARGET_SCHEMA = "alice/behavior-targets/v1"
-BEHAVIOR_ARTIFACT_VERSION = 3
+BEHAVIOR_ARTIFACT_VERSION = 4
 
 PHASE_LABELS = (
     "idle", "observe", "reach", "grasp", "lift", "transport", "align", "place",
@@ -183,13 +185,13 @@ def load_behavior_ontology(root_text: str = "") -> dict:
 load_part1_ontology = load_behavior_ontology
 
 
-def _annotation_path(dataset_id: str, episode_id: str) -> Path:
-    root = dataset_artifact_dir(dataset_id, "behavior-annotations")
+def _annotation_path(dataset_id: str, episode_id: str, run_id: str | None = None) -> Path:
+    root = full_run_stage_dir(dataset_id, run_id, episode_id, "behavior") if run_id else dataset_artifact_dir(dataset_id, "behavior-annotations")
     return root / f"{slugify(episode_id)}.behavior.alice"
 
 
-def _target_path(dataset_id: str, episode_id: str) -> Path:
-    root = dataset_artifact_dir(dataset_id, "behavior-targets")
+def _target_path(dataset_id: str, episode_id: str, run_id: str | None = None) -> Path:
+    root = full_run_stage_dir(dataset_id, run_id, episode_id, "behavior") if run_id else dataset_artifact_dir(dataset_id, "behavior-targets")
     return root / f"{slugify(episode_id)}.targets.alice"
 
 
@@ -283,7 +285,7 @@ def _segments_follow_phase_protocol(annotation: dict, expected_frame_count: int 
     return True
 
 
-def _payload_is_valid(annotation: dict, target: dict, dataset_id: str, episode: dict) -> bool:
+def _payload_is_valid(annotation: dict, target: dict, dataset_id: str, episode: dict, run_id: str | None = None) -> bool:
     if annotation.get("schema") != BEHAVIOR_SCHEMA or target.get("schema") != TARGET_SCHEMA:
         return False
     try:
@@ -299,24 +301,27 @@ def _payload_is_valid(annotation: dict, target: dict, dataset_id: str, episode: 
         return False
     if str(annotation.get("episode_id")) != str(episode.get("id")) or str(target.get("episode_id")) != str(episode.get("id")):
         return False
-    frame_count = _safe_int(
-        (annotation.get("source_video") or {}).get("frame_count"),
-        _safe_int(episode.get("frame_count")),
-    )
+    frame_count = _behavior_timeline_frame_count(annotation, episode)
     if not _segments_follow_phase_protocol(annotation, frame_count):
         return False
     if not _tri_level_fields_are_valid(annotation, frame_count):
         return False
     if not isinstance(target.get("primary_terms"), list):
         return False
+    if run_id and str(annotation.get("full_run_id") or "") != str(run_id):
+        return False
     source_annotation = str(target.get("source_annotation") or "")
-    return source_annotation in {"", _annotation_path(dataset_id, str(episode.get("id"))).name}
+    return source_annotation in {"", _annotation_path(dataset_id, str(episode.get("id")), run_id).name}
 
 
 def behavior_annotation_status(
     dataset_id: str,
     manifest: dict,
     episode: dict,
+    *,
+    source_media_file_id: str | None = None,
+    analysis_media: dict | None = None,
+    analysis_frame_ranges: list[tuple[int, int]] | None = None,
 ) -> dict:
     """Describe whether an existing VLM result can be reused without Qwen.
 
@@ -344,6 +349,10 @@ def behavior_annotation_status(
         return base
     if not _payload_is_valid(annotation, target, dataset_id, episode):
         base["reason"] = "invalid_behavior_artifact"
+        return base
+    stored_source_id = str((annotation.get("source_video") or {}).get("file_id") or "")
+    if source_media_file_id and stored_source_id and stored_source_id != str(source_media_file_id):
+        base["reason"] = "requested_media_mismatch"
         return base
     try:
         media = episode_media(episode, (annotation.get("source_video") or {}).get("file_id") or (annotation.get("sampling") or {}).get("media_file_id") or episode.get("primary_media_file_id"))
@@ -379,6 +388,31 @@ def behavior_annotation_status(
             current_analysis_fingerprint = None
         if current_analysis_fingerprint is None or not _source_fingerprints_match(expected_analysis_fingerprint, current_analysis_fingerprint):
             base["reason"] = "analysis_video_changed"
+            return base
+    if analysis_media is not None:
+        if str(analysis_source.get("file_id") or "") != str(analysis_media.get("file_id") or ""):
+            base["reason"] = "analysis_media_mismatch"
+            return base
+        if _safe_int(analysis_source.get("frame_count")) != _safe_int(analysis_media.get("frame_count")):
+            base["reason"] = "analysis_frame_count_mismatch"
+            return base
+        expected = analysis_source.get("fingerprint")
+        if isinstance(expected, dict) and not media_fingerprint_matches(expected, analysis_media):
+            base["reason"] = "analysis_video_changed"
+            return base
+    if analysis_frame_ranges is not None:
+        expected_ranges = _normalize_frame_ranges(
+            _safe_int((analysis_media or analysis_source).get("frame_count")),
+            analysis_frame_ranges,
+        )
+        stored_ranges = (annotation.get("sampling") or {}).get("allowed_ranges")
+        normalized_stored = [
+            (_safe_int(item.get("start_frame")), _safe_int(item.get("end_frame")))
+            for item in stored_ranges or []
+            if isinstance(item, dict)
+        ]
+        if normalized_stored != expected_ranges:
+            base["reason"] = "curation_ranges_changed"
             return base
     payload = _apply_dataset_task_fallback(deepcopy(annotation), manifest)
     payload["artifacts"] = {"behavior": str(annotation_path), "targets": str(target_path)}
@@ -503,6 +537,70 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError, OverflowError):
         return int(default)
+
+
+def _behavior_timeline_frame_count(payload: dict, episode: dict | None = None) -> int:
+    for value in (
+        (payload.get("timeline") or {}).get("frame_count"),
+        (payload.get("analysis_video") or {}).get("frame_count"),
+        (payload.get("source_video") or {}).get("frame_count"),
+        (episode or {}).get("frame_count"),
+    ):
+        count = _safe_int(value)
+        if count > 0:
+            return count
+    return 0
+
+
+def behavior_analysis_context(
+    dataset_id: str,
+    manifest: dict,
+    episode: dict,
+    media_file_id: str | None = None,
+) -> dict:
+    """Bind standalone VLM annotation to the current media and non-red quality ranges."""
+    source_media = episode_media(episode, media_file_id or episode.get("primary_media_file_id"))
+    try:
+        analysis_media, smoothing_document = preferred_smoothed_media(dataset_id, episode, source_media)
+    except (KeyError, OSError, RuntimeError, ValueError):
+        analysis_media, smoothing_document = source_media, None
+    analysis_source_kind = "applied_video_smoothing" if smoothing_document else "source_video"
+    try:
+        from .projection_correction import preferred_projection_media
+
+        projection_media, projection_document = preferred_projection_media(manifest, episode, source_media)
+        if projection_document:
+            analysis_media = projection_media
+            analysis_source_kind = "applied_projection_correction"
+    except (KeyError, OSError, RuntimeError, ValueError):
+        pass
+    report = None
+    frame_ranges = None
+    try:
+        from .curation_pipeline import curation_vlm_ranges, load_curation_report
+
+        report = load_curation_report(
+            dataset_id,
+            str(episode["id"]),
+            str(source_media.get("file_id") or "") or None,
+        )
+        report_frame_count = _safe_int((report or {}).get("source_video", {}).get("frame_count"))
+        if (
+            report
+            and report_frame_count == _safe_int(analysis_media.get("frame_count"))
+        ):
+            frame_ranges = curation_vlm_ranges(report)
+            analysis_source_kind = "curation_non_rejected_segments"
+    except (KeyError, OSError, RuntimeError, ValueError):
+        report = None
+        frame_ranges = None
+    return {
+        "source_media": source_media,
+        "analysis_media": analysis_media,
+        "analysis_source_kind": analysis_source_kind,
+        "analysis_frame_ranges": frame_ranges,
+        "curation_report": report,
+    }
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -910,9 +1008,39 @@ def annotate_episode_behavior(
     analysis_media_override: dict | None = None,
     analysis_source_kind: str | None = None,
     analysis_frame_ranges: list[tuple[int, int]] | None = None,
+    source_media_file_id: str | None = None,
+    run_id: str | None = None,
+    timeline_id: str | None = None,
 ) -> dict:
+    selected_media_file_id = (
+        source_media_file_id
+        or request.media_file_id
+        or (analysis_media_override or {}).get("file_id")
+        or episode.get("primary_media_file_id")
+    )
+    source_media = episode_media(episode, selected_media_file_id)
+    require_media_eligibility(source_media, "vlm_behavior")
+    progress(2, "T0 正在建立统一时间轴")
+    ensure_episode_time_sync(
+        manifest,
+        episode,
+        reference_media_file_id=str(source_media.get("file_id") or "") or None,
+    )
+    if analysis_media_override is None:
+        analysis_media, smoothing_document = preferred_smoothed_media(dataset_id, episode, source_media)
+    else:
+        analysis_media = {**source_media, **analysis_media_override}
+        smoothing_document = {"source": analysis_source_kind or "external_video_smoothing"}
+    require_media_eligibility(analysis_media, "vlm_behavior")
     if not request.force:
-        existing = behavior_annotation_status(dataset_id, manifest, episode)
+        existing = behavior_annotation_status(
+            dataset_id,
+            manifest,
+            episode,
+            source_media_file_id=str(source_media.get("file_id") or "") or None,
+            analysis_media=analysis_media,
+            analysis_frame_ranges=analysis_frame_ranges,
+        )
         if existing["reusable"]:
             progress(100, "已有有效 VLM 行为标注，已复用且未调用 Qwen")
             return existing["payload"]
@@ -925,18 +1053,12 @@ def annotate_episode_behavior(
     ontology = load_behavior_ontology(ontology_root)
     if ontology["source"] == "builtin":
         progress(9, "使用内置通用操作词表")
-    primary_media = episode_media(episode, episode.get("primary_media_file_id"))
-    if analysis_media_override is None:
-        analysis_media, smoothing_document = preferred_smoothed_media(dataset_id, episode, primary_media)
-    else:
-        analysis_media = {**primary_media, **analysis_media_override}
-        smoothing_document = {"source": analysis_source_kind or "external_video_smoothing"}
-    source_fingerprint = _media_fingerprint(primary_media)
-    same_analysis_source = str(analysis_media.get("path") or "") == str(primary_media.get("path") or "")
+    source_fingerprint = _media_fingerprint(source_media)
+    same_analysis_source = str(analysis_media.get("path") or "") == str(source_media.get("path") or "")
     analysis_fingerprint = source_fingerprint if same_analysis_source else _media_fingerprint(analysis_media)
     if smoothing_document:
         message = "使用 minRE 视频平滑结果" if analysis_media_override is not None else "使用已应用的视频平滑结果"
-        progress(10, f"{message}: {primary_media.get('stream_name') or 'primary'}")
+        progress(10, f"{message}: {source_media.get('stream_name') or 'primary'}")
     analysis_frame_count = int(analysis_media["frame_count"])
     allowed_ranges = _normalize_frame_ranges(analysis_frame_count, analysis_frame_ranges)
     indices = _sample_indices_in_ranges(analysis_frame_count, request.sample_count, analysis_frame_ranges)
@@ -953,13 +1075,13 @@ def annotate_episode_behavior(
     schema_summary = json.dumps((manifest.get("schema_profile") or {}).get("understanding") or {}, ensure_ascii=False)[:3500]
     behavior_frame_count = int(
         analysis_media.get("frame_count")
-        or primary_media.get("frame_count")
+        or source_media.get("frame_count")
         or episode.get("frame_count")
         or 0
     )
     behavior_fps = max(0.01, float(
         analysis_media.get("fps")
-        or primary_media.get("fps")
+        or source_media.get("fps")
         or episode.get("fps")
         or 30.0
     ))
@@ -972,7 +1094,7 @@ def annotate_episode_behavior(
         video_length=behavior_frame_count,
         duration=behavior_frame_count / behavior_fps,
     )
-    _assert_media_unchanged(primary_media, source_fingerprint, "during the Qwen request")
+    _assert_media_unchanged(source_media, source_fingerprint, "during the Qwen request")
     if not same_analysis_source:
         _assert_media_unchanged(analysis_media, analysis_fingerprint, "during the Qwen request")
     result = _apply_dataset_task_fallback(
@@ -980,7 +1102,12 @@ def annotate_episode_behavior(
         manifest,
     )
     progress(78, "使用已对齐 Joint Pose 微调 VLM 阶段边界")
-    joint_pose = load_episode_joint_pose(manifest, episode, frame_count=behavior_frame_count)
+    joint_pose = load_episode_joint_pose(
+        manifest,
+        episode,
+        frame_count=behavior_frame_count,
+        reference_media_file_id=str(analysis_media.get("file_id") or "") or None,
+    )
     result["segments"] = refine_behavior_boundaries(
         result["segments"],
         behavior_fps,
@@ -1002,7 +1129,7 @@ def annotate_episode_behavior(
         "search_seconds": 0.5,
         "refined_segment_count": joint_refined_count,
     }
-    _assert_media_unchanged(primary_media, source_fingerprint, "during Joint boundary refinement")
+    _assert_media_unchanged(source_media, source_fingerprint, "during Joint boundary refinement")
     if not same_analysis_source:
         _assert_media_unchanged(analysis_media, analysis_fingerprint, "during Joint boundary refinement")
     created_at = datetime.now(timezone.utc).isoformat()
@@ -1011,6 +1138,9 @@ def annotate_episode_behavior(
         "artifact_version": BEHAVIOR_ARTIFACT_VERSION,
         "dataset_id": dataset_id,
         "episode_id": episode["id"],
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+        "full_run_stage": "vlm" if run_id else None,
         "created_at": created_at,
         "provider": registry.status()["vlm"],
         "language_source": {
@@ -1019,6 +1149,7 @@ def annotate_episode_behavior(
             if key in ontology
         },
         "sampling": {
+            "frame_space": "analysis_video",
             "requested": request.sample_count,
             "frames": [item[0] for item in frames],
             "allowed_ranges": [
@@ -1026,16 +1157,16 @@ def annotate_episode_behavior(
                 for start, end in allowed_ranges
             ] if analysis_frame_ranges is not None else None,
             "allowed_frame_count": sum(end - start + 1 for start, end in allowed_ranges),
-            "media_file_id": primary_media.get("file_id"),
-            "stream_name": primary_media.get("stream_name"),
+            "media_file_id": analysis_media.get("file_id"),
+            "stream_name": analysis_media.get("stream_name"),
             "used_applied_video_smoothing": bool(smoothing_document),
         },
         "source_video": {
-            "file_id": primary_media.get("file_id"),
-            "stream_name": primary_media.get("stream_name"),
-            "relative_path": primary_media.get("relative_path"),
-            "fps": float(primary_media.get("fps") or 0.0),
-            "frame_count": int(primary_media.get("frame_count") or 0),
+            "file_id": source_media.get("file_id"),
+            "stream_name": source_media.get("stream_name"),
+            "relative_path": source_media.get("relative_path"),
+            "fps": float(source_media.get("fps") or 0.0),
+            "frame_count": int(source_media.get("frame_count") or 0),
             "fingerprint": source_fingerprint,
         },
         "analysis_video": {
@@ -1047,6 +1178,11 @@ def annotate_episode_behavior(
             "frame_count": int(analysis_media.get("frame_count") or 0),
             "fingerprint": analysis_fingerprint,
         },
+        "timeline": {
+            "frame_space": "analysis_video",
+            "frame_count": behavior_frame_count,
+            "fps": behavior_fps,
+        },
         "boundary_refinement": boundary_refinement,
         **result,
     }
@@ -1054,16 +1190,18 @@ def annotate_episode_behavior(
         "schema": TARGET_SCHEMA,
         "dataset_id": dataset_id,
         "episode_id": episode["id"],
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
         "created_at": created_at,
         "task_label": result["task_label"],
         "behavior_description": result["behavior_description"],
         "primary_terms": result["object_nouns"],
         "primary_targets": result["primary_targets"],
-        "source_annotation": _annotation_path(dataset_id, episode["id"]).name,
+        "source_annotation": _annotation_path(dataset_id, episode["id"], run_id).name,
     }
     progress(90, "写入 .alicePD 行为标注与目标索引")
-    annotation_path = _annotation_path(dataset_id, episode["id"])
-    target_path = _target_path(dataset_id, episode["id"])
+    annotation_path = _annotation_path(dataset_id, episode["id"], run_id)
+    target_path = _target_path(dataset_id, episode["id"], run_id)
     _write_atomic(annotation_path, document)
     _write_atomic(target_path, target_document)
     change = record_change(
@@ -1088,8 +1226,52 @@ def annotate_episode_behavior(
     return document
 
 
-def load_behavior_annotation(dataset_id: str, episode_id: str) -> dict | None:
-    path = _annotation_path(dataset_id, episode_id)
+def snapshot_behavior_annotation_for_run(
+    dataset_id: str,
+    episode: dict,
+    payload: dict,
+    run_id: str,
+    timeline_id: str,
+) -> dict:
+    """Copy a validated reusable VLM result into one immutable Full run."""
+    document = deepcopy(payload)
+    for key in ("artifact_path", "artifacts", "change", "reuse"):
+        document.pop(key, None)
+    document.update({
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+        "full_run_stage": "vlm_reused",
+        "reused_from_created_at": payload.get("created_at"),
+        "snapshotted_at": datetime.now(timezone.utc).isoformat(),
+    })
+    annotation_path = _annotation_path(dataset_id, str(episode["id"]), run_id)
+    target_path = _target_path(dataset_id, str(episode["id"]), run_id)
+    target_document = {
+        "schema": TARGET_SCHEMA,
+        "dataset_id": dataset_id,
+        "episode_id": episode["id"],
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+        "created_at": document.get("created_at"),
+        "task_label": document.get("task_label"),
+        "behavior_description": document.get("behavior_description"),
+        "primary_terms": list(document.get("object_nouns") or []),
+        "primary_targets": list(document.get("primary_targets") or []),
+        "source_annotation": annotation_path.name,
+    }
+    _write_atomic(annotation_path, document)
+    _write_atomic(target_path, target_document)
+    document["artifacts"] = {"behavior": str(annotation_path), "targets": str(target_path)}
+    document["reuse"] = {
+        "reused": True,
+        "status": "snapshotted",
+        "reason": "matching_artifact_copied_into_full_run",
+    }
+    return document
+
+
+def load_behavior_annotation(dataset_id: str, episode_id: str, run_id: str | None = None) -> dict | None:
+    path = _annotation_path(dataset_id, episode_id, run_id)
     payload = _read_json(path) if path.is_file() else None
     if payload is None or payload.get("schema") != BEHAVIOR_SCHEMA:
         return None
@@ -1099,7 +1281,9 @@ def load_behavior_annotation(dataset_id: str, episode_id: str) -> dict | None:
         return None
     if version != BEHAVIOR_ARTIFACT_VERSION:
         return None
-    frame_count = _safe_int((payload.get("source_video") or {}).get("frame_count"))
+    if run_id and str(payload.get("full_run_id") or "") != str(run_id):
+        return None
+    frame_count = _behavior_timeline_frame_count(payload)
     if not _segments_follow_phase_protocol(payload, frame_count or None):
         return None
     protocol = payload.get("annotation_protocol") or {}
@@ -1125,8 +1309,18 @@ class BehaviorJobManager(CancellableJobMixin):
 
     def submit(self, dataset_id: str, episode_id: str, request: BehaviorAnnotationRequest) -> dict:
         manifest, episode = get_episode(dataset_id, episode_id)
+        context = behavior_analysis_context(dataset_id, manifest, episode, request.media_file_id)
+        media = context["source_media"]
+        require_media_eligibility(media, "vlm_behavior")
         if not request.force:
-            existing = behavior_annotation_status(dataset_id, manifest, episode)
+            existing = behavior_annotation_status(
+                dataset_id,
+                manifest,
+                episode,
+                source_media_file_id=str(media.get("file_id") or "") or None,
+                analysis_media=context["analysis_media"],
+                analysis_frame_ranges=context["analysis_frame_ranges"],
+            )
             if existing["reusable"]:
                 job_id = uuid.uuid4().hex
                 job = {
@@ -1167,11 +1361,22 @@ class BehaviorJobManager(CancellableJobMixin):
         try:
             self._start_unless_cancelled(job_id, status="running", progress=3, message="准备行为标注")
             manifest, episode = get_episode(dataset_id, episode_id)
+            context = behavior_analysis_context(dataset_id, manifest, episode, request.media_file_id)
             def progress(value: float, message: str) -> None:
                 self._raise_if_cancelled(job_id)
                 self._update(job_id, progress=value, message=message)
 
-            result = annotate_episode_behavior(dataset_id, manifest, episode, request, progress)
+            result = annotate_episode_behavior(
+                dataset_id,
+                manifest,
+                episode,
+                request,
+                progress,
+                analysis_media_override=context["analysis_media"],
+                analysis_source_kind=context["analysis_source_kind"],
+                analysis_frame_ranges=context["analysis_frame_ranges"],
+                source_media_file_id=str(context["source_media"].get("file_id") or "") or None,
+            )
             self._raise_if_cancelled(job_id)
             self._update(job_id, status="complete", progress=100, message="VLM 行为标注完成", result=result)
         except JobCancelled:

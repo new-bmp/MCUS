@@ -32,7 +32,8 @@ _BROWSER_SOURCE_LOCK = threading.RLock()
 def _paths(dataset_id: str, episode_id: str, media: dict) -> tuple[Path, Path]:
     root = dataset_artifact_dir(dataset_id, "preview-proxy") / slugify(episode_id)
     root.mkdir(parents=True, exist_ok=True)
-    stem = slugify(str(media.get("stream_name") or Path(str(media.get("path") or "video")).stem))
+    variant = str(media.get("preview_variant") or "").strip()
+    stem = slugify("-".join(filter(None, (str(media.get("stream_name") or Path(str(media.get("path") or "video")).stem), variant))))
     return root / f"{stem}.preview.mp4", root / f"{stem}.preview.alice"
 
 
@@ -225,7 +226,7 @@ class PreviewProxyManager:
 
     @staticmethod
     def _key(dataset_id: str, episode_id: str, media: dict) -> str:
-        return f"{dataset_id}:{episode_id}:{media.get('file_id') or media.get('path')}"
+        return f"{dataset_id}:{episode_id}:{media.get('file_id') or media.get('path')}:{media.get('preview_variant') or 'source'}"
 
     def _artifact_status(self, dataset_id: str, episode_id: str, media: dict) -> dict | None:
         source = Path(str(media.get("path") or ""))

@@ -30,6 +30,39 @@ class FrontendJointIndexOverlayContractTests(unittest.TestCase):
         self.assertIn("&joint_indices=${state.jointIndices}", self.app)
         self.assertIn("resetJointIndices();", self.app)
 
+    def test_native_overlay_drops_stale_requests_and_has_no_33fps_cap(self) -> None:
+        self.assertIn("force && state.jointGeometryAbortController", self.app)
+        self.assertNotIn("(force || changed) && state.jointGeometryAbortController", self.app)
+        self.assertIn("Math.max(0, 4 - (Date.now() - state.jointGeometryLastAt))", self.app)
+        self.assertNotIn("Math.max(0, 30 - (Date.now() - state.jointGeometryLastAt))", self.app)
+        self.assertIn("clearJointOverlayCanvas();", self.app)
+
+    def test_native_overlay_prefetches_the_next_sensor_tick(self) -> None:
+        self.assertIn("state.jointGeometryCache = new Map()", self.app)
+        self.assertIn("function nextJointPrefetchFrame()", self.app)
+        self.assertIn("function prefetchJointGeometry(frame)", self.app)
+        self.assertIn("queueNextJointGeometryPrefetch()", self.app)
+        self.assertIn("state.jointGeometryCache.has(requestedFrame)", self.app)
+
+    def test_native_overlay_follows_sensor_clock(self) -> None:
+        self.assertIn("const DEFAULT_JOINT_SYNC_HZ = 30", self.app)
+        self.assertIn("function jointClockFrameFromMediaTime(mediaTime)", self.app)
+        self.assertIn("Math.round(seconds * hz)", self.app)
+        self.assertIn("state.jointPresentedFrame = jointClock.frame", self.app)
+        self.assertIn("geometry.clock_hz || geometry.physical_hz || geometry.sensor_hz", self.app)
+        self.assertIn("jointClockFrameFromMediaTime(state.nativeMediaTime)", self.app)
+        self.assertIn("geometryFrame !== state.jointPresentedFrame", self.app)
+        self.assertNotIn("geometryFrame !== state.nativePresentedFrame", self.app)
+
+    def test_manual_joint_delay_control_shifts_only_the_overlay(self) -> None:
+        self.assertIn('id="jointFrameOffset"', self.html)
+        self.assertIn('id="jointDelayMilliseconds"', self.html)
+        self.assertIn("state.jointFrameOffset = 0", self.app)
+        self.assertIn("function jointFrameWithOffset(frame)", self.app)
+        self.assertIn("function setJointFrameOffset(value)", self.app)
+        self.assertIn("&joint_frame_offset=${state.jointFrameOffset}", self.app)
+        self.assertIn("视频帧 ${videoFrame} → 请求帧", self.app)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,11 @@ class FullExportTests(unittest.TestCase):
     @staticmethod
     def _write_transforms(path: Path, frame_count: int) -> None:
         with h5py.File(path, "w") as output:
+            output.create_dataset("camera/intrinsic", data=np.asarray([
+                [40.0, 0.0, 32.0],
+                [0.0, 40.0, 24.0],
+                [0.0, 0.0, 1.0],
+            ], dtype=np.float32))
             for joint_index, name in enumerate((*MANO_44_JOINT_NAMES, "camera")):
                 values = np.repeat(np.eye(4, dtype=np.float32)[None], frame_count, axis=0)
                 values[:, 0, 3] = np.arange(frame_count, dtype=np.float32) + joint_index
@@ -39,6 +44,30 @@ class FullExportTests(unittest.TestCase):
             head[:, 0, 3] = np.arange(frame_count, dtype=np.float32) + 1000
             output.create_dataset("transforms/head", data=head)
             output.create_dataset("confidences/head", data=np.ones(frame_count, dtype=np.float32))
+
+    def test_format_capability_blocks_unsafe_fixed_hand_export(self) -> None:
+        manifest = {
+            "id": "nexus",
+            "format_map": {
+                "capabilities": {"can_full_export": False},
+                "issues": [{
+                    "severity": "warning",
+                    "code": "noncanonical_hand_nodes",
+                    "message": "源手部骨架为 20 节点，不会补零冒充 21 点 MANO。",
+                }],
+            },
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "20 节点"):
+            export_episode(
+                Path("output"),
+                manifest,
+                {"id": "ep", "frame_count": 10, "fps": 30.0},
+                {"frame_count": 10, "fps": 30.0},
+                {"segments": []},
+                {"segments": []},
+                lambda _value, _message: None,
+            )
 
     @staticmethod
     def _write_hand_only_transforms(path: Path, frame_count: int) -> None:
@@ -138,6 +167,8 @@ class FullExportTests(unittest.TestCase):
             info = json.loads(index.read_text(encoding="utf-8"))
             self.assertEqual(list(HAND_21_JOINT_NAMES), info["hand_joint_names"])
             self.assertEqual(["head", "leftForearm", "rightForearm"], info["body_joint_names"])
+            self.assertEqual([[40.0, 0.0, 32.0], [0.0, 40.0, 24.0], [0.0, 0.0, 1.0]], info["camera_intrinsic"])
+            self.assertEqual(info["camera_intrinsic"], pair["camera_intrinsic"])
             self.assertEqual(1, info["total_episodes"])
             self.assertEqual(10, info["total_frames"])
             self.assertIn("annotation.phase_label", info["features"])

@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 
 from .models import registry
 from .job_control import CancellableJobMixin, JobCancelled
-from .storage import dataset_artifact_dir, episode_media, get_manifest, read_frame, record_change, slugify
+from .sensor_alignment import ensure_episode_time_sync
+from .storage import dataset_artifact_dir, episode_media, get_manifest, read_frame, record_change, require_media_eligibility, slugify
 
 
 QWEN_ACTION_TRIM_SCHEMA = "alice/qwen-action-trim/v1"
@@ -478,6 +479,7 @@ def analyze_qwen_action_trim(
     request: QwenTrimRequest,
     progress,
 ) -> dict:
+    require_media_eligibility(media, "qwen_trim")
     if not registry.has_vlm:
         raise RuntimeError("请先配置 Qwen-VLM API")
     fps = float(media.get("fps", 0.0) or 0.0)
@@ -652,8 +654,6 @@ class QwenTrimJobManager(CancellableJobMixin):
                 self._active_episode_jobs.pop(key, None)
 
     def submit(self, dataset_id: str, request: QwenTrimRequest) -> dict:
-        if not registry.has_vlm:
-            raise RuntimeError("请先配置 Qwen-VLM API")
         manifest = get_manifest(dataset_id)
         episodes = {item["id"]: item for item in manifest.get("episodes", [])}
         episode_ids = list(episodes) if request.all_episodes else list(dict.fromkeys(request.episode_ids))
@@ -671,9 +671,12 @@ class QwenTrimJobManager(CancellableJobMixin):
                 media = episode_media(episodes[episode_id], media_file_id)
             except KeyError as exc:
                 raise ValueError(f"{episodes[episode_id]['name']} 的视频流不存在: {media_file_id}") from exc
+            require_media_eligibility(media, "qwen_trim")
             if int(media.get("frame_count", 0) or 0) <= 0:
                 raise ValueError(f"{episodes[episode_id]['name']} 的所选视频没有可读帧")
             selected_media[episode_id] = media
+        if not registry.has_vlm:
+            raise RuntimeError("请先配置 Qwen-VLM API")
 
         job_id = uuid.uuid4().hex
         job = {
@@ -753,6 +756,12 @@ class QwenTrimJobManager(CancellableJobMixin):
                     self._update(job_id, progress=round(scaled, 1), message=f"{episode['name']} · {message} · {position + 1}/{total}")
 
                 try:
+                    episode_progress(2, "T0 正在建立统一时间轴")
+                    ensure_episode_time_sync(
+                        manifest,
+                        episode,
+                        reference_media_file_id=str(selected_media[episode_id].get("file_id") or "") or None,
+                    )
                     payload = analyze_qwen_action_trim(
                         dataset_id,
                         manifest,

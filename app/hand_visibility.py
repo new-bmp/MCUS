@@ -5,11 +5,20 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .full_export import MANO_44_JOINT_NAMES, _aligned_rows, _find_transform_source, _take_rows
+from .egodex_mano import (
+    EGODEX_MANO_REVISION,
+    direct_mano21_transforms,
+    fit_egodex_mano_template,
+    required_egodex_mano_names,
+    retarget_egodex_mano_frame,
+    source_is_retargeted,
+)
+from .full_export import _aligned_rows, _find_transform_source, _take_rows
+from .mano21 import side_hand_joint_names
 
 
 HAND_JOINT_NAMES = {
-    side: tuple(name for name in MANO_44_JOINT_NAMES if name.startswith(side) and name != f"{side}Forearm")
+    side: side_hand_joint_names(side)
     for side in ("left", "right")
 }
 
@@ -40,6 +49,39 @@ def _camera_intrinsics(source: h5py.File, rows: np.ndarray) -> np.ndarray | None
     return None
 
 
+def _mano_points(
+    transforms: h5py.Group,
+    rows: np.ndarray,
+    side: str,
+    *,
+    already_retargeted: bool,
+) -> np.ndarray:
+    source_names = (
+        HAND_JOINT_NAMES[side]
+        if already_retargeted
+        else required_egodex_mano_names(side)
+    )
+    missing = [name for name in source_names if name not in transforms]
+    if missing:
+        raise KeyError(f"缺少 MANO 运动学重建所需关节：{', '.join(missing[:4])}")
+
+    template = None if already_retargeted else fit_egodex_mano_template(transforms, side)
+    unique_rows, inverse = np.unique(rows, return_inverse=True)
+    unique_points: list[np.ndarray] = []
+    for row in unique_rows:
+        named = {
+            name: np.asarray(transforms[name][int(row)], dtype=np.float64)
+            for name in source_names
+        }
+        matrices = (
+            direct_mano21_transforms(named, side)
+            if already_retargeted
+            else retarget_egodex_mano_frame(named, template)
+        )
+        unique_points.append(matrices[:, :3, 3])
+    return np.stack(unique_points, axis=0)[inverse]
+
+
 def inspect_full_hand_visibility(
     manifest: dict,
     episode: dict,
@@ -56,25 +98,32 @@ def inspect_full_hand_visibility(
         return _empty_result(frame_count, "视频尺寸或帧数无效，无法检查整手可见性", sides)
 
     try:
-        source_path, source_relative, source_count = _find_transform_source(manifest, episode)
+        # C3 is a source-quality gate that runs before projection correction.
+        # Always reconstruct from the immutable EgoDex episode here; an
+        # applied correction may contain inserted frames on a different
+        # timeline and must not be aligned back to the raw video by index.
+        source_path, source_relative, source_count = _find_transform_source(
+            manifest,
+            episode,
+            prefer_applied=False,
+        )
         rows = _aligned_rows(manifest, episode, source_relative, source_count, frame_count)
         with h5py.File(source_path, "r") as source:
             transforms = source.get("transforms")
             if not isinstance(transforms, h5py.Group):
                 return _empty_result(frame_count, "HDF5 缺少 transforms，无法检查整手可见性", sides)
-            required_names = [name for side in sides for name in HAND_JOINT_NAMES[side]]
-            missing = [name for name in required_names if name not in transforms]
-            if missing:
-                return _empty_result(frame_count, f"缺少完整手部关节：{', '.join(missing[:4])}", sides)
             intrinsics = _camera_intrinsics(source, rows)
             if intrinsics is None:
                 return _empty_result(frame_count, "缺少相机内参，无法可靠判断整手是否位于画面内", sides)
             camera = _take_rows(transforms["camera"], rows).astype(np.float64)
+            already_retargeted = source_is_retargeted(source)
             points = {
-                side: np.stack(
-                    [_take_rows(transforms[name], rows)[:, :3, 3] for name in HAND_JOINT_NAMES[side]],
-                    axis=1,
-                ).astype(np.float64)
+                side: _mano_points(
+                    transforms,
+                    rows,
+                    side,
+                    already_retargeted=already_retargeted,
+                )
                 for side in sides
             }
     except (OSError, KeyError, RuntimeError, ValueError, np.linalg.LinAlgError) as exc:
@@ -120,6 +169,9 @@ def inspect_full_hand_visibility(
         "source_relative_path": source_relative,
         "required_sides": sides,
         "frame_count": frame_count,
+        "hand_geometry_schema": "mano21_kinematic_retarget",
+        "hand_geometry_revision": EGODEX_MANO_REVISION,
+        "hand_geometry_source": "retargeted_snapshot" if already_retargeted else "egodex_full_skeleton_fk",
         "safe_margin_pixels": round(margin, 3),
         "required_visible_frame_count": int(required_visible.sum()),
         "invalid_frame_count": int(invalid.sum()),

@@ -23,7 +23,7 @@ from .storage import dataset_sidecar_root, get_manifest, slugify, storage_slug
 from .job_control import CancellableJobMixin, JobCancelled
 
 
-SENSOR_ALIGNMENT_SCHEMA = "alice/sensor-alignment/v2"
+SENSOR_ALIGNMENT_SCHEMA = "alice/sensor-alignment/v3"
 SENSOR_EXTENSIONS = {".h5", ".hdf5", ".h5df", ".json", ".jsonl", ".parquet"}
 RATE_KEYS = {
     "hz", "rate", "rate_hz", "fps", "frequency", "frequency_hz",
@@ -36,6 +36,11 @@ TIMESTAMP_NAMES = {
 }
 MAX_JSON_BYTES = 64 * 1024 * 1024
 MAX_TIMESTAMP_VALUES = 250_000
+SYNC_CAMERA_FIELDS = {
+    "head": ("head_frame_idx", "head_frame_ts", "head_filled"),
+    "wrist_left": ("wrist_left_frame_idx", "wrist_left_ts", "wrist_left_filled"),
+    "wrist_right": ("wrist_right_frame_idx", "wrist_right_ts", "wrist_right_filled"),
+}
 
 
 def _utc_now() -> str:
@@ -71,17 +76,41 @@ def _sidecar_root(manifest: dict) -> Path:
     return dataset_sidecar_root(manifest["root_path"], manifest["id"])
 
 
-def sensor_alignment_path(manifest: dict, episode_id: str) -> Path:
+def _alignment_reference_key(manifest: dict, episode_id: str, reference_media_file_id: str | None) -> str | None:
+    requested = str(reference_media_file_id or "").strip()
+    if not requested:
+        return None
+    episode = next((item for item in manifest.get("episodes", []) if str(item.get("id") or "") == str(episode_id)), None)
+    primary_id = str((episode or {}).get("primary_media_file_id") or "").strip()
+    return None if primary_id and requested == primary_id else requested
+
+
+def sensor_alignment_path(
+    manifest: dict,
+    episode_id: str,
+    reference_media_file_id: str | None = None,
+) -> Path:
+    reference_key = _alignment_reference_key(manifest, episode_id, reference_media_file_id)
+    filename = f"{storage_slug(episode_id)}.alignment.alice"
+    if reference_key:
+        filename = f"{storage_slug(episode_id)}--{storage_slug(reference_key)}.alignment.alice"
     return (
         _sidecar_root(manifest)
         / "indices"
         / "sensor-alignment"
-        / f"{storage_slug(episode_id)}.alignment.alice"
+        / filename
     )
 
 
-def _existing_sensor_alignment_path(manifest: dict, episode_id: str) -> Path:
-    preferred = sensor_alignment_path(manifest, episode_id)
+def _existing_sensor_alignment_path(
+    manifest: dict,
+    episode_id: str,
+    reference_media_file_id: str | None = None,
+) -> Path:
+    reference_key = _alignment_reference_key(manifest, episode_id, reference_media_file_id)
+    preferred = sensor_alignment_path(manifest, episode_id, reference_media_file_id)
+    if reference_key:
+        return preferred
     legacy = preferred.with_name(f"{slugify(episode_id)}.alignment.alice")
     return next((path for path in dict.fromkeys((preferred, legacy)) if path.is_file()), preferred)
 
@@ -111,10 +140,16 @@ def _episode_records(manifest: dict, episode: dict) -> list[dict]:
     ]
 
 
-def _reference_video(episode: dict) -> dict:
+def _reference_video(episode: dict, media_file_id: str | None = None) -> dict:
     streams = list(episode.get("media_streams") or [])
     primary_id = episode.get("primary_media_file_id")
-    selected = next((item for item in streams if item.get("file_id") == primary_id), None)
+    requested_id = str(media_file_id or "").strip()
+    selected = next((item for item in streams if str(item.get("file_id") or "") == requested_id), None) if requested_id else None
+    if selected is None and requested_id and requested_id == str(primary_id or ""):
+        selected = episode
+    if selected is None and requested_id:
+        raise KeyError(requested_id)
+    selected = selected or next((item for item in streams if item.get("file_id") == primary_id), None)
     if selected is None:
         selected = next((item for item in streams if item.get("type") == "video"), None)
     selected = selected or episode
@@ -266,6 +301,7 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
     rate_candidates: list[dict] = []
     data_counts: list[int] = []
     timestamp_entries: list[dict] = []
+    partial_entries: list[dict] = []
     attributes: dict[str, Any] = {}
     master_clock = None
     with h5py.File(path, "r") as handle:
@@ -285,6 +321,17 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
             if isinstance(obj, h5py.Dataset):
                 base = _normal_key(Path(name).name)
                 if obj.ndim and obj.shape[0] > 1:
+                    if base == "partial" and obj.ndim == 1 and obj.shape[0] <= MAX_TIMESTAMP_VALUES:
+                        try:
+                            partial = np.asarray(obj[()], dtype=np.bool_).reshape(-1)
+                            partial_entries.append({
+                                "field": name,
+                                "row_count": int(partial.size),
+                                "partial_rows": np.flatnonzero(partial).astype(np.int64).tolist(),
+                                "valid_rows": np.logical_not(partial).tolist(),
+                            })
+                        except (TypeError, ValueError, OSError):
+                            pass
                     if base in TIMESTAMP_NAMES or "timestamp" in base or base.endswith("_ts"):
                         if obj.shape[0] <= MAX_TIMESTAMP_VALUES:
                             try:
@@ -304,12 +351,15 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
 
         handle.visititems(visitor)
     timestamp_entries.sort(key=lambda item: _timestamp_priority(item["summary"]["field"]))
+    data_count = _representative_count(data_counts) or _representative_count([item["summary"]["count"] for item in timestamp_entries])
+    partial_entry = next((item for item in partial_entries if int(item["row_count"]) == data_count), None)
     return {
-        "data_count": _representative_count(data_counts) or _representative_count([item["summary"]["count"] for item in timestamp_entries]),
+        "data_count": data_count,
         "rate_candidates": _dedupe_rate_candidates(rate_candidates),
         "timestamps": timestamp_entries,
         "master_clock": master_clock,
         "attributes": attributes,
+        "partial_validity": partial_entry,
     }
 
 
@@ -521,53 +571,364 @@ def _metadata_rate_hints(root: Path, records: list[dict], reference_fps: float) 
     return {key: _dedupe_rate_candidates(value) for key, value in result.items()}
 
 
+def _reference_camera_name(reference: dict) -> str:
+    candidates = [reference.get("stream_name"), reference.get("relative_path")]
+    normalized = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        stem = _normal_key(Path(str(candidate)).stem)
+        normalized.append(stem)
+        if "wrist_left" in stem:
+            return "wrist_left"
+        if "wrist_right" in stem:
+            return "wrist_right"
+        if "head_rgb" in stem or ("head" in stem and "depth" not in stem):
+            return "head"
+    return normalized[0] if normalized else "video"
+
+
+def _strict_frame_index(value: Any) -> int | None:
+    if value is None or isinstance(value, (bool, np.bool_)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(number) or not number.is_integer():
+        return None
+    return int(number)
+
+
+def _timeline_frame_period(timeline: np.ndarray, fps: float) -> float:
+    finite_rows = np.flatnonzero(np.isfinite(timeline))
+    if finite_rows.size >= 2:
+        left, right = int(finite_rows[-2]), int(finite_rows[-1])
+        delta = float(timeline[right] - timeline[left]) / max(1, right - left)
+        if math.isfinite(delta) and delta > 0:
+            return delta
+    return 1.0 / max(0.001, fps)
+
+
+def _video_timestamp_timeline(path: Path, relative: str, reference: dict, camera_name: str) -> tuple[np.ndarray, dict] | None:
+    import pyarrow.compute as compute
+    import pyarrow.parquet as parquet
+
+    fps = float(reference["fps"])
+    frame_count = int(reference.get("frame_count") or 0)
+    parquet_file = parquet.ParquetFile(path)
+    schema_names = parquet_file.schema_arrow.names
+    if "frame_idx" not in schema_names or ("ts_wall" not in schema_names and "pts_us" not in schema_names):
+        return None
+    field = "ts_wall" if "ts_wall" in schema_names else "pts_us"
+    columns = ["frame_idx", field]
+    if "camera" in schema_names:
+        columns.append("camera")
+    table = parquet.read_table(path, columns=columns)
+    if "camera" in columns:
+        table = table.filter(compute.equal(table["camera"], camera_name))
+    if table.num_rows < 2:
+        return None
+    raw_indices = table["frame_idx"].to_pylist()
+    raw = np.asarray(table[field].to_numpy(zero_copy_only=False), dtype=np.float64)
+    summary, seconds = _timestamp_analysis(raw, field, fps)
+    if summary is None or seconds is None:
+        return None
+    parsed_indices = [_strict_frame_index(value) for value in raw_indices]
+    nonnegative = [value for value in parsed_indices if value is not None and value >= 0]
+    count = frame_count or ((max(nonnegative) + 1) if nonnegative else 0)
+    if count <= 0:
+        return None
+    timeline = np.full(count, np.nan, dtype=np.float64)
+    invalid_reasons = Counter()
+    last_index = -1
+    last_timestamp = -math.inf
+    for frame_index, timestamp in zip(parsed_indices, seconds, strict=True):
+        if frame_index is None:
+            invalid_reasons["non_integer_index"] += 1
+            continue
+        if not 0 <= frame_index < count:
+            invalid_reasons["out_of_media_range"] += 1
+            continue
+        if not math.isfinite(float(timestamp)):
+            invalid_reasons["non_finite_timestamp"] += 1
+            continue
+        if frame_index <= last_index:
+            invalid_reasons["duplicate_or_backward_index"] += 1
+            continue
+        if float(timestamp) <= last_timestamp:
+            invalid_reasons["non_monotonic_timestamp"] += 1
+            continue
+        timeline[frame_index] = float(timestamp)
+        last_index = frame_index
+        last_timestamp = float(timestamp)
+    accepted = int(np.count_nonzero(np.isfinite(timeline)))
+    if accepted < 2:
+        return None
+    quality = dict(summary)
+    quality.update({
+        "accepted_frame_count": accepted,
+        "invalid_frame_count": int(sum(invalid_reasons.values())),
+        "invalid_reasons": dict(invalid_reasons),
+        "media_frame_count": count,
+    })
+    return timeline, {
+        "relative_path": relative,
+        "field": summary["field"],
+        "camera": camera_name,
+        "method": "video_timestamps",
+        "quality": quality,
+        "repairs": [],
+    }
+
+
+def _sync_camera_rows(
+    path: Path,
+    relative: str,
+    camera_name: str,
+    frame_count: int,
+    fps: float,
+    reference_timeline: np.ndarray | None = None,
+) -> tuple[list[dict], list[dict], dict] | None:
+    import pyarrow.parquet as parquet
+
+    fields = SYNC_CAMERA_FIELDS.get(camera_name)
+    if fields is None or frame_count <= 0:
+        return None
+    index_field, timestamp_field, filled_field = fields
+    schema_names = parquet.ParquetFile(path).schema_arrow.names
+    if index_field not in schema_names or timestamp_field not in schema_names:
+        return None
+    columns = [index_field, timestamp_field]
+    if filled_field in schema_names:
+        columns.append(filled_field)
+    if "partial" in schema_names:
+        columns.append("partial")
+    table = parquet.read_table(path, columns=columns)
+    raw_indices = table[index_field].to_pylist()
+    raw = np.asarray(table[timestamp_field].to_numpy(zero_copy_only=False), dtype=np.float64)
+    summary, seconds = _timestamp_analysis(raw, timestamp_field, fps)
+    if summary is None or seconds is None:
+        return None
+    filled = table[filled_field].to_pylist() if filled_field in columns else [False] * table.num_rows
+    partial = table["partial"].to_pylist() if "partial" in columns else [False] * table.num_rows
+    reference_period = _timeline_frame_period(reference_timeline, fps) if reference_timeline is not None else 1.0 / max(0.001, fps)
+    match_tolerance = max(1e-6, reference_period * 0.35)
+    entries = []
+    legal = []
+    rejected = Counter()
+    last_index = -1
+    last_timestamp = -math.inf
+    for row_index, (raw_index, timestamp, is_filled, is_partial) in enumerate(zip(raw_indices, seconds, filled, partial, strict=True)):
+        frame_index = _strict_frame_index(raw_index)
+        entry = {
+            "row": row_index,
+            "original_frame_idx": frame_index,
+            "timestamp": float(timestamp) if math.isfinite(float(timestamp)) else None,
+            "filled": bool(is_filled),
+            "partial": bool(is_partial),
+            "legal": False,
+        }
+        entries.append(entry)
+        if entry["filled"]:
+            rejected["filled"] += 1
+            continue
+        if entry["partial"]:
+            rejected["partial"] += 1
+            continue
+        if frame_index is None:
+            rejected["non_integer_index"] += 1
+            continue
+        if not 0 <= frame_index < frame_count:
+            rejected["out_of_media_range"] += 1
+            continue
+        if entry["timestamp"] is None:
+            rejected["non_finite_timestamp"] += 1
+            continue
+        if frame_index <= last_index:
+            rejected["duplicate_or_backward_index"] += 1
+            continue
+        if entry["timestamp"] <= last_timestamp:
+            rejected["non_monotonic_timestamp"] += 1
+            continue
+        if reference_timeline is not None:
+            reference_timestamp = float(reference_timeline[frame_index])
+            if not math.isfinite(reference_timestamp):
+                rejected["reference_timestamp_missing"] += 1
+                continue
+            if abs(reference_timestamp - entry["timestamp"]) > match_tolerance:
+                rejected["reference_timestamp_mismatch"] += 1
+                continue
+        entry["legal"] = True
+        legal.append(entry)
+        last_index = frame_index
+        last_timestamp = entry["timestamp"]
+    validation = {
+        "relative_path": relative,
+        "camera": camera_name,
+        "index_field": index_field,
+        "timestamp_field": timestamp_field,
+        "filled_field": filled_field if filled_field in schema_names else None,
+        "row_count": int(table.num_rows),
+        "legal_row_count": len(legal),
+        "rejected_row_count": int(sum(rejected.values())),
+        "rejected_reasons": dict(rejected),
+        "partial_row_count": int(sum(bool(value) for value in partial)),
+        "filled_row_count": int(sum(bool(value) for value in filled)),
+        "match_tolerance_seconds": round(match_tolerance, 9),
+        "timestamp_quality": summary,
+    }
+    return entries, legal, validation
+
+
+def _repair_trailing_video_timestamp(
+    timeline: np.ndarray,
+    entries: list[dict],
+    legal: list[dict],
+    validation: dict,
+) -> dict | None:
+    finite_rows = np.flatnonzero(np.isfinite(timeline))
+    if finite_rows.size < 2 or len(legal) < 2:
+        return None
+    previous_index, last_index = int(finite_rows[-2]), int(finite_rows[-1])
+    candidate_index = last_index + 1
+    if candidate_index >= timeline.size or math.isfinite(float(timeline[candidate_index])):
+        return None
+    table_period = float(timeline[last_index] - timeline[previous_index]) / max(1, last_index - previous_index)
+    left, right = legal[-2], legal[-1]
+    sync_index_delta = int(right["original_frame_idx"]) - int(left["original_frame_idx"])
+    sync_time_delta = float(right["timestamp"]) - float(left["timestamp"])
+    if table_period <= 0 or sync_index_delta <= 0 or sync_time_delta <= 0:
+        return None
+    sync_period = sync_time_delta / sync_index_delta
+    expected_timestamp = float(timeline[last_index]) + table_period
+    tolerance = max(0.002, min(table_period, sync_period) * 0.35)
+    candidates = []
+    for entry in entries:
+        observed = entry.get("timestamp")
+        original = entry.get("original_frame_idx")
+        if entry.get("filled") or entry.get("partial") or observed is None:
+            continue
+        if not float(observed) > float(right["timestamp"]):
+            continue
+        if abs(float(observed) - expected_timestamp) > tolerance:
+            continue
+        original_is_invalid = original is None or not 0 <= int(original) < timeline.size
+        if not original_is_invalid and int(original) != candidate_index:
+            continue
+        derived = int(round(int(right["original_frame_idx"]) + (float(observed) - float(right["timestamp"])) / sync_period))
+        if derived != candidate_index:
+            continue
+        candidates.append((abs(float(observed) - expected_timestamp), entry, derived))
+    if not candidates:
+        return None
+    _, selected, derived_index = min(candidates, key=lambda item: (item[0], int(item[1]["row"])))
+    observed_timestamp = float(selected["timestamp"])
+    timeline[candidate_index] = observed_timestamp
+    return {
+        "kind": "single_trailing_timestamp_extrapolation",
+        "camera": validation.get("camera"),
+        "frame_idx": candidate_index,
+        "timestamp": observed_timestamp,
+        "source_relative_path": validation.get("relative_path"),
+        "source_row": int(selected["row"]),
+        "source_timestamp_field": validation.get("timestamp_field"),
+        "invalid_original_frame_idx": selected.get("original_frame_idx") if selected.get("original_frame_idx") != candidate_index else None,
+        "derived_frame_idx": derived_index,
+        "expected_timestamp": expected_timestamp,
+        "timestamp_delta_ms": round((observed_timestamp - expected_timestamp) * 1000.0, 6),
+        "media_frame_count": int(timeline.size),
+        "basis": {
+            "video_timestamp_indices": [previous_index, last_index],
+            "sync_legal_indices": [int(left["original_frame_idx"]), int(right["original_frame_idx"])],
+            "sync_legal_rows": [int(left["row"]), int(right["row"])],
+        },
+        "validity": {"filled": bool(selected.get("filled")), "partial": bool(selected.get("partial"))},
+    }
+
+
+def _sync_reference_timeline(path: Path, relative: str, reference: dict, camera_name: str) -> tuple[np.ndarray, dict] | None:
+    frame_count = int(reference.get("frame_count") or 0)
+    fps = float(reference["fps"])
+    result = _sync_camera_rows(path, relative, camera_name, frame_count, fps)
+    if result is None:
+        return None
+    _, legal, validation = result
+    if len(legal) < 2:
+        return None
+    timeline = np.full(frame_count, np.nan, dtype=np.float64)
+    for entry in legal:
+        timeline[int(entry["original_frame_idx"])] = float(entry["timestamp"])
+    return timeline, {
+        "relative_path": relative,
+        "field": validation["timestamp_field"],
+        "camera": camera_name,
+        "method": "sync_camera_index",
+        "quality": validation["timestamp_quality"],
+        "sync_validation": validation,
+        "repairs": [],
+    }
+
+
 def _reference_timestamps(root: Path, records: list[dict], reference: dict) -> tuple[np.ndarray | None, dict | None]:
     fps = float(reference["fps"])
     frame_count = int(reference.get("frame_count") or 0)
-    parquet_records = [record for record in records if str(record.get("extension") or "").casefold() == ".parquet"]
-    parquet_records.sort(key=lambda record: 0 if "sync" in str(record.get("relative_path") or "").casefold() else 1)
-    for record in parquet_records:
+    camera_name = _reference_camera_name(reference)
+    parquet_records = [
+        record
+        for record in records
+        if str(record.get("extension") or Path(str(record.get("relative_path") or "")).suffix).casefold() == ".parquet"
+    ]
+    video_records = [record for record in parquet_records if "video_timestamp" in str(record.get("relative_path") or "").casefold()]
+    sync_records = [record for record in parquet_records if "sync" in Path(str(record.get("relative_path") or "")).name.casefold()]
+    for record in video_records:
         relative = str(record.get("relative_path") or "")
-        lowered = relative.casefold()
-        if "sync" not in lowered and "video_timestamp" not in lowered:
-            continue
         try:
-            import pyarrow.compute as compute
-            import pyarrow.parquet as parquet
-
-            path = root / relative
-            schema_names = parquet.ParquetFile(path).schema_arrow.names
-            if "master_ts" in schema_names and "frame_idx" in schema_names:
-                table = parquet.read_table(path, columns=["frame_idx", "master_ts"])
-                frame_indices = np.asarray(table["frame_idx"].to_numpy(), dtype=np.int64)
-                raw = np.asarray(table["master_ts"].to_numpy(), dtype=np.float64)
-                summary, seconds = _timestamp_analysis(raw, "master_ts", fps)
-            elif "frame_idx" in schema_names and ("ts_wall" in schema_names or "pts_us" in schema_names):
-                columns = ["frame_idx", "ts_wall" if "ts_wall" in schema_names else "pts_us"]
-                if "camera" in schema_names:
-                    columns.append("camera")
-                table = parquet.read_table(path, columns=columns)
-                if "camera" in columns:
-                    camera_name = Path(str(reference.get("stream_name") or "")).stem
-                    table = table.filter(compute.equal(table["camera"], camera_name))
-                frame_indices = np.asarray(table["frame_idx"].to_numpy(), dtype=np.int64)
-                field = "ts_wall" if "ts_wall" in columns else "pts_us"
-                raw = np.asarray(table[field].to_numpy(), dtype=np.float64)
-                summary, seconds = _timestamp_analysis(raw, field, fps)
-            else:
+            result = _video_timestamp_timeline(root / relative, relative, reference, camera_name)
+            if result is None:
                 continue
-            if summary is None or seconds is None or not frame_indices.size:
-                continue
-            count = max(frame_count, int(np.max(frame_indices)) + 1)
-            timeline = np.full(count, np.nan, dtype=np.float64)
-            valid = (frame_indices >= 0) & (frame_indices < count)
-            timeline[frame_indices[valid]] = seconds[valid]
-            if np.count_nonzero(np.isfinite(timeline)) >= 2:
-                return timeline, {"relative_path": relative, "field": summary["field"], "quality": summary}
+            timeline, source = result
+            for sync_record in sync_records:
+                sync_relative = str(sync_record.get("relative_path") or "")
+                try:
+                    sync_result = _sync_camera_rows(
+                        root / sync_relative,
+                        sync_relative,
+                        camera_name,
+                        int(timeline.size),
+                        fps,
+                        reference_timeline=timeline,
+                    )
+                except Exception:
+                    continue
+                if sync_result is None:
+                    continue
+                entries, legal, validation = sync_result
+                source["sync_validation"] = validation
+                repair = _repair_trailing_video_timestamp(timeline, entries, legal, validation)
+                if repair:
+                    source["repairs"].append(repair)
+                break
+            return timeline, source
+        except Exception:
+            continue
+    for record in sync_records:
+        relative = str(record.get("relative_path") or "")
+        try:
+            result = _sync_reference_timeline(root / relative, relative, reference, camera_name)
+            if result is not None:
+                return result
         except Exception:
             continue
     if frame_count > 0:
-        return np.arange(frame_count, dtype=np.float64) / fps, {"relative_path": reference.get("relative_path"), "field": "decoded_frame_index/fps", "quality": None}
+        return np.arange(frame_count, dtype=np.float64) / fps, {
+            "relative_path": reference.get("relative_path"),
+            "field": "decoded_frame_index/fps",
+            "camera": camera_name,
+            "method": "synthetic_frame_rate",
+            "quality": None,
+            "repairs": [],
+        }
     return None, None
 
 
@@ -649,6 +1010,41 @@ def _select_physical_hz(candidates: list[dict]) -> tuple[float | None, bool]:
     return selected, len(distinct) > 1
 
 
+def _preserve_partial_validity(
+    lookup: list[int] | None,
+    mode: str,
+    partial_entry: dict | None,
+    video_count: int,
+    data_count: int,
+    multiplier: float,
+) -> tuple[list[int] | None, list[int], int]:
+    if not partial_entry:
+        return lookup, [], 0
+    valid_rows = np.asarray(partial_entry.get("valid_rows") or [], dtype=np.bool_).reshape(-1)
+    if valid_rows.size != data_count:
+        return lookup, [], 0
+    if lookup is None:
+        mapping_count = video_count or data_count
+        if mode in {"prealigned_master_clock", "paired_frame_index"}:
+            lookup = list(range(mapping_count))
+        else:
+            lookup = [int(round(frame * multiplier)) for frame in range(mapping_count)]
+    partial_video_frames = []
+    rejected = 0
+    for video_frame, source_row in enumerate(lookup):
+        row = int(source_row)
+        if row < 0:
+            continue
+        if row >= data_count:
+            lookup[video_frame] = -1
+            continue
+        if not bool(valid_rows[row]):
+            lookup[video_frame] = -1
+            partial_video_frames.append(video_frame)
+            rejected += 1
+    return lookup, partial_video_frames, rejected
+
+
 def _build_stream(
     relative_path: str,
     probe: dict,
@@ -700,6 +1096,29 @@ def _build_stream(
         lookup, lookup_quality = _nearest_timestamp_lookup(reference_seconds, mapping_entry["seconds"], stored_hz)
         if lookup is not None:
             mode = "timestamp_nearest"
+    partial_entry = probe.get("partial_validity")
+    lookup, partial_video_frames, partial_rejections = _preserve_partial_validity(
+        lookup,
+        mode,
+        partial_entry,
+        video_count,
+        data_count,
+        float(multiplier or 1.0),
+    )
+    partial_summary = None
+    if partial_entry:
+        partial_summary = {
+            "field": partial_entry.get("field"),
+            "row_count": int(partial_entry.get("row_count") or 0),
+            "partial_row_count": len(partial_entry.get("partial_rows") or []),
+            "partial_rows": list(partial_entry.get("partial_rows") or []),
+            "preserved_in_lookup": lookup is not None,
+        }
+        lookup_quality = dict(lookup_quality or {})
+        lookup_quality.update({
+            "partial_source_row_count": partial_summary["partial_row_count"],
+            "partial_mapping_rejection_count": partial_rejections,
+        })
     timestamp_summaries = [item["summary"] for item in timestamp_entries]
     return {
         "relative_path": relative_path.replace("\\", "/"),
@@ -718,8 +1137,12 @@ def _build_stream(
         "timestamp_quality": timestamp_summaries,
         "frame_to_sensor_index": lookup,
         "lookup_quality": lookup_quality,
+        "partial_validity": partial_summary,
+        "partial_video_frames": partial_video_frames,
         "mapping_rule": (
-            "sensor_index = video_frame_index"
+            "explicit lookup; -1 marks timestamp gaps, out-of-range rows, or source partial rows"
+            if lookup is not None and partial_summary is not None
+            else "sensor_index = video_frame_index"
             if mode in {"prealigned_master_clock", "paired_frame_index"}
             else "nearest sensor timestamp; -1 marks gaps that must not be interpolated"
             if mode == "timestamp_nearest"
@@ -728,14 +1151,19 @@ def _build_stream(
     }
 
 
-def scan_episode_sensor_alignment(manifest: dict, episode: dict, force: bool = False) -> dict:
+def scan_episode_sensor_alignment(
+    manifest: dict,
+    episode: dict,
+    force: bool = False,
+    reference_media_file_id: str | None = None,
+) -> dict:
     """Inspect one Episode and persist its timing index under ``.alicePD``."""
     root = Path(manifest["root_path"]).expanduser().resolve()
     records = _episode_records(manifest, episode)
-    reference = _reference_video(episode)
+    reference = _reference_video(episode, reference_media_file_id)
     source_signature = _episode_signature(root, records, reference)
-    artifact_path = sensor_alignment_path(manifest, str(episode["id"]))
-    existing_path = _existing_sensor_alignment_path(manifest, str(episode["id"]))
+    artifact_path = sensor_alignment_path(manifest, str(episode["id"]), reference.get("file_id"))
+    existing_path = _existing_sensor_alignment_path(manifest, str(episode["id"]), reference.get("file_id"))
     if not force and existing_path.is_file():
         try:
             existing = json.loads(existing_path.read_text(encoding="utf-8"))
@@ -777,6 +1205,7 @@ def scan_episode_sensor_alignment(manifest: dict, episode: dict, force: bool = F
         "dataset_id": manifest["id"],
         "episode_id": episode["id"],
         "episode_name": episode.get("name"),
+        "reference_media_file_id": reference.get("file_id"),
         "created_at": _utc_now(),
         "source_policy": "Source dataset files are read-only; this timing index is stored only in .alicePD.",
         "reference_video": reference,
@@ -791,8 +1220,62 @@ def scan_episode_sensor_alignment(manifest: dict, episode: dict, force: bool = F
     return document
 
 
-def load_sensor_alignment(manifest: dict, episode_id: str) -> dict | None:
-    path = _existing_sensor_alignment_path(manifest, episode_id)
+def validate_episode_time_sync(manifest: dict, episode: dict, document: dict) -> dict:
+    """Validate an existing timing document as the T0 processing gate."""
+    reference = document.get("reference_video") or {}
+    if int(reference.get("frame_count") or 0) <= 0 or float(reference.get("fps") or 0.0) <= 0.01:
+        raise RuntimeError("T0 时间同步失败：参考视频缺少有效帧数或帧率")
+
+    records = {
+        str(item.get("relative_path") or "").replace("\\", "/").casefold(): item
+        for item in _episode_records(manifest, episode)
+    }
+    blocking = []
+    for item in document.get("skipped_files") or []:
+        reason = str(item.get("reason") or "")
+        if reason not in {"source_missing", "inspection_failed", "no_time_series"}:
+            continue
+        relative = str(item.get("relative_path") or "").replace("\\", "/")
+        record = records.get(relative.casefold()) or {}
+        if str(record.get("canonical_kind") or record.get("kind") or "") not in {"joint", "action", "sensor"}:
+            continue
+        blocking.append({"relative_path": relative, "reason": reason, "error": item.get("error")})
+    if blocking:
+        first = blocking[0]
+        raise RuntimeError(f"T0 时间同步失败：关键数据流无法读取 {first['relative_path']}（{first['reason']}）")
+
+    document["gate"] = {
+        "status": "ready",
+        "blocking_stream_count": 0,
+        "reference_media_file_id": reference.get("file_id"),
+        "reference_fps": reference.get("fps"),
+        "reference_frame_count": reference.get("frame_count"),
+    }
+    return document
+
+
+def ensure_episode_time_sync(
+    manifest: dict,
+    episode: dict,
+    force: bool = False,
+    reference_media_file_id: str | None = None,
+) -> dict:
+    """Build and validate the Episode time index before processing starts."""
+    document = scan_episode_sensor_alignment(
+        manifest,
+        episode,
+        force=force,
+        reference_media_file_id=reference_media_file_id,
+    )
+    return validate_episode_time_sync(manifest, episode, document)
+
+
+def load_sensor_alignment(
+    manifest: dict,
+    episode_id: str,
+    reference_media_file_id: str | None = None,
+) -> dict | None:
+    path = _existing_sensor_alignment_path(manifest, episode_id, reference_media_file_id)
     if not path.is_file():
         return None
     try:
@@ -812,11 +1295,16 @@ def map_video_frame_to_sensor(
     video_frame: int,
     video_fps: float | None = None,
     alignment: dict | None = None,
+    reference_media_file_id: str | None = None,
 ) -> tuple[int | None, dict]:
     """Map a video frame to a sensor row, detecting the Episode on demand."""
-    document = alignment or load_sensor_alignment(manifest, str(episode["id"]))
+    document = alignment or load_sensor_alignment(manifest, str(episode["id"]), reference_media_file_id)
     if document is None:
-        document = scan_episode_sensor_alignment(manifest, episode)
+        document = scan_episode_sensor_alignment(
+            manifest,
+            episode,
+            reference_media_file_id=reference_media_file_id,
+        )
     normalized = relative_path.replace("\\", "/").casefold()
     stream = next((item for item in document.get("streams", []) if str(item.get("relative_path") or "").replace("\\", "/").casefold() == normalized), None)
     if stream is None:
@@ -825,10 +1313,13 @@ def map_video_frame_to_sensor(
     count = max(0, int(stream.get("data_count") or 0))
     lookup = stream.get("frame_to_sensor_index")
     valid = True
+    invalid_reason = None
     if isinstance(lookup, list):
         if requested >= len(lookup) or int(lookup[requested]) < 0:
             sensor_index = None
             valid = False
+            partial_frames = {int(item) for item in stream.get("partial_video_frames") or []}
+            invalid_reason = "source_partial" if requested in partial_frames else "timestamp_or_range_gap"
         else:
             sensor_index = int(lookup[requested])
     elif stream.get("mode") in {"prealigned_master_clock", "paired_frame_index"}:
@@ -842,16 +1333,22 @@ def map_video_frame_to_sensor(
     if sensor_index is not None and count and not 0 <= sensor_index < count:
         sensor_index = None
         valid = False
+        invalid_reason = "out_of_sensor_range"
     metadata = {
         "video_frame": requested,
         "sensor_index": sensor_index,
         "valid": valid,
+        "invalid_reason": invalid_reason,
         "relative_path": stream.get("relative_path"),
         "mode": stream.get("mode"),
         "alignment_multiplier": round(multiplier, 12) if stream.get("mode") == "rate_multiplier" and multiplier else stream.get("index_multiplier"),
         "sensor_hz": stream.get("stored_hz"),
         "physical_hz": stream.get("physical_hz"),
-        "artifact_path": document.get("artifact_path") or str(sensor_alignment_path(manifest, str(episode["id"]))),
+        "artifact_path": document.get("artifact_path") or str(sensor_alignment_path(
+            manifest,
+            str(episode["id"]),
+            (document.get("reference_video") or {}).get("file_id") or reference_media_file_id,
+        )),
     }
     return sensor_index, metadata
 
@@ -949,7 +1446,7 @@ class SensorAlignmentJobManager(CancellableJobMixin):
                 episode_id = str(episode.get("id"))
                 self._update(job_id, current_episode_id=episode_id, message=f"Detecting sensor Hz: {position}/{total} · {episode.get('name') or episode_id}")
                 try:
-                    document = scan_episode_sensor_alignment(manifest, episode, force=force)
+                    document = ensure_episode_time_sync(manifest, episode, force=force)
                     streams = list(document.get("streams") or [])
                     stream_count += len(streams)
                     multiplier_aligned_count += sum(abs(float(item.get("index_multiplier") or 1.0) - 1.0) > 1e-6 for item in streams)
@@ -998,7 +1495,9 @@ class SensorAlignmentJobManager(CancellableJobMixin):
                 "items": artifacts,
                 "failures": failures,
             }
-            final_status = "failed" if failures and len(failures) == total and total else "complete"
+            # T0 is a dataset gate. A partial success must not unlock later
+            # processing while any Episode lacks a trustworthy time mapping.
+            final_status = "failed" if failures else "complete"
             self._update(
                 job_id,
                 status=final_status,

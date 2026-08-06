@@ -72,6 +72,8 @@ class QwenTrimTests(unittest.TestCase):
                 "file_id": "media-1",
                 "stream_name": "head_rgb",
                 "relative_path": "source.mp4",
+                "modality": "rgb",
+                "vlm_eligible": True,
             }
             fake_registry = SimpleNamespace(has_vlm=True)
             with (
@@ -121,8 +123,8 @@ class QwenTrimTests(unittest.TestCase):
         manager._executor = _DeferredExecutor()
         manifest = {
             "episodes": [
-                {"id": "ep-1", "name": "EP 1", "media_streams": [{"file_id": "m-1", "frame_count": 10}]},
-                {"id": "ep-2", "name": "EP 2", "media_streams": [{"file_id": "m-2", "frame_count": 10}]},
+                {"id": "ep-1", "name": "EP 1", "media_streams": [{"file_id": "m-1", "frame_count": 10, "modality": "rgb", "vlm_eligible": True}]},
+                {"id": "ep-2", "name": "EP 2", "media_streams": [{"file_id": "m-2", "frame_count": 10, "modality": "rgb", "vlm_eligible": True}]},
             ]
         }
         fake_registry = SimpleNamespace(has_vlm=True)

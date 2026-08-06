@@ -205,27 +205,41 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
         self.assertEqual(["cup"], result["object_nouns"])
         self.assertEqual([], result["warnings"])
 
-    def test_annotation_integrates_joint_refiner_and_writes_version_three_in_temp_sidecar(self) -> None:
+    def test_annotation_integrates_joint_refiner_and_writes_analysis_timeline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "episode.mp4"
-            source.write_bytes(b"fixture-video")
-            media = {
-                "file_id": "video",
-                "stream_name": "episode.mp4",
-                "path": str(source),
-                "relative_path": "episode.mp4",
+            head_source = root / "head.mp4"
+            wrist_source = root / "wrist_left.mp4"
+            head_source.write_bytes(b"fixture-head-video")
+            wrist_source.write_bytes(b"fixture-wrist-video")
+            head_media = {
+                "file_id": "head",
+                "stream_name": "head.mp4",
+                "path": str(head_source),
+                "relative_path": "head.mp4",
+                "fps": 8.0,
+                "frame_count": 8,
+                "modality": "rgb",
+                "vlm_eligible": True,
+            }
+            wrist_media = {
+                "file_id": "wrist-left",
+                "stream_name": "wrist_left.mp4",
+                "path": str(wrist_source),
+                "relative_path": "wrist_left.mp4",
                 "fps": 10.0,
                 "frame_count": 10,
+                "modality": "rgb",
+                "vlm_eligible": True,
             }
             episode = {
                 "id": "ep",
                 "name": "EP",
-                "relative_path": "episode.mp4",
-                "fps": 10.0,
-                "frame_count": 10,
-                "primary_media_file_id": "video",
-                "media_streams": [media],
+                "relative_path": "head.mp4",
+                "fps": 8.0,
+                "frame_count": 8,
+                "primary_media_file_id": "head",
+                "media_streams": [head_media, wrist_media],
             }
             manifest = {"id": "fixture", "root_path": str(root), "files": [], "schema_profile": {}}
             ontology = {
@@ -261,13 +275,19 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
                 annotate_behavior=lambda *_args, **_kwargs: raw,
                 status=lambda: {"vlm": {"model": "fixture"}},
             )
+            media_by_id = {"head": head_media, "wrist-left": wrist_media}
             with (
                 patch("app.behavior_annotator.registry", registry),
                 patch("app.behavior_annotator.load_behavior_ontology", return_value=ontology),
-                patch("app.behavior_annotator.episode_media", return_value=media),
-                patch("app.behavior_annotator.preferred_smoothed_media", return_value=(media, None)),
+                patch(
+                    "app.behavior_annotator.episode_media",
+                    side_effect=lambda _episode, file_id: media_by_id[str(file_id)],
+                ),
                 patch("app.behavior_annotator.read_frame", return_value=np.zeros((8, 8, 3), dtype=np.uint8)),
-                patch("app.behavior_annotator.load_episode_joint_pose", return_value=np.zeros((10, 2))),
+                patch(
+                    "app.behavior_annotator.load_episode_joint_pose",
+                    return_value=np.zeros((10, 2)),
+                ) as load_joint_pose,
                 patch("app.behavior_annotator.refine_behavior_boundaries", side_effect=refine) as refiner,
                 patch("app.behavior_annotator.dataset_artifact_dir", side_effect=artifact_dir),
                 patch("app.behavior_annotator.record_change", return_value={"id": "change", "status": "pending", "revision": 1}),
@@ -278,14 +298,28 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
                     episode,
                     BehaviorAnnotationRequest(sample_count=6, force=True),
                     lambda _progress, _message: None,
+                    analysis_media_override=wrist_media,
+                    analysis_source_kind="curation_non_rejected_segments",
                 )
 
         self.assertEqual(BEHAVIOR_ARTIFACT_VERSION, result["artifact_version"])
-        self.assertEqual(3, result["artifact_version"])
         self.assertEqual(TRI_LEVEL_PROTOCOL_SCHEMA, result["annotation_protocol"]["schema"])
         self.assertEqual("joint_refined", result["boundary_refinement"]["source"])
         self.assertEqual(2, result["boundary_refinement"]["refined_segment_count"])
         self.assertEqual(["reach", "grasp"], [item["phase_label"] for item in result["segments"]])
+        self.assertEqual("wrist-left", result["sampling"]["media_file_id"])
+        self.assertEqual("wrist_left.mp4", result["sampling"]["stream_name"])
+        self.assertEqual("wrist-left", result["source_video"]["file_id"])
+        self.assertEqual(10, result["source_video"]["frame_count"])
+        self.assertEqual("wrist-left", result["analysis_video"]["file_id"])
+        self.assertEqual("analysis_video", result["sampling"]["frame_space"])
+        self.assertEqual({"frame_space": "analysis_video", "frame_count": 10, "fps": 10.0}, result["timeline"])
+        load_joint_pose.assert_called_once_with(
+            manifest,
+            episode,
+            frame_count=10,
+            reference_media_file_id="wrist-left",
+        )
         refiner.assert_called_once()
 
 

@@ -288,12 +288,82 @@ def command_doctor(args: argparse.Namespace) -> int:
     return 0 if not missing and result["yoloe_model"] else 1
 
 
+def command_format(args: argparse.Namespace) -> int:
+    """Run the local, read-only format adapter without starting the service."""
+    from .dataset_format import inspect_dataset_format, write_format_report
+
+    try:
+        report = inspect_dataset_format(args.path)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if args.output:
+        write_format_report(args.output, report)
+    if args.json:
+        _print(report, True)
+    else:
+        family_names = {
+            "egodex": "EgoDex",
+            "nexus_multimodal": "Nexus / DexWeave 多传感器",
+            "lerobot": "LeRobot",
+            "alice_full": "Alice Full 输出",
+            "generic_multimodal": "通用多传感器",
+            "vision_only": "仅视觉",
+            "unknown": "未识别",
+        }
+        print(f"格式: {family_names.get(str(report.get('format_family')), report.get('format_family') or '未识别')}")
+        print(f"状态: {report.get('status')}")
+        print(f"Episode: {report.get('episode_count_hint') or '待扫描确认'}")
+        modalities = report.get("modality_counts") or {}
+        print("模态: " + (", ".join(f"{key}={value}" for key, value in sorted(modalities.items())) or "未识别"))
+        for issue in report.get("issues") or []:
+            print(f"[{str(issue.get('severity') or 'info').upper()}] {issue.get('message')}")
+        if args.output:
+            print(f"报告: {Path(args.output).expanduser().resolve()}")
+    if report.get("status") == "blocked" or (args.require_ready and report.get("status") != "ready"):
+        return 2
+    return 0
+
+
+def _preflight_and_open_path(
+    url: str,
+    source: str,
+    *,
+    name: str | None,
+    analyze_schema: bool,
+    timeout: float,
+) -> dict:
+    base_url = url.rstrip("/")
+    report = _request_json(
+        f"{base_url}/api/datasets/preflight",
+        method="POST",
+        payload={"path": source, "name": name, "analyze_schema": False},
+        timeout=timeout,
+    )
+    if report.get("root_mode") == "collection":
+        raise RuntimeError("该目录包含多个独立数据集；请指定其中一个子数据集，避免把它们合并导入")
+    if report.get("status") == "blocked" or not (report.get("capabilities") or {}).get("can_import"):
+        messages = [str(item.get("message") or "") for item in report.get("issues") or [] if item.get("severity") == "error"]
+        detail = "；".join(item for item in messages if item) or "格式预检未通过"
+        raise RuntimeError(detail)
+    confirmation_token = str(report.get("confirmation_token") or "").strip()
+    if not confirmation_token:
+        raise RuntimeError("格式预检未返回确认 token，已停止导入")
+    query = urllib.parse.urlencode({"confirmation_token": confirmation_token})
+    return _request_json(
+        f"{base_url}/api/datasets/open-path?{query}",
+        method="POST",
+        payload={"path": source, "name": name, "analyze_schema": analyze_schema},
+        timeout=timeout,
+    )
+
+
 def command_open(args: argparse.Namespace) -> int:
     source = str(Path(args.path).expanduser().resolve())
-    payload = _request_json(
-        f"{args.url.rstrip('/')}/api/datasets/open-path",
-        method="POST",
-        payload={"path": source, "name": args.name},
+    payload = _preflight_and_open_path(
+        args.url,
+        source,
+        name=args.name,
+        analyze_schema=False,
         timeout=args.timeout,
     )
     _print(payload, args.json)
@@ -356,14 +426,11 @@ def _full_service_url(value: str) -> str:
 def _resolve_full_dataset(args: argparse.Namespace, url: str) -> dict:
     candidate = Path(args.target).expanduser()
     if args.path or candidate.exists():
-        return _request_json(
-            f"{url}/api/datasets/open-path",
-            method="POST",
-            payload={
-                "path": str(candidate.resolve()),
-                "name": args.name,
-                "analyze_schema": not args.skip_schema,
-            },
+        return _preflight_and_open_path(
+            url,
+            str(candidate.resolve()),
+            name=args.name,
+            analyze_schema=not args.skip_schema,
             timeout=args.request_timeout,
         )
     dataset_id = urllib.parse.quote(args.target, safe="")
@@ -638,6 +705,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_options(doctor)
     doctor.set_defaults(handler=command_doctor)
 
+    format_command = subparsers.add_parser("format", help="导入前只读检查并识别数据集格式")
+    format_command.add_argument("path", help="待检查的数据集文件夹")
+    format_command.add_argument("--output", help="可选：将完整 JSON 报告写入此路径")
+    format_command.add_argument("--require-ready", action="store_true", help="存在警告时也返回非零状态")
+    _add_output_options(format_command)
+    format_command.set_defaults(handler=command_format)
+
+    from .nexus_lerobot_export import add_parser as add_nexus_lerobot_parser
+
+    add_nexus_lerobot_parser(subparsers)
+
     full = subparsers.add_parser("full", help="Run the complete dataset pipeline and follow its progress")
     full.add_argument("target", help="Registered dataset ID or local dataset path")
     full.add_argument("--path", action="store_true", help="Always interpret target as a local path")
@@ -648,7 +726,7 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--media", help="Media file ID, stream name, relative path, or basename")
     full.add_argument("--parallel", type=int, default=1, choices=range(1, 33), metavar="N", help="Balanced parallel Full jobs")
     full.add_argument("--force-vlm", action="store_true", help="Do not reuse matching VLM annotations")
-    full.add_argument("--vlm-samples", type=int, default=18, choices=range(6, 25), metavar="N")
+    full.add_argument("--vlm-samples", type=int, default=36, choices=range(6, 65), metavar="N")
     full.add_argument("--no-repair-s1-spikes", action="store_true", help="Detect isolated S1 spikes without repairing them")
     full.add_argument("--s1-max-repair-frames", type=int, default=5, choices=range(1, 16), metavar="N")
     full.add_argument(

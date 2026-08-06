@@ -17,20 +17,23 @@ from .analyzer import jobs
 from .action_mapping import action_mapping_jobs, action_mapping_profiles, load_episode_action_mapping
 from .annotation_edits import apply_behavior_phase_exclusion, apply_segment_override
 from .batch_jobs import batch_analysis_jobs
-from .behavior_annotator import behavior_jobs, load_behavior_annotation
+from .behavior_annotator import behavior_analysis_context, behavior_annotation_status, behavior_jobs, load_behavior_annotation
 from .curation_pipeline import curation_jobs, curation_preflight, load_curation_report
+from .dataset_format import inspect_dataset_format
 from .episode_resolver import build_sampled_episode_framework, validate_qwen_episode_plan
 from .file_preview import preview_file, preview_file_frame
 from .folder_dialog import choose_folder
+from .full_run import full_run_review_media, load_full_run_episode_bundle
 from .joint_overlay import draw_joint_overlay, joint_overlay_geometry, joint_overlay_status
 from .models import registry
 from .no_action_trim import load_no_action_trim
 from .pose_recovery import pose_recovery_status, recover_episode_pose
+from .projection_correction import preferred_projection_review_media, projection_correction_status
 from .preview_proxy import preview_proxy_manager
 from .qwen_trim import QwenTrimRequest, load_qwen_action_trim, qwen_trim_jobs
 from .schema_profiler import validate_understanding
 from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment, sensor_alignment_jobs
-from .schemas import ActionMappingRequest, AnalysisRequest, ApplyChangesRequest, BatchAnalysisRequest, BehaviorAnnotationRequest, BehaviorPhaseRemovalRequest, CurationJobRequest, ExcludeFilesRequest, ExportFolderRequest, LocalModelConfig, PathOpenRequest, SegmentUpdate, VLMModelConfig
+from .schemas import ActionMappingRequest, AnalysisRequest, ApplyChangesRequest, BatchAnalysisRequest, BehaviorAnnotationRequest, BehaviorPhaseRemovalRequest, CurationJobRequest, ExcludeFilesRequest, ExportFolderRequest, HandPoseModelConfig, LocalModelConfig, PathOpenRequest, SegmentUpdate, VLMModelConfig
 from .storage import (
     ALICE_ANNOTATION_SCHEMA,
     apply_changes,
@@ -61,7 +64,30 @@ from .storage import (
 def _default_model_path() -> Path | None:
     configured = os.getenv("VLA_LOCAL_MODEL")
     candidates = [Path(configured)] if configured else []
-    candidates.extend([ROOT / "yoloe-26x-seg.pt", ROOT / "models" / "yoloe-26x-seg.pt"])
+    candidates.extend([
+        ROOT / "yoloe-26x-seg.pt",
+        ROOT / "models" / "yoloe-26x-seg.pt",
+        Path.home() / "Desktop" / "alice blue" / "yoloe-26x-seg.pt",
+        Path.home() / "Desktop" / "yolov26_l" / "yoloe-26x-seg.pt",
+    ])
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        # A Git LFS pointer is a text stub, not a loadable model.  Skip it and
+        # continue to a real local weight file when available.
+        if resolved.is_file() and resolved.stat().st_size >= 1024 * 1024:
+            return resolved
+    return None
+
+
+def _default_hand_pose_model_path() -> Path | None:
+    configured = os.getenv("ALICE_HAND_POSE_MODEL")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend([
+        ROOT / "Alicepose-21k-v1.pt",
+        ROOT / "models" / "Alicepose-21k-v1.pt",
+        Path.home() / "Desktop" / "alice blue" / "Alicepose-21k-v1.pt",
+        Path.home() / "Desktop" / "Alicepose-21k-v1.pt",
+    ])
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
         if resolved.is_file():
@@ -106,11 +132,25 @@ async def lifespan(_: FastAPI):
         registry.configure_local_async(
             LocalModelConfig(kind="yolo", model_path=str(model_path), device="auto", confidence=0.25)
         )
+    if os.getenv("ALICE_SKIP_HAND_POSE_AUTOLOAD", "").strip().casefold() not in {"1", "true", "yes"}:
+        hand_backend = os.getenv("ALICE_HAND_POSE_BACKEND", "mediapipe").strip().casefold()
+        hand_pose_path = _default_hand_pose_model_path()
+        if hand_backend in {"alicepose", "pose", "yolo"} and hand_pose_path:
+            registry.configure_hand_pose_async(
+                HandPoseModelConfig(kind="alicepose", model_path=str(hand_pose_path), device="auto", confidence=0.1)
+            )
+        else:
+            registry.configure_hand_pose_async(
+                HandPoseModelConfig(kind="mediapipe", model_path="", device="cpu", confidence=0.35)
+            )
     try:
         _load_vlm_config()
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError):
         pass
-    yield
+    try:
+        yield
+    finally:
+        registry.close()
 
 
 app = FastAPI(title="alice blue API", version="1.0.0", lifespan=lifespan)
@@ -126,6 +166,21 @@ def _understand_manifest(manifest: dict, require_vlm: bool = False) -> dict:
     try:
         raw = registry.understand_dataset_schema(profile.get("inventory") or {})
         understanding, warnings = validate_understanding(profile.get("inventory") or {}, raw)
+        format_map = manifest.get("format_map") or {}
+        canonical_family = str(format_map.get("format_family") or "").strip()
+        if canonical_family and canonical_family != "unknown":
+            proposed_family = str(understanding.get("format_family") or "unknown")
+            if proposed_family not in {"", "unknown", canonical_family}:
+                warnings.append(
+                    f"Qwen format family {proposed_family} was ignored; local preflight confirmed {canonical_family}."
+                )
+            understanding["format_family"] = canonical_family
+            understanding["format_confidence"] = max(
+                float(understanding.get("format_confidence") or 0.0),
+                float(format_map.get("format_confidence") or 0.0),
+            )
+        if isinstance(format_map.get("capabilities"), dict):
+            understanding["capabilities"] = dict(format_map["capabilities"])
         local_resolution = manifest.get("episode_resolution") or {}
         if local_resolution.get("requires_api"):
             episode_framework = build_sampled_episode_framework(
@@ -182,8 +237,34 @@ def datasets():
     return {"items": list_manifests()}
 
 
+def _dataset_format_preflight(path: str) -> dict:
+    report = inspect_dataset_format(path)
+    issues = list(report.get("issues") or [])
+    return {
+        **report,
+        "warnings": [
+            item for item in issues
+            if str(item.get("severity") or "").casefold() in {"warning", "error"}
+        ],
+        "episode_summary": {
+            "layout": report.get("episode_layout"),
+            "count_hint": report.get("episode_count_hint"),
+            "samples": list(report.get("episode_samples") or []),
+        },
+    }
+
+
+@app.post("/api/datasets/preflight")
+def dataset_format_preflight(request: PathOpenRequest):
+    """Inspect a source directory without scanning it into the registry."""
+    try:
+        return _dataset_format_preflight(request.path)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc))
+
+
 @app.post("/api/system/open-dataset-folder")
-def open_dataset_folder():
+def open_dataset_folder(preflight_only: bool = True):
     try:
         selected = choose_folder()
         if selected is None:
@@ -191,9 +272,16 @@ def open_dataset_folder():
         discovery = discover_dataset_roots(selected)
         if discovery["mode"] == "collection":
             return {"cancelled": False, "dataset": None, **discovery}
-        manifest = _understand_manifest(scan_dataset(selected))
-        return {"cancelled": False, "dataset": manifest, **discovery}
-    except (ValueError, RuntimeError) as exc:
+        # Folder selection is deliberately discovery/preflight-only.  Import
+        # must happen through ``open-path`` with the returned confirmation
+        # token so blocked or changed formats cannot bypass user review.
+        return {
+            "cancelled": False,
+            "dataset": None,
+            "preflight": _dataset_format_preflight(selected),
+            **discovery,
+        }
+    except (ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(422, str(exc))
 
 
@@ -209,9 +297,21 @@ def dataset_detail(dataset_id: str):
 def rescan_dataset(dataset_id: str):
     try:
         manifest = get_manifest(dataset_id)
+        report = _dataset_format_preflight(manifest["root_path"])
+        if report.get("root_mode") == "collection":
+            raise HTTPException(409, "原数据集目录现在包含多个独立数据集，请重新选择具体子数据集")
+        if report.get("status") == "blocked" or not (report.get("capabilities") or {}).get("can_import"):
+            raise HTTPException(422, "重新扫描前的格式预检未通过")
         return _understand_manifest(
-            scan_dataset(manifest["root_path"], manifest["name"], dataset_id=dataset_id)
+            scan_dataset(
+                manifest["root_path"],
+                manifest["name"],
+                dataset_id=dataset_id,
+                camera_profile_id=(manifest.get("camera_calibration") or {}).get("selected_profile_id"),
+            )
         )
+    except HTTPException:
+        raise
     except KeyError:
         raise HTTPException(404, "数据集不存在")
     except ValueError as exc:
@@ -268,11 +368,26 @@ def dataset_file_frame(
 
 
 @app.post("/api/datasets/open-path")
-def open_path(request: PathOpenRequest):
+def open_path(request: PathOpenRequest, confirmation_token: str | None = None):
     try:
-        manifest = scan_dataset(request.path, request.name)
+        if not confirmation_token:
+            raise HTTPException(428, "请先完成格式预检并确认，再导入数据集")
+        report = _dataset_format_preflight(request.path)
+        if report.get("confirmation_token") != confirmation_token:
+            raise HTTPException(409, "文件夹内容已发生变化，请重新确认数据格式后再导入")
+        if report.get("root_mode") == "collection":
+            raise HTTPException(409, "该目录包含多个独立数据集，请逐个选择子数据集导入")
+        if report.get("status") == "blocked" or not (report.get("capabilities") or {}).get("can_import"):
+            raise HTTPException(422, "格式预检未通过，当前文件夹不能安全导入")
+        manifest = scan_dataset(
+            request.path,
+            request.name,
+            camera_profile_id=request.camera_profile_id,
+        )
         return _understand_manifest(manifest) if request.analyze_schema else manifest
-    except ValueError as exc:
+    except HTTPException:
+        raise
+    except (ValueError, OSError) as exc:
         raise HTTPException(400, str(exc))
 
 
@@ -313,13 +428,22 @@ def frame(
     overlay: bool = False,
     joint_overlay: bool = False,
     joint_indices: bool = False,
+    joint_frame_offset: int = Query(0, ge=-30, le=30),
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
     media_file_id: str | None = None,
+    full_run_id: str | None = None,
 ):
     try:
         manifest, episode = get_episode(dataset_id, episode_id)
         selected_media = episode_media(episode, media_file_id)
+        if full_run_id:
+            selected_media, _ = full_run_review_media(manifest, episode, selected_media, full_run_id)
+        elif joint_mode == "corrected":
+            selected_media, _ = preferred_projection_review_media(manifest, episode, selected_media)
     except KeyError:
         raise HTTPException(404, "Episode 不存在")
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
     primary_media_id = episode.get("primary_media_file_id")
     if overlay and (not media_file_id or media_file_id == primary_media_id):
         cache_dir = dataset_cache_dir(dataset_id, episode_id)
@@ -335,7 +459,9 @@ def frame(
         raise HTTPException(422, "无法读取指定帧")
     if joint_overlay:
         try:
-            image, _ = draw_joint_overlay(image, manifest, episode, index, selected_media, show_indices=joint_indices)
+            joint_count = max(1, int(selected_media.get("frame_count") or episode.get("frame_count") or 1))
+            joint_index = max(0, min(joint_count - 1, index + joint_frame_offset))
+            image, _ = draw_joint_overlay(image, manifest, episode, joint_index, selected_media, show_indices=joint_indices, mode=joint_mode)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
     ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 88])
@@ -344,21 +470,36 @@ def frame(
     return Response(encoded.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
-def _preview_proxy_payload(dataset_id: str, episode_id: str, media_file_id: str | None, start: bool = False, force_proxy: bool = False) -> dict:
+def _preview_proxy_payload(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None,
+    start: bool = False,
+    force_proxy: bool = False,
+    joint_mode: str = "auto",
+    full_run_id: str | None = None,
+) -> dict:
     try:
-        _, episode = get_episode(dataset_id, episode_id)
+        manifest, episode = get_episode(dataset_id, episode_id)
         selected_media = episode_media(episode, media_file_id)
+        if full_run_id:
+            selected_media, _ = full_run_review_media(manifest, episode, selected_media, full_run_id)
+        elif joint_mode == "corrected":
+            selected_media, _ = preferred_projection_review_media(manifest, episode, selected_media)
     except KeyError:
         raise HTTPException(404, "Episode 或视频流不存在")
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
     try:
         payload = preview_proxy_manager.submit(dataset_id, episode_id, selected_media, force_proxy) if start else preview_proxy_manager.status(dataset_id, episode_id, selected_media)
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(409, str(exc))
     result = dict(payload)
     if result.get("status") == "ready":
-        result["media_url"] = f"/api/datasets/{dataset_id}/episodes/{episode_id}/preview-media?media_file_id={selected_media.get('file_id') or ''}"
+        run_query = f"&full_run_id={full_run_id}" if full_run_id else ""
+        result["media_url"] = f"/api/datasets/{dataset_id}/episodes/{episode_id}/preview-media?media_file_id={selected_media.get('file_id') or ''}&joint_mode={joint_mode}{run_query}"
         if result.get("delivery") == "proxy":
-            result["mapping_url"] = f"/api/datasets/{dataset_id}/episodes/{episode_id}/preview-mapping?media_file_id={selected_media.get('file_id') or ''}"
+            result["mapping_url"] = f"/api/datasets/{dataset_id}/episodes/{episode_id}/preview-mapping?media_file_id={selected_media.get('file_id') or ''}&joint_mode={joint_mode}{run_query}"
     result.pop("mapping_path", None)
     result["media_file_id"] = selected_media.get("file_id")
     result["stream_name"] = selected_media.get("stream_name")
@@ -366,20 +507,43 @@ def _preview_proxy_payload(dataset_id: str, episode_id: str, media_file_id: str 
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-proxy")
-def preview_proxy_status(dataset_id: str, episode_id: str, media_file_id: str | None = None):
-    return _preview_proxy_payload(dataset_id, episode_id, media_file_id)
+def preview_proxy_status(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = None,
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
+    full_run_id: str | None = None,
+):
+    return _preview_proxy_payload(dataset_id, episode_id, media_file_id, joint_mode=joint_mode, full_run_id=full_run_id)
 
 
 @app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-proxy")
-def prepare_preview_proxy(dataset_id: str, episode_id: str, media_file_id: str | None = None, force_proxy: bool = False):
-    return _preview_proxy_payload(dataset_id, episode_id, media_file_id, start=True, force_proxy=force_proxy)
+def prepare_preview_proxy(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = None,
+    force_proxy: bool = False,
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
+    full_run_id: str | None = None,
+):
+    return _preview_proxy_payload(dataset_id, episode_id, media_file_id, start=True, force_proxy=force_proxy, joint_mode=joint_mode, full_run_id=full_run_id)
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-media")
-def preview_media(dataset_id: str, episode_id: str, media_file_id: str | None = None):
+def preview_media(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = None,
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
+    full_run_id: str | None = None,
+):
     try:
-        _, episode = get_episode(dataset_id, episode_id)
+        manifest, episode = get_episode(dataset_id, episode_id)
         selected_media = episode_media(episode, media_file_id)
+        if full_run_id:
+            selected_media, _ = full_run_review_media(manifest, episode, selected_media, full_run_id)
+        elif joint_mode == "corrected":
+            selected_media, _ = preferred_projection_review_media(manifest, episode, selected_media)
         path, media_type = preview_proxy_manager.media_path(dataset_id, episode_id, selected_media)
     except KeyError:
         raise HTTPException(404, "Episode 或视频流不存在")
@@ -389,10 +553,20 @@ def preview_media(dataset_id: str, episode_id: str, media_file_id: str | None = 
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/preview-mapping")
-def preview_mapping(dataset_id: str, episode_id: str, media_file_id: str | None = None):
+def preview_mapping(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = None,
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
+    full_run_id: str | None = None,
+):
     try:
-        _, episode = get_episode(dataset_id, episode_id)
+        manifest, episode = get_episode(dataset_id, episode_id)
         selected_media = episode_media(episode, media_file_id)
+        if full_run_id:
+            selected_media, _ = full_run_review_media(manifest, episode, selected_media, full_run_id)
+        elif joint_mode == "corrected":
+            selected_media, _ = preferred_projection_review_media(manifest, episode, selected_media)
         path = preview_proxy_manager.mapping_path(dataset_id, episode_id, selected_media)
     except KeyError:
         raise HTTPException(404, "Episode 或视频流不存在")
@@ -402,10 +576,14 @@ def preview_mapping(dataset_id: str, episode_id: str, media_file_id: str | None 
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/joint-overlay/status")
-def joint_overlay_availability(dataset_id: str, episode_id: str):
+def joint_overlay_availability(
+    dataset_id: str,
+    episode_id: str,
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
+):
     try:
         manifest, episode = get_episode(dataset_id, episode_id)
-        return joint_overlay_status(manifest, episode)
+        return joint_overlay_status(manifest, episode, joint_mode)
     except KeyError:
         raise HTTPException(404, "Episode 涓嶅瓨鍦?")
 
@@ -417,6 +595,15 @@ def episode_pose_recovery_status(dataset_id: str, episode_id: str):
         return pose_recovery_status(dataset_id, manifest, episode)
     except KeyError:
         raise HTTPException(404, "Episode 涓嶅瓨鍦?")
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/projection-correction/status")
+def episode_projection_correction_status(dataset_id: str, episode_id: str):
+    try:
+        manifest, episode = get_episode(dataset_id, episode_id)
+        return projection_correction_status(dataset_id, manifest, episode)
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
 
 
 @app.post("/api/datasets/{dataset_id}/episodes/{episode_id}/pose-recovery")
@@ -436,6 +623,8 @@ def recover_episode_initial_pose(dataset_id: str, episode_id: str):
 @app.post("/api/models/configure")
 def configure_model(config: dict):
     try:
+        if config.get("slot") == "hand_pose" or config.get("kind") in {"alicepose", "pose", "mediapipe"}:
+            return registry.configure_hand_pose_async(HandPoseModelConfig.model_validate(config))
         if config.get("slot") == "vlm" or config.get("kind") == "qwen":
             validated = VLMModelConfig.model_validate(config)
             status = registry.configure_vlm(validated)
@@ -481,17 +670,28 @@ def analyze(dataset_id: str, episode_id: str, request: AnalysisRequest):
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/joint-overlay/frame")
-def joint_overlay_frame(dataset_id: str, episode_id: str, index: int = Query(0, ge=0), media_file_id: str | None = None):
+def joint_overlay_frame(
+    dataset_id: str,
+    episode_id: str,
+    index: int = Query(0, ge=0),
+    media_file_id: str | None = None,
+    joint_mode: str = Query("auto", pattern="^(auto|raw|corrected)$"),
+    full_run_id: str | None = None,
+):
     try:
         manifest_path = manifest_registry_path(dataset_id)
         manifest_revision = manifest_path.stat().st_mtime_ns if manifest_path.is_file() else 0
         manifest, episode = _cached_joint_context(dataset_id, episode_id, manifest_revision)
         selected_media = episode_media(episode, media_file_id)
+        if full_run_id:
+            selected_media, _ = full_run_review_media(manifest, episode, selected_media, full_run_id)
+        elif joint_mode == "corrected":
+            selected_media, _ = preferred_projection_review_media(manifest, episode, selected_media)
         width = int(selected_media.get("width") or episode.get("width") or 0)
         height = int(selected_media.get("height") or episode.get("height") or 0)
         if width <= 0 or height <= 0:
             raise ValueError("视频尺寸无效")
-        return joint_overlay_geometry(manifest, episode, index, width, height, selected_media)
+        return joint_overlay_geometry(manifest, episode, index, width, height, selected_media, joint_mode)
     except KeyError:
         raise HTTPException(404, "Episode 或视频流不存在")
     except ValueError as exc:
@@ -604,12 +804,35 @@ def episode_curation_preflight(dataset_id: str, episode_id: str, media_file_id: 
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/curation")
-def episode_curation_result(dataset_id: str, episode_id: str):
+def episode_curation_result(dataset_id: str, episode_id: str, media_file_id: str | None = None, run_id: str | None = None):
     try:
         get_episode(dataset_id, episode_id)
-        payload = load_curation_report(dataset_id, episode_id)
+        if run_id:
+            bundle = load_full_run_episode_bundle(dataset_id, episode_id, media_file_id, run_id)
+            payload = (bundle or {}).get("curation")
+        else:
+            payload = load_curation_report(dataset_id, episode_id, media_file_id)
         if payload is None:
             raise HTTPException(404, "尚无数据质量清洗报告")
+        return payload
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/full-run")
+def episode_full_run_result(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = None,
+    run_id: str | None = None,
+):
+    try:
+        get_episode(dataset_id, episode_id)
+        payload = load_full_run_episode_bundle(dataset_id, episode_id, media_file_id, run_id)
+        if payload is None:
+            raise HTTPException(404, "当前视频流尚无完整的 Full run")
         return payload
     except KeyError:
         raise HTTPException(404, "Episode 不存在")
@@ -669,13 +892,32 @@ def episode_sensor_alignment(dataset_id: str, episode_id: str):
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/behavior-annotation")
-def behavior_annotation(dataset_id: str, episode_id: str):
+def behavior_annotation(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+):
     try:
-        get_episode(dataset_id, episode_id)
-        payload = load_behavior_annotation(dataset_id, episode_id)
-        if payload is None:
+        manifest, episode = get_episode(dataset_id, episode_id)
+        if run_id:
+            bundle = load_full_run_episode_bundle(dataset_id, episode_id, media_file_id, run_id)
+            payload = (bundle or {}).get("behavior")
+            if payload is None:
+                raise HTTPException(404, "该 Full run 没有 VLM 行为标注")
+            return payload
+        context = behavior_analysis_context(dataset_id, manifest, episode, media_file_id)
+        status = behavior_annotation_status(
+            dataset_id,
+            manifest,
+            episode,
+            source_media_file_id=str(context["source_media"].get("file_id") or "") or None,
+            analysis_media=context["analysis_media"],
+            analysis_frame_ranges=context["analysis_frame_ranges"],
+        )
+        if not status.get("reusable"):
             raise HTTPException(404, "尚无 VLM 行为标注")
-        return payload
+        return status["payload"]
     except KeyError:
         raise HTTPException(404, "Episode 涓嶅瓨鍦?")
 
@@ -820,7 +1062,7 @@ def remove_behavior_phase(dataset_id: str, episode_id: str, request: BehaviorPha
         media = episode_media(episode, request.media_file_id)
     except KeyError:
         raise HTTPException(404, "Episode 或视频流不存在")
-    behavior = load_behavior_annotation(dataset_id, episode_id)
+    behavior = load_behavior_annotation(dataset_id, episode_id, request.full_run_id)
     if behavior is None:
         raise HTTPException(409, "请先运行 VLM 行为标注，再按动作去除")
     behavior_media_id = (behavior.get("source_video") or {}).get("file_id")

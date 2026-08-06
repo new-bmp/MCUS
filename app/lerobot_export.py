@@ -13,6 +13,15 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as parquet
 
+from .egodex_mano import (
+    EGODEX_MANO_REVISION,
+    fit_egodex_mano_template,
+    has_egodex_mano_source,
+    required_egodex_mano_names,
+    retarget_egodex_mano_frame,
+    source_is_retargeted,
+)
+from .mano21 import HAND_21_JOINT_NAMES, mano21_transforms_from_named, side_hand_joint_names
 from .s1_repair import apply_s1_repair, s1_repair_cell_count
 
 
@@ -22,36 +31,13 @@ LEROBOT_VIDEO_KEY = "observation.images.main"
 LEROBOT_DATA_PATH = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
 LEROBOT_VIDEO_PATH = "videos/chunk-{episode_chunk:03d}/observation.images.main/episode_{episode_index:06d}.mp4"
 LEROBOT_BODY_PATH = "body/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
-
-HAND_21_JOINT_NAMES = (
-    "Hand",
-    "ThumbKnuckle",
-    "ThumbIntermediateBase",
-    "ThumbIntermediateTip",
-    "ThumbTip",
-    "IndexFingerKnuckle",
-    "IndexFingerIntermediateBase",
-    "IndexFingerIntermediateTip",
-    "IndexFingerTip",
-    "MiddleFingerKnuckle",
-    "MiddleFingerIntermediateBase",
-    "MiddleFingerIntermediateTip",
-    "MiddleFingerTip",
-    "RingFingerKnuckle",
-    "RingFingerIntermediateBase",
-    "RingFingerIntermediateTip",
-    "RingFingerTip",
-    "LittleFingerKnuckle",
-    "LittleFingerIntermediateBase",
-    "LittleFingerIntermediateTip",
-    "LittleFingerTip",
-)
+EGODEX_CAMERA_INTRINSIC_1920X1080 = np.asarray([
+    [736.6339, 0.0, 960.0],
+    [0.0, 736.6339, 540.0],
+    [0.0, 0.0, 1.0],
+], dtype=np.float32)
 
 _LOCK = threading.RLock()
-
-
-def side_hand_joint_names(side: str) -> tuple[str, ...]:
-    return tuple(f"{side}{name}" for name in HAND_21_JOINT_NAMES)
 
 
 LEFT_HAND_SOURCE_NAMES = side_hand_joint_names("left")
@@ -94,6 +80,26 @@ def _fixed_float_list(values: np.ndarray, width: int) -> pa.FixedSizeListArray:
     return pa.FixedSizeListArray.from_arrays(pa.array(contiguous.reshape(-1), type=pa.float32()), width)
 
 
+def scaled_egodex_camera_intrinsic(width: int, height: int) -> np.ndarray:
+    intrinsic = EGODEX_CAMERA_INTRINSIC_1920X1080.copy()
+    intrinsic[0] *= max(1, int(width)) / 1920.0
+    intrinsic[1] *= max(1, int(height)) / 1080.0
+    intrinsic[2] = (0.0, 0.0, 1.0)
+    return intrinsic
+
+
+def _source_camera_intrinsic(source_path: Path, width: int, height: int) -> np.ndarray:
+    with h5py.File(source_path, "r") as source:
+        value = source.get("camera/intrinsic")
+        if isinstance(value, h5py.Dataset):
+            intrinsic = np.asarray(value[()], dtype=np.float32)
+            if intrinsic.ndim == 3:
+                intrinsic = intrinsic[0]
+            if intrinsic.shape == (3, 3) and np.isfinite(intrinsic).all():
+                return intrinsic
+    return scaled_egodex_camera_intrinsic(width, height)
+
+
 def discover_body_joint_names(source_path: Path, source_count: int) -> tuple[str, ...]:
     excluded = {name.casefold() for name in (*HAND_SOURCE_NAMES, "camera")}
     with h5py.File(source_path, "r") as source:
@@ -127,10 +133,18 @@ def _read_state(output_root: Path) -> dict:
         "width": None,
         "height": None,
         "body_joint_names": None,
+        "camera_intrinsic": None,
     }
 
 
-def _validate_dataset_contract(state: dict, fps: float, width: int, height: int, body_names: tuple[str, ...]) -> None:
+def _validate_dataset_contract(
+    state: dict,
+    fps: float,
+    width: int,
+    height: int,
+    body_names: tuple[str, ...],
+    camera_intrinsic: np.ndarray,
+) -> None:
     if state.get("fps") is not None and not math.isclose(float(state["fps"]), fps, rel_tol=0.0, abs_tol=1e-3):
         raise RuntimeError(f"LeRobot output requires one FPS: existing={state['fps']}, current={fps}")
     if state.get("width") is not None and (int(state["width"]), int(state["height"])) != (width, height):
@@ -141,6 +155,11 @@ def _validate_dataset_contract(state: dict, fps: float, width: int, height: int,
     existing_body = state.get("body_joint_names")
     if existing_body is not None and tuple(existing_body) != body_names:
         raise RuntimeError("LeRobot body joint schema differs from previous exported Episodes")
+    existing_intrinsic = state.get("camera_intrinsic")
+    if existing_intrinsic is not None:
+        resolved = np.asarray(existing_intrinsic, dtype=np.float32)
+        if resolved.shape != (3, 3) or not np.allclose(resolved, camera_intrinsic, rtol=0.0, atol=1e-3):
+            raise RuntimeError("LeRobot camera intrinsic differs from previous exported Episodes")
 
 
 def _episode_paths(output_root: Path, episode_index: int) -> tuple[Path, Path, Path]:
@@ -225,17 +244,40 @@ def _write_episode_parquet(
         with h5py.File(source_path, "r") as source:
             transforms = source["transforms"]
             confidences = source.get("confidences")
+            already_retargeted = source_is_retargeted(source)
+            templates = {
+                side: (
+                    None
+                    if already_retargeted or not has_egodex_mano_source(transforms, side)
+                    else fit_egodex_mano_template(transforms, side)
+                )
+                for side in ("left", "right")
+            }
+
+            def read_hand(side: str, rows: np.ndarray) -> np.ndarray:
+                template = templates[side]
+                required = side_hand_joint_names(side) if template is None else required_egodex_mano_names(side)
+                blocks = {
+                    name: apply_s1_repair(
+                        _take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows,
+                    )
+                    for name in required
+                }
+                if template is None:
+                    return mano21_transforms_from_named(blocks, side).astype(np.float32)
+                return np.stack([
+                    retarget_egodex_mano_frame(
+                        {name: values[local_index] for name, values in blocks.items()},
+                        template,
+                    )
+                    for local_index in range(len(rows))
+                ]).astype(np.float32)
+
             for offset in range(0, count, chunk_size):
                 right = min(count, offset + chunk_size)
                 rows = source_rows[offset:right]
-                left = np.stack([
-                    apply_s1_repair(_take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows)
-                    for name in LEFT_HAND_SOURCE_NAMES
-                ], axis=1).astype(np.float32)
-                right_hand = np.stack([
-                    apply_s1_repair(_take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows)
-                    for name in RIGHT_HAND_SOURCE_NAMES
-                ], axis=1).astype(np.float32)
+                left = read_hand("left", rows)
+                right_hand = read_hand("right", rows)
                 camera = apply_s1_repair(
                     _take_rows(transforms["camera"], rows), repair, source_relative, "transforms/camera", rows,
                 ).astype(np.float32)
@@ -314,11 +356,12 @@ def write_lerobot_pair(
     fps = max(0.01, float(video_info["fps"]))
     width, height = int(video_info["width"]), int(video_info["height"])
     body_names = discover_body_joint_names(source_path, source_count)
+    camera_intrinsic = _source_camera_intrinsic(source_path, width, height)
     count = int(source_frames.size)
     category = str(classification.get("category") or "other")
     with _LOCK:
         state = _read_state(output_root)
-        _validate_dataset_contract(state, fps, width, height, body_names)
+        _validate_dataset_contract(state, fps, width, height, body_names, camera_intrinsic)
         tasks = {str(key): int(value) for key, value in (state.get("tasks") or {}).items()}
         if category not in tasks:
             tasks[category] = max(tasks.values(), default=-1) + 1
@@ -359,6 +402,7 @@ def write_lerobot_pair(
                 "width": width,
                 "height": height,
                 "body_joint_names": list(body_names),
+                "camera_intrinsic": camera_intrinsic.tolist(),
             })
             _write_json_atomic(output_root / "meta" / "alice_state.json", state)
         except Exception:
@@ -385,6 +429,7 @@ def write_lerobot_pair(
         "body": str(body_path) if body_names else None,
         "mp4": str(video_path),
         "body_joint_names": list(body_names),
+        "camera_intrinsic": camera_intrinsic.tolist(),
         "source_hdf5": source_relative,
     }
 
@@ -497,6 +542,10 @@ def write_lerobot_metadata(output_root: Path, manifest: dict, pairs: list[dict])
             "body_joint_names": body_names,
             "hand_joint_names": list(HAND_21_JOINT_NAMES),
             "hand_joint_count_per_side": 21,
+            "hand_geometry_schema": "mano21_kinematic_retarget",
+            "hand_geometry_revision": EGODEX_MANO_REVISION,
+            "hand_geometry_policy": "EgoDex full palm rigid fit and relative joint-rotation FK; applied MediaPipe/AlicePose snapshots are read as already-retargeted MANO21",
+            "camera_intrinsic": state.get("camera_intrinsic") or scaled_egodex_camera_intrinsic(width, height).tolist(),
             "source_dataset_id": manifest.get("id"),
         })
         _write_json_atomic(output_root / "meta" / "stats.json", {})

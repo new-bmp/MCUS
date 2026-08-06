@@ -11,8 +11,19 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .egodex_mano import (
+    direct_mano21_transforms,
+    fit_egodex_mano_template,
+    has_egodex_mano_source,
+    required_egodex_mano_names,
+    retarget_egodex_mano_frame,
+    source_is_retargeted,
+)
 from .file_preview import preview_file_frame
+from .lerobot_export import HAND_21_JOINT_NAMES, scaled_egodex_camera_intrinsic
+from .mano21 import MANO21_LAYOUT_VERSION, mano21_local_index, select_mano21_points, side_hand_joint_names
 from .pose_recovery import load_recovered_points
+from .projection_correction import review_projection_source
 from .sensor_alignment import map_video_frame_to_sensor
 from .storage import change_is_applied
 
@@ -58,18 +69,49 @@ def _episode_records(manifest: dict, episode: dict) -> list[dict]:
     ]
 
 
+def _is_lerobot_data_path(root: Path, relative_path: str) -> bool:
+    relative = Path(relative_path)
+    return (
+        relative.suffix.casefold() == ".parquet"
+        and bool(relative.parts)
+        and relative.parts[0].casefold() == "data"
+        and (root / "meta" / "info.json").is_file()
+    )
+
+
 def _candidate_sources(manifest: dict, episode: dict) -> list[dict]:
     understanding = (manifest.get("schema_profile") or {}).get("understanding") or {}
+    current_path = Path(str(manifest.get("sidecar_path") or "")) / "changes" / "current.alice"
+    applied_revision = current_path.stat().st_mtime_ns if current_path.is_file() else 0
+    review = review_projection_source(manifest, episode)
+    review_metadata_path = Path(str((review or {}).get("metadata_path") or ""))
+    review_revision = review_metadata_path.stat().st_mtime_ns if review_metadata_path.is_file() else 0
     cache_key = (
         manifest.get("id"), episode.get("id"), len(manifest.get("files", [])),
-        len(understanding.get("streams", [])),
+        len(understanding.get("streams", [])), applied_revision, review_revision,
     )
     with _CACHE_LOCK:
         cached = _CANDIDATE_CACHE.get(cache_key)
     if cached is not None:
         return [dict(item) for item in cached]
+    root = Path(manifest["root_path"]).resolve()
     records = {item.get("relative_path"): item for item in _episode_records(manifest, episode)}
     candidates: list[dict] = []
+    if review is not None and review.get("source_relative_path"):
+        candidates.append({
+            "path": str(review["source_relative_path"]),
+            "absolute_path": str(review["path"]),
+            "field": None,
+            "side": "unknown",
+            "modality": "transform",
+            "role": "corrected_hand_pose",
+            "source": "projection_correction",
+            "application_id": review.get("application_id"),
+            "review_status": review.get("review_status") or "pending",
+            "applied": bool(review.get("applied")),
+            "frame_count": int(review.get("frame_count") or 0),
+            "source_frame_positions": list((((review.get("metadata") or {}).get("retiming") or {}).get("source_frame_positions") or [])),
+        })
     for stream in understanding.get("streams", []):
         if stream.get("kind") != "joint":
             continue
@@ -95,16 +137,51 @@ def _candidate_sources(manifest: dict, episode: dict) -> list[dict]:
         lowered = relative.casefold()
         if suffix in {".h5", ".hdf5", ".h5df"}:
             candidates.append({"path": relative, "field": None, "side": "unknown", "modality": "", "role": "", "source": "hdf5"})
+        elif _is_lerobot_data_path(root, relative):
+            candidates.append({"path": relative, "field": None, "side": "unknown", "modality": "transform", "role": "", "source": "lerobot"})
         elif suffix in {".parquet", ".json", ".jsonl", ".npy", ".npz"} and any(token in lowered for token in _JOINT_HINTS):
             candidates.append({"path": relative, "field": None, "side": "unknown", "modality": "", "role": "", "source": "structured"})
-    seen: set[tuple[str, str | None]] = set()
-    unique = [item for item in candidates if not ((item["path"], item.get("field")) in seen or seen.add((item["path"], item.get("field"))))]
+    # The applied correction deliberately keeps the original relative path for
+    # auditability while reading from an immutable sidecar snapshot.  Preserve
+    # that candidate alongside the raw source even though path/field match.
+    seen: set[tuple[str, str, str | None]] = set()
+    unique: list[dict] = []
+    for item in candidates:
+        source_group = "projection_correction" if item.get("source") == "projection_correction" else "raw"
+        key = (source_group, str(item["path"]), item.get("field"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
     # A transform file contains the camera calibration and full skeleton topology;
     # prefer it over a flattened joint vector when both are present in one episode.
-    result = sorted(unique, key=lambda item: 0 if item.get("source") == "hdf5" else 1)
+    source_priority = {"projection_correction": -1, "hdf5": 0, "lerobot": 0, "qwen": 1, "structured": 2}
+    result = sorted(unique, key=lambda item: source_priority.get(str(item.get("source") or ""), 3))
     with _CACHE_LOCK:
         _CANDIDATE_CACHE[cache_key] = [dict(item) for item in result]
     return result
+
+
+def _normalize_overlay_mode(mode: str) -> str:
+    normalized = str(mode or "auto").strip().casefold()
+    if normalized not in {"auto", "raw", "corrected"}:
+        raise ValueError(f"Unsupported joint overlay mode: {mode}")
+    return normalized
+
+
+def _overlay_candidates(manifest: dict, episode: dict, mode: str) -> list[dict]:
+    normalized = _normalize_overlay_mode(mode)
+    candidates = _candidate_sources(manifest, episode)
+    if normalized == "raw":
+        return [item for item in candidates if item.get("source") != "projection_correction"]
+    if normalized == "corrected":
+        return [item for item in candidates if item.get("source") == "projection_correction"]
+    return candidates
+
+
+def _candidate_path(root: Path, candidate: dict) -> Path:
+    absolute = str(candidate.get("absolute_path") or "").strip()
+    return Path(absolute).expanduser().resolve() if absolute else (root / candidate["path"]).resolve()
 
 
 @lru_cache(maxsize=256)
@@ -123,6 +200,63 @@ def _cached_h5_dataset_names(path_string: str, modified_ns: int, size_bytes: int
 def _h5_dataset_names(path: Path) -> list[str]:
     stat = path.stat()
     return list(_cached_h5_dataset_names(str(path), stat.st_mtime_ns, stat.st_size))
+
+
+@lru_cache(maxsize=32)
+def _cached_h5_mano_templates(
+    path_string: str,
+    modified_ns: int,
+    size_bytes: int,
+) -> tuple[Any, Any]:
+    del modified_ns, size_bytes
+    import h5py
+
+    with h5py.File(path_string, "r") as handle:
+        transforms = handle.get("transforms")
+        if not isinstance(transforms, h5py.Group):
+            return None, None
+        if source_is_retargeted(handle):
+            return None, None
+        return tuple(
+            fit_egodex_mano_template(transforms, side) if has_egodex_mano_source(transforms, side) else None
+            for side in ("left", "right")
+        )
+
+
+@lru_cache(maxsize=1024)
+def _cached_h5_mano_frame(
+    path_string: str,
+    modified_ns: int,
+    size_bytes: int,
+    index: int,
+) -> tuple[tuple[str, ...], np.ndarray | None]:
+    import h5py
+
+    templates = _cached_h5_mano_templates(path_string, modified_ns, size_bytes)
+    labels: list[str] = []
+    hands: list[np.ndarray] = []
+    with h5py.File(path_string, "r") as handle:
+        transforms = handle.get("transforms")
+        if not isinstance(transforms, h5py.Group):
+            return tuple(), None
+        already_retargeted = source_is_retargeted(handle)
+        for side_index, side in enumerate(("left", "right")):
+            names = side_hand_joint_names(side) if already_retargeted else required_egodex_mano_names(side)
+            if not all(name in transforms for name in names):
+                continue
+            frame_count = min(int(transforms[name].shape[0]) for name in names)
+            if frame_count <= 0:
+                continue
+            row = min(max(0, int(index)), frame_count - 1)
+            named = {name: np.asarray(transforms[name][row], dtype=np.float64) for name in names}
+            matrices = (
+                direct_mano21_transforms(named, side)
+                if already_retargeted
+                else retarget_egodex_mano_frame(named, templates[side_index])
+            )
+            labels.extend(side_hand_joint_names(side))
+            hands.append(matrices[:, :3, 3])
+    return (tuple(labels), np.concatenate(hands, axis=0)) if hands else (tuple(), None)
 
 
 def _explicit_h5_joint_order(handle: Any, labels: list[str]) -> list[str] | None:
@@ -185,31 +319,61 @@ def _cached_h5_transform_points(path_string: str, modified_ns: int, size_bytes: 
     return tuple(labels), np.concatenate([item[:frame_count] for item in trajectories], axis=1)
 
 
+@lru_cache(maxsize=64)
+def _cached_h5_projection_calibration(
+    path_string: str,
+    modified_ns: int,
+    size_bytes: int,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Load camera transforms and intrinsics once for low-latency playback."""
+    del modified_ns, size_bytes
+    import h5py
+
+    cameras = None
+    intrinsics = None
+    with h5py.File(path_string, "r") as handle:
+        if "/transforms/camera" in handle:
+            value = np.asarray(handle["/transforms/camera"][()], dtype=np.float64)
+            if value.ndim >= 3 and value.shape[-2:] == (4, 4):
+                cameras = value
+        for key in ("/camera/intrinsic", "/camera/intrinsics", "/intrinsic", "/intrinsics"):
+            if key not in handle:
+                continue
+            value = np.asarray(handle[key][()], dtype=np.float64)
+            if value.shape == (3, 3) or (value.ndim == 3 and value.shape[-2:] == (3, 3)):
+                intrinsics = value
+                break
+    return cameras, intrinsics
+
+
 def _h5_points(path: Path, index: int) -> tuple[np.ndarray, list[str], np.ndarray | None, np.ndarray | None, str]:
     import h5py
 
+    stat = path.stat()
+    cached_cameras, cached_intrinsics = _cached_h5_projection_calibration(str(path), stat.st_mtime_ns, stat.st_size)
+    camera_ext = None
+    intrinsic = None
+    if cached_cameras is not None and len(cached_cameras):
+        camera_ext = cached_cameras[min(index, len(cached_cameras) - 1)]
+    if cached_intrinsics is not None:
+        intrinsic = cached_intrinsics[min(index, len(cached_intrinsics) - 1)] if cached_intrinsics.ndim == 3 else cached_intrinsics
+    dataset_leaf_names = {name.rsplit("/", 1)[-1] for name in _h5_dataset_names(path)}
+    has_complete_egodex_hand = any(
+        all(name in dataset_leaf_names for name in required_egodex_mano_names(side))
+        for side in ("left", "right")
+    )
+    if has_complete_egodex_hand:
+        mano_labels, mano_points = _cached_h5_mano_frame(
+            str(path), stat.st_mtime_ns, stat.st_size, max(0, int(index)),
+        )
+        if mano_points is not None and len(mano_points):
+            return mano_points, list(mano_labels), camera_ext, intrinsic, "world"
+    cached_labels, cached_points = _cached_h5_transform_points(str(path), stat.st_mtime_ns, stat.st_size)
+    if cached_points is not None and len(cached_points):
+        frame_index = min(index, len(cached_points) - 1)
+        return cached_points[frame_index], list(cached_labels), camera_ext, intrinsic, "world"
+
     with h5py.File(path, "r") as handle:
-        camera_ext = None
-        intrinsic = None
-        if "/transforms/camera" in handle:
-            camera = handle["/transforms/camera"]
-            if camera.ndim >= 3:
-                camera_ext = np.asarray(camera[min(index, camera.shape[0] - 1)], dtype=np.float64)
-        for key in ("/camera/intrinsic", "/camera/intrinsics", "/intrinsic", "/intrinsics"):
-            if key in handle:
-                value = np.asarray(handle[key][()], dtype=np.float64)
-                if value.ndim == 3:
-                    value = value[min(index, value.shape[0] - 1)]
-                if value.shape == (3, 3):
-                    intrinsic = value
-                    break
-
-        stat = path.stat()
-        cached_labels, cached_points = _cached_h5_transform_points(str(path), stat.st_mtime_ns, stat.st_size)
-        if cached_points is not None and len(cached_points):
-            frame_index = min(index, len(cached_points) - 1)
-            return cached_points[frame_index], list(cached_labels), camera_ext, intrinsic, "world"
-
         transform_items: list[tuple[str, np.ndarray]] = []
         generic_names = sorted(
             _h5_dataset_names(path),
@@ -250,6 +414,156 @@ def _h5_points(path: Path, index: int) -> tuple[np.ndarray, list[str], np.ndarra
                 labels = _generic_labels(len(points), str(path))
                 return points, labels, camera_ext, intrinsic, "world" if value.shape[-1] >= 3 else "pixel"
     return np.empty((0, 3)), [], camera_ext, intrinsic, "unknown"
+
+
+@lru_cache(maxsize=64)
+def _cached_lerobot_metadata(
+    info_path_string: str,
+    modified_ns: int,
+    size_bytes: int,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[float, ...]]:
+    del modified_ns, size_bytes
+    payload = json.loads(Path(info_path_string).read_text(encoding="utf-8"))
+    features = payload.get("features") if isinstance(payload.get("features"), dict) else {}
+    hand_feature = features.get("observation.left_hand.transforms") if isinstance(features, dict) else {}
+    hand_names = tuple(
+        str(name)
+        for name in (
+            (hand_feature or {}).get("names")
+            or payload.get("hand_joint_names")
+            or HAND_21_JOINT_NAMES
+        )
+    )
+    body_names = tuple(str(name) for name in (payload.get("body_joint_names") or []))
+    intrinsic = None
+    try:
+        candidate = np.asarray(payload.get("camera_intrinsic"), dtype=np.float64)
+        if candidate.shape == (3, 3) and np.isfinite(candidate).all():
+            intrinsic = candidate
+    except (TypeError, ValueError):
+        intrinsic = None
+    if intrinsic is None and "egodex" in str(payload.get("robot_type") or "").casefold():
+        video = features.get("observation.images.main") if isinstance(features, dict) else {}
+        shape = (video or {}).get("shape") or []
+        height = int(shape[0]) if len(shape) >= 2 else 1080
+        width = int(shape[1]) if len(shape) >= 2 else 1920
+        intrinsic = scaled_egodex_camera_intrinsic(width, height).astype(np.float64)
+    return hand_names, body_names, tuple(intrinsic.reshape(-1).tolist()) if intrinsic is not None else ()
+
+
+def _lerobot_metadata(root: Path) -> tuple[tuple[str, ...], tuple[str, ...], np.ndarray | None]:
+    info_path = root / "meta" / "info.json"
+    stat = info_path.stat()
+    hand_names, body_names, intrinsic_values = _cached_lerobot_metadata(
+        str(info_path), stat.st_mtime_ns, stat.st_size,
+    )
+    intrinsic = np.asarray(intrinsic_values, dtype=np.float64).reshape(3, 3) if intrinsic_values else None
+    return hand_names, body_names, intrinsic
+
+
+def _fixed_list_values(table: Any, field: str) -> np.ndarray:
+    column = table[field].combine_chunks()
+    values = np.asarray(column.values, dtype=np.float64)
+    return values.reshape(len(column), -1)
+
+
+@lru_cache(maxsize=48)
+def _cached_lerobot_episode(
+    data_path_string: str,
+    data_modified_ns: int,
+    data_size_bytes: int,
+    body_path_string: str,
+    body_modified_ns: int,
+    body_size_bytes: int,
+    hand_names: tuple[str, ...],
+    body_names: tuple[str, ...],
+    fallback_intrinsic: tuple[float, ...],
+) -> tuple[tuple[str, ...], np.ndarray, np.ndarray | None, np.ndarray | None]:
+    del data_modified_ns, data_size_bytes, body_modified_ns, body_size_bytes
+    import pyarrow.parquet as parquet
+
+    data_path = Path(data_path_string)
+    schema_names = set(parquet.ParquetFile(data_path).schema_arrow.names)
+    required = {
+        "observation.left_hand.transforms",
+        "observation.right_hand.transforms",
+        "observation.camera.transform",
+    }
+    if not required.issubset(schema_names):
+        return tuple(), np.empty((0, 3)), None, None
+    columns = sorted(required | ({"observation.camera.intrinsic"} & schema_names))
+    table = parquet.read_table(data_path, columns=columns)
+    left_values = _fixed_list_values(table, "observation.left_hand.transforms")
+    right_values = _fixed_list_values(table, "observation.right_hand.transforms")
+    if left_values.shape[1] % 16 or right_values.shape[1] % 16:
+        return tuple(), np.empty((0, 3)), None, None
+    left = left_values.reshape(len(left_values), -1, 4, 4)
+    right = right_values.reshape(len(right_values), -1, 4, 4)
+    frame_count = min(len(left), len(right))
+    if frame_count <= 0:
+        return tuple(), np.empty((0, 3)), None, None
+    left_names = hand_names[:left.shape[1]] or tuple(f"joint_{index:02d}" for index in range(left.shape[1]))
+    right_names = hand_names[:right.shape[1]] or tuple(f"joint_{index:02d}" for index in range(right.shape[1]))
+    if len(left_names) != left.shape[1]:
+        left_names = tuple(f"joint_{index:02d}" for index in range(left.shape[1]))
+    if len(right_names) != right.shape[1]:
+        right_names = tuple(f"joint_{index:02d}" for index in range(right.shape[1]))
+    labels = tuple(f"left{name}" for name in left_names) + tuple(f"right{name}" for name in right_names)
+    points = np.concatenate((left[:frame_count, :, :3, 3], right[:frame_count, :, :3, 3]), axis=1)
+
+    body_path = Path(body_path_string) if body_path_string else None
+    if body_path is not None and body_path.is_file() and body_names:
+        body_schema = set(parquet.ParquetFile(body_path).schema_arrow.names)
+        if "observation.body.transforms" in body_schema:
+            body_table = parquet.read_table(body_path, columns=["observation.body.transforms"])
+            body_values = _fixed_list_values(body_table, "observation.body.transforms")
+            if body_values.shape[1] % 16 == 0:
+                body = body_values.reshape(len(body_values), -1, 4, 4)
+                if len(body) == frame_count and body.shape[1] == len(body_names):
+                    points = np.concatenate((points, body[:, :, :3, 3]), axis=1)
+                    labels += body_names
+
+    camera_values = _fixed_list_values(table, "observation.camera.transform")
+    camera = camera_values.reshape(len(camera_values), 4, 4)[:frame_count] if camera_values.shape[1] == 16 else None
+    intrinsic = None
+    if "observation.camera.intrinsic" in schema_names:
+        intrinsic_values = _fixed_list_values(table, "observation.camera.intrinsic")
+        if intrinsic_values.shape[1] == 9:
+            intrinsic = intrinsic_values.reshape(len(intrinsic_values), 3, 3)[:frame_count]
+    elif fallback_intrinsic:
+        single = np.asarray(fallback_intrinsic, dtype=np.float64).reshape(3, 3)
+        intrinsic = np.repeat(single[None, ...], frame_count, axis=0)
+    return labels, points, camera, intrinsic
+
+
+def _lerobot_points(
+    root: Path,
+    data_path: Path,
+    index: int,
+) -> tuple[np.ndarray, list[str], np.ndarray | None, np.ndarray | None, str]:
+    hand_names, body_names, fallback_intrinsic = _lerobot_metadata(root)
+    relative = data_path.relative_to(root)
+    body_relative = Path("body", *relative.parts[1:]) if relative.parts and relative.parts[0].casefold() == "data" else Path()
+    body_path = root / body_relative if body_relative.parts else None
+    data_stat = data_path.stat()
+    body_stat = body_path.stat() if body_path is not None and body_path.is_file() else None
+    labels, trajectories, cameras, intrinsics = _cached_lerobot_episode(
+        str(data_path),
+        data_stat.st_mtime_ns,
+        data_stat.st_size,
+        str(body_path) if body_stat is not None else "",
+        body_stat.st_mtime_ns if body_stat is not None else 0,
+        body_stat.st_size if body_stat is not None else 0,
+        hand_names,
+        body_names,
+        tuple(fallback_intrinsic.reshape(-1).tolist()) if fallback_intrinsic is not None else (),
+    )
+    if not len(trajectories):
+        return np.empty((0, 3)), [], None, fallback_intrinsic, "unknown"
+    frame_index = min(max(0, int(index)), len(trajectories) - 1)
+    camera = cameras[frame_index] if cameras is not None and len(cameras) else None
+    intrinsic = intrinsics[frame_index] if intrinsics is not None and len(intrinsics) else fallback_intrinsic
+    return trajectories[frame_index], list(labels), camera, intrinsic, "world"
 
 
 def _coerce_points(value: Any) -> np.ndarray | None:
@@ -306,7 +620,9 @@ def _project(points: np.ndarray, coordinate: str, camera_ext: np.ndarray | None,
             hom = np.concatenate([xyz, np.ones((len(xyz), 1))], axis=1)
             xyz = (np.linalg.inv(camera_ext) @ hom.T).T[:, :3]
         projected, _ = cv2.projectPoints(xyz, np.zeros(3), np.zeros(3), intrinsic, np.zeros(5))
-        return projected.reshape(-1, 2)
+        result = projected.reshape(-1, 2)
+        result[~np.isfinite(xyz).all(axis=1) | (xyz[:, 2] <= 1e-6)] = np.nan
+        return result
     if coordinate == "world" and np.nanmax(np.abs(xyz), initial=0.0) <= 2.0:
         return np.column_stack([(xyz[:, 0] + 1.0) * width / 2.0, (1.0 - xyz[:, 1]) * height / 2.0])
     return xyz[:, :2]
@@ -417,6 +733,11 @@ def _edges(labels: list[str]) -> list[tuple[int, int]]:
         add_chain((f"{side}Shoulder", f"{side}Arm", f"{side}Forearm", f"{side}Hand"))
         for segments in _EGODEX_FINGER_SEGMENTS.values():
             add_chain((f"{side}Hand", *(f"{side}{segment}" for segment in segments)))
+            if segments[0].endswith("Metacarpal"):
+                # Alice LeRobot hands intentionally omit metacarpals. This
+                # alternate chain attaches Knuckle directly to Hand there;
+                # the acyclic filter discards it when a metacarpal exists.
+                add_chain((f"{side}Hand", *(f"{side}{segment}" for segment in segments[1:])))
 
         # Generic 20-point hand arrays receive semantic labels in
         # _generic_labels. Their numeric suffixes describe the chain order.
@@ -441,29 +762,40 @@ def _semantic_point_indices(labels: list[str], edges: list[tuple[int, int]] | No
     return {point for edge in resolved_edges for point in edge}
 
 
-def joint_overlay_status(manifest: dict, episode: dict) -> dict:
+def joint_overlay_status(manifest: dict, episode: dict, mode: str = "auto") -> dict:
+    overlay_mode = _normalize_overlay_mode(mode)
     root = Path(manifest["root_path"]).resolve()
     has_joint_state = False
     missing_initial_position = False
     records_dir = Path(str(manifest.get("sidecar_path") or "")) / "changes" / "records"
     change_revision = records_dir.stat().st_mtime_ns if records_dir.is_dir() else 0
-    cache_key = (manifest.get("id"), episode.get("id"), change_revision)
+    current_path = Path(str(manifest.get("sidecar_path") or "")) / "changes" / "current.alice"
+    applied_revision = current_path.stat().st_mtime_ns if current_path.is_file() else 0
+    review = review_projection_source(manifest, episode) if overlay_mode in {"auto", "corrected"} else None
+    review_metadata_path = Path(str((review or {}).get("metadata_path") or ""))
+    review_revision = review_metadata_path.stat().st_mtime_ns if review_metadata_path.is_file() else 0
+    cache_key = (manifest.get("id"), episode.get("id"), overlay_mode, change_revision, applied_revision, review_revision)
     with _CACHE_LOCK:
         cached = _STATUS_CACHE.get(cache_key)
     if cached is not None:
         return dict(cached)
     recovery_applied = change_is_applied(manifest["id"], "pose_recovery", episode["id"])
-    for candidate in _candidate_sources(manifest, episode):
-        path = (root / candidate["path"]).resolve()
+    candidates = _overlay_candidates(manifest, episode, overlay_mode)
+    for candidate in candidates:
+        path = _candidate_path(root, candidate)
         if not path.is_file():
             continue
         try:
             if candidate.get("modality") == "state" or candidate.get("role") in {"proprioception", "joint_state"} or "observation.state" in str(candidate.get("field") or "").lower():
                 has_joint_state = True
                 continue
-            if path.suffix.lower() in {".h5", ".hdf5", ".h5df"}:
+            if candidate.get("source") == "lerobot":
+                points, labels, _, _, coordinate = _lerobot_points(root, path, 0)
+                if not len(points):
+                    missing_initial_position = True
+            elif path.suffix.lower() in {".h5", ".hdf5", ".h5df"}:
                 points, labels, _, _, coordinate = _h5_points(path, 0)
-                if not len(points) and recovery_applied:
+                if not len(points) and recovery_applied and candidate.get("source") != "projection_correction":
                     recovered = load_recovered_points(manifest["id"], episode["id"], candidate["path"], 0)
                     if recovered is not None:
                         points, labels = recovered
@@ -475,7 +807,25 @@ def joint_overlay_status(manifest: dict, episode: dict) -> dict:
                 if not len(points):
                     missing_initial_position = True
             if len(points):
-                result = {"available": True, "initial_position_available": True, "source_path": candidate["path"], "field": candidate.get("field"), "joint_count": len(points), "coordinate_system": coordinate}
+                points, labels, _, mano_sides = select_mano21_points(points, labels)
+                result = {
+                    "available": True,
+                    "initial_position_available": True,
+                    "source_path": candidate["path"],
+                    "source_kind": candidate.get("source") or "unknown",
+                    "field": candidate.get("field"),
+                    "joint_count": len(points),
+                    "joint_count_per_hand": 21 if mano_sides else None,
+                    "hand_sides": list(mano_sides),
+                    "skeleton_schema": "mano21" if mano_sides else "source",
+                    "layout_version": MANO21_LAYOUT_VERSION if mano_sides else None,
+                    "coordinate_system": coordinate,
+                    "overlay_mode": overlay_mode,
+                    "frame_count": int(candidate.get("frame_count") or episode.get("frame_count") or 0),
+                    "source_frame_positions": list(candidate.get("source_frame_positions") or []),
+                    "projection_review_status": candidate.get("review_status"),
+                    "projection_applied": bool(candidate.get("applied")),
+                }
                 with _CACHE_LOCK:
                     _STATUS_CACHE[cache_key] = dict(result)
                 return result
@@ -487,13 +837,24 @@ def joint_overlay_status(manifest: dict, episode: dict) -> dict:
             "initial_position_available": False,
             "joint_count": 0,
             "joint_state_available": has_joint_state,
-            "reason": "第 0 帧缺少有效起始位置，Joint 叠加已拒绝启动",
+            "overlay_mode": overlay_mode,
+            "reason": "归正结果缺少有效起始位置" if overlay_mode == "corrected" else "第 0 帧缺少有效起始位置，Joint 叠加已拒绝启动",
         }
         with _CACHE_LOCK:
             _STATUS_CACHE[cache_key] = dict(result)
         return result
-    reason = "已检测到关节状态，但缺少机器人运动学模型和相机标定，无法投影到视频" if has_joint_state else "未找到可投影的 joint/transform 数据"
-    result = {"available": False, "initial_position_available": False, "joint_count": 0, "joint_state_available": has_joint_state, "reason": reason}
+    if overlay_mode == "corrected":
+        reason = "尚未生成手部归正结果" if not candidates else "手部归正结果不可读取或不可投影"
+    else:
+        reason = "已检测到关节状态，但缺少机器人运动学模型和相机标定，无法投影到视频" if has_joint_state else "未找到可投影的原始 joint/transform 数据"
+    result = {
+        "available": False,
+        "initial_position_available": False,
+        "joint_count": 0,
+        "joint_state_available": has_joint_state,
+        "overlay_mode": overlay_mode,
+        "reason": reason,
+    }
     with _CACHE_LOCK:
         _STATUS_CACHE[cache_key] = dict(result)
     return result
@@ -506,27 +867,58 @@ def joint_overlay_geometry(
     width: int,
     height: int,
     media: dict | None = None,
+    mode: str = "auto",
 ) -> dict:
-    status = joint_overlay_status(manifest, episode)
+    overlay_mode = _normalize_overlay_mode(mode)
+    status = joint_overlay_status(manifest, episode, overlay_mode)
     if not status.get("available"):
         raise ValueError(status.get("reason") or "Joint overlay requires a valid initial position")
     root = Path(manifest["root_path"]).resolve()
     recovery_applied: bool | None = None
-    for candidate in _candidate_sources(manifest, episode):
+    for candidate in _overlay_candidates(manifest, episode, overlay_mode):
         if candidate.get("path") != status.get("source_path"):
             continue
-        path = (root / candidate["path"]).resolve()
+        if status.get("source_kind") and candidate.get("source") != status.get("source_kind"):
+            continue
+        path = _candidate_path(root, candidate)
         if not path.is_file():
             continue
         try:
+            media_fps = float((media or {}).get("fps") or episode.get("fps") or 30.0)
             try:
-                sensor_index, alignment = map_video_frame_to_sensor(
-                    manifest,
-                    episode,
-                    candidate["path"],
-                    index,
-                    float((media or {}).get("fps") or episode.get("fps") or 30.0),
-                )
+                if candidate.get("source") == "projection_correction":
+                    # Corrected snapshots are deliberately stored one row per
+                    # video frame, but their presentation cadence must still
+                    # follow the original sensor clock.
+                    try:
+                        _, source_alignment = map_video_frame_to_sensor(
+                            manifest,
+                            episode,
+                            candidate["path"],
+                            index,
+                            media_fps,
+                            reference_media_file_id=str((media or {}).get("file_id") or "") or None,
+                        )
+                    except KeyError:
+                        source_alignment = {}
+                    sensor_index, alignment = index, {
+                        "video_frame": index,
+                        "sensor_index": index,
+                        "valid": True,
+                        "mode": "applied_projection_video_aligned",
+                        "alignment_multiplier": 1.0,
+                        "sensor_hz": source_alignment.get("sensor_hz"),
+                        "physical_hz": source_alignment.get("physical_hz"),
+                    }
+                else:
+                    sensor_index, alignment = map_video_frame_to_sensor(
+                        manifest,
+                        episode,
+                        candidate["path"],
+                        index,
+                        media_fps,
+                        reference_media_file_id=str((media or {}).get("file_id") or "") or None,
+                    )
             except KeyError:
                 sensor_index, alignment = index, {
                     "video_frame": index,
@@ -537,9 +929,12 @@ def joint_overlay_geometry(
                     "sensor_hz": None,
                     "physical_hz": None,
                 }
+            clock_hz = float(alignment.get("physical_hz") or alignment.get("sensor_hz") or media_fps)
             if sensor_index is None:
                 return {
                     "source_path": candidate["path"],
+                    "source_kind": candidate.get("source") or "unknown",
+                    "overlay_mode": overlay_mode,
                     "field": candidate.get("field"),
                     "joint_count": 0,
                     "coordinate_system": "unknown",
@@ -550,6 +945,7 @@ def joint_overlay_geometry(
                     "alignment_multiplier": alignment.get("alignment_multiplier"),
                     "sensor_hz": alignment.get("sensor_hz"),
                     "physical_hz": alignment.get("physical_hz"),
+                    "clock_hz": clock_hz,
                     "width": width,
                     "height": height,
                     "points": [],
@@ -557,11 +953,13 @@ def joint_overlay_geometry(
                 }
             if candidate.get("modality") == "state" or candidate.get("role") in {"proprioception", "joint_state"} or "observation.state" in str(candidate.get("field") or "").lower():
                 continue
-            if path.suffix.lower() in {".h5", ".hdf5", ".h5df"}:
+            if candidate.get("source") == "lerobot":
+                points, labels, camera_ext, intrinsic, coordinate = _lerobot_points(root, path, sensor_index)
+            elif path.suffix.lower() in {".h5", ".hdf5", ".h5df"}:
                 points, labels, camera_ext, intrinsic, coordinate = _h5_points(path, sensor_index)
                 if not len(points) and recovery_applied is None:
                     recovery_applied = change_is_applied(manifest["id"], "pose_recovery", episode["id"])
-                if not len(points) and recovery_applied:
+                if not len(points) and recovery_applied and candidate.get("source") != "projection_correction":
                     recovered = load_recovered_points(manifest["id"], episode["id"], candidate["path"], index)
                     if recovered is not None:
                         points, labels = recovered
@@ -570,6 +968,7 @@ def joint_overlay_geometry(
                 points, labels, camera_ext, intrinsic, coordinate = _structured_points(path, candidate.get("field"), sensor_index)
             if not len(points):
                 continue
+            points, labels, source_indices, mano_sides = select_mano21_points(points, labels)
             projected = _project(points, coordinate, camera_ext, intrinsic, (height, width, 3))
             valid = np.isfinite(projected).all(axis=1)
             semantic_edges = _edges(labels)
@@ -585,11 +984,13 @@ def joint_overlay_geometry(
                 if x < -20 or y < -20 or x >= width + 20 or y >= height + 20:
                     continue
                 index_map[point_index] = len(point_records)
+                local_index = mano21_local_index(labels[point_index]) if mano_sides else None
                 point_records.append({
                     "x": round(x, 3),
                     "y": round(y, 3),
                     "side": _side(labels[point_index]) if labels else "unknown",
-                    "source_index": point_index,
+                    "source_index": local_index if local_index is not None else int(source_indices[point_index]),
+                    "joint_name": labels[point_index] if labels else None,
                 })
             edge_records: list[list[int]] = []
             for start, end in semantic_edges:
@@ -598,8 +999,14 @@ def joint_overlay_geometry(
                 edge_records.append([index_map[start], index_map[end]])
             return {
                 "source_path": candidate["path"],
+                "source_kind": candidate.get("source") or "unknown",
+                "overlay_mode": overlay_mode,
                 "field": candidate.get("field"),
                 "joint_count": len(point_records),
+                "joint_count_per_hand": 21 if mano_sides else None,
+                "hand_sides": list(mano_sides),
+                "skeleton_schema": "mano21" if mano_sides else "source",
+                "layout_version": MANO21_LAYOUT_VERSION if mano_sides else None,
                 "coordinate_system": coordinate,
                 "frame_index": index,
                 "sensor_index": sensor_index,
@@ -608,6 +1015,7 @@ def joint_overlay_geometry(
                 "alignment_multiplier": alignment.get("alignment_multiplier"),
                 "sensor_hz": alignment.get("sensor_hz"),
                 "physical_hz": alignment.get("physical_hz"),
+                "clock_hz": clock_hz,
                 "width": width,
                 "height": height,
                 "points": point_records,
@@ -625,8 +1033,9 @@ def draw_joint_overlay(
     index: int,
     media: dict | None = None,
     show_indices: bool = False,
+    mode: str = "auto",
 ) -> tuple[np.ndarray, dict]:
-    geometry = joint_overlay_geometry(manifest, episode, index, frame.shape[1], frame.shape[0], media)
+    geometry = joint_overlay_geometry(manifest, episode, index, frame.shape[1], frame.shape[0], media, mode)
     output = frame.copy()
     points = geometry["points"]
     for start, end in geometry["edges"]:

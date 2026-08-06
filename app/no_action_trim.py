@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import OPEN_VOCAB_HAND_CLASSES, _open_vocab_proximity_classes, normalize_yoloe_object_terms, registry
-from .storage import dataset_artifact_dir, dataset_sidecar_root, get_manifest, read_frame, record_change, slugify
+from .storage import dataset_artifact_dir, dataset_sidecar_root, get_manifest, read_frame, record_change, require_media_eligibility, slugify
 
 
 NO_ACTION_TRIM_SCHEMA = "alice/no-action-trim/v1"
@@ -117,6 +117,7 @@ def analyze_no_action_trim(
     max_gap_seconds: float = 0.5,
     min_valid_seconds: float = 0.3,
 ) -> dict:
+    require_media_eligibility(media, "no_action_trim")
     terms, terms_path = _load_object_terms(dataset_id, episode["id"])
     hand_keys = {value.casefold() for value in OPEN_VOCAB_HAND_CLASSES}
     detector_terms = [value for value in normalize_yoloe_object_terms(terms) if value.casefold() not in hand_keys]
