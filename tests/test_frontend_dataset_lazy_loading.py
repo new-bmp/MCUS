@@ -63,6 +63,7 @@ class FrontendDatasetLazyLoadingContractTests(unittest.TestCase):
     def test_full_robot_action_is_optional_and_submitted_with_selected_profile(self) -> None:
         self.assertIn('id="fullOutputFormat"', self.app)
         self.assertIn('<option value="lerobot" selected>', self.app)
+        self.assertIn('value="subtask_json"', self.app)
         self.assertIn('full_output_format: $("#fullOutputFormat")?.value || "lerobot"', self.app)
         self.assertIn('id="fullGenerateAction"', self.app)
         self.assertIn('id="fullRobotProfile"', self.app)

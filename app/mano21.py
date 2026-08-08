@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 
 
-MANO21_LAYOUT_VERSION = "egodex-to-mano21-v1"
+MANO21_LAYOUT_VERSION = "egodex-to-mano21-v2-forearm-proportional-wrist"
 
 HAND_21_JOINT_NAMES = (
     "Hand",

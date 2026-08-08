@@ -8,8 +8,8 @@ import numpy as np
 from .egodex_mano import (
     EGODEX_MANO_REVISION,
     direct_mano21_transforms,
+    egodex_mano_source_names,
     fit_egodex_mano_template,
-    required_egodex_mano_names,
     retarget_egodex_mano_frame,
     source_is_retargeted,
 )
@@ -23,11 +23,40 @@ HAND_JOINT_NAMES = {
 }
 
 
+def _classify_mano_visibility(side_joint_visibility: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return pass, review and reject masks for required MANO hands.
+
+    Each hand is graded independently so a fully visible hand cannot dilute a
+    missing required hand.  Exactly 60% invisible remains review; only more
+    than 60% invisible (or no visible point) is rejected.
+    """
+    if not side_joint_visibility:
+        empty = np.zeros(0, dtype=bool)
+        return empty, empty, empty
+    all_visible_masks: list[np.ndarray] = []
+    review_masks: list[np.ndarray] = []
+    invalid_masks: list[np.ndarray] = []
+    for side, values in side_joint_visibility.items():
+        visible_joint_count = np.asarray(values, dtype=np.int64)
+        joint_count = len(HAND_JOINT_NAMES[side])
+        all_visible = visible_joint_count == joint_count
+        invalid = (visible_joint_count == 0) | (visible_joint_count < joint_count * 0.4)
+        review = (visible_joint_count > 0) & ~all_visible & ~invalid
+        all_visible_masks.append(all_visible)
+        review_masks.append(review)
+        invalid_masks.append(invalid)
+    invalid = np.logical_or.reduce(invalid_masks)
+    review = np.logical_or.reduce(review_masks) & ~invalid
+    passed = np.logical_and.reduce(all_visible_masks) & ~review & ~invalid
+    return passed, review, invalid
+
+
 def _empty_result(frame_count: int, message: str, required_sides: list[str]) -> dict:
     return {
         "available": False,
         "message": message,
         "invalid_mask": np.zeros(max(0, frame_count), dtype=bool),
+        "review_mask": np.zeros(max(0, frame_count), dtype=bool),
         "metrics": {
             "available": False,
             "required_sides": required_sides,
@@ -59,7 +88,7 @@ def _mano_points(
     source_names = (
         HAND_JOINT_NAMES[side]
         if already_retargeted
-        else required_egodex_mano_names(side)
+        else egodex_mano_source_names(transforms, side)
     )
     missing = [name for name in source_names if name not in transforms]
     if missing:
@@ -135,8 +164,8 @@ def inspect_full_hand_visibility(
         return _empty_result(frame_count, "相机位姿不可逆，无法检查整手可见性", sides)
 
     margin = max(2.0, min(width, height) * 0.005)
-    side_visible: dict[str, np.ndarray] = {}
     side_metrics: dict[str, dict] = {}
+    side_joint_visibility: dict[str, np.ndarray] = {}
     for side, world_points in points.items():
         homogeneous = np.concatenate((world_points, np.ones((*world_points.shape[:2], 1))), axis=2)
         camera_points = np.einsum("fij,fkj->fki", camera_inverse, homogeneous)[..., :3]
@@ -153,17 +182,27 @@ def inspect_full_hand_visibility(
             & (y >= margin)
             & (y < height - margin)
         )
-        visible = in_frame.all(axis=1)
-        side_visible[side] = visible
+        visible_joint_count = in_frame.sum(axis=1).astype(np.int64)
+        visible = visible_joint_count == in_frame.shape[1]
+        side_joint_visibility[side] = visible_joint_count
         side_metrics[side] = {
             "joint_count": len(HAND_JOINT_NAMES[side]),
             "full_visible_frame_count": int(visible.sum()),
             "full_visible_ratio": round(float(visible.mean()) if visible.size else 0.0, 6),
-            "minimum_visible_joint_count": int(in_frame.sum(axis=1).min(initial=len(HAND_JOINT_NAMES[side]))),
+            "minimum_visible_joint_count": int(visible_joint_count.min(initial=len(HAND_JOINT_NAMES[side]))),
+            "visible_joint_count_min": int(visible_joint_count.min(initial=len(HAND_JOINT_NAMES[side]))),
+            "visible_joint_count_max": int(visible_joint_count.max(initial=0)),
+            "partial_visible_frame_count": int(((visible_joint_count > 0) & (visible_joint_count < in_frame.shape[1])).sum()),
+            "mostly_invisible_frame_count": int((visible_joint_count < in_frame.shape[1] * 0.4).sum()),
         }
 
-    required_visible = np.logical_and.reduce([side_visible[side] for side in sides])
-    invalid = ~required_visible
+    total_joint_count = sum(len(HAND_JOINT_NAMES[side]) for side in sides)
+    visible_joint_count = np.sum(
+        np.stack([side_joint_visibility[side] for side in sides], axis=0),
+        axis=0,
+        dtype=np.int64,
+    )
+    all_visible, review, invalid = _classify_mano_visibility(side_joint_visibility)
     metrics = {
         "available": True,
         "source_relative_path": source_relative,
@@ -173,15 +212,35 @@ def inspect_full_hand_visibility(
         "hand_geometry_revision": EGODEX_MANO_REVISION,
         "hand_geometry_source": "retargeted_snapshot" if already_retargeted else "egodex_full_skeleton_fk",
         "safe_margin_pixels": round(margin, 3),
-        "required_visible_frame_count": int(required_visible.sum()),
+        "total_joint_count": int(total_joint_count),
+        "all_visible_frame_count": int(all_visible.sum()),
+        "all_visible_ratio": round(float(all_visible.mean()) if all_visible.size else 0.0, 6),
+        "partial_visible_frame_count": int(review.sum()),
+        "mostly_invisible_frame_count": int(invalid.sum()),
+        "visible_joint_count_min": int(visible_joint_count.min(initial=total_joint_count)),
+        "visible_joint_count_max": int(visible_joint_count.max(initial=0)),
+        "visible_joint_ratio_min": round(float((visible_joint_count / max(1, total_joint_count)).min(initial=1.0)), 6),
+        "visible_joint_ratio_max": round(float((visible_joint_count / max(1, total_joint_count)).max(initial=0.0)), 6),
+        "required_visible_frame_count": int(all_visible.sum()),
         "invalid_frame_count": int(invalid.sum()),
-        "required_visible_ratio": round(float(required_visible.mean()) if required_visible.size else 0.0, 6),
+        "review_frame_count": int(review.sum()),
+        "required_visible_ratio": round(float(all_visible.mean()) if all_visible.size else 0.0, 6),
+        "frame_state_counts": {
+            "pass": int((all_visible & ~invalid & ~review).sum()),
+            "review": int(review.sum()),
+            "reject": int(invalid.sum()),
+        },
         "sides": side_metrics,
     }
     return {
         "available": True,
-        "message": f"整手完整位于画面内 {metrics['required_visible_frame_count']}/{frame_count} 帧",
+        "message": (
+            f"MANO 全点可见 {metrics['all_visible_frame_count']}/{frame_count} 帧；"
+            f"部分可见 {metrics['partial_visible_frame_count']} 帧；"
+            f"超过 60% 点不可见 {metrics['mostly_invisible_frame_count']} 帧"
+        ),
         "source_relative_path": source_relative,
         "invalid_mask": invalid,
+        "review_mask": review,
         "metrics": metrics,
     }

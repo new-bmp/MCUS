@@ -15,9 +15,9 @@ import pyarrow.parquet as parquet
 
 from .egodex_mano import (
     EGODEX_MANO_REVISION,
+    egodex_mano_source_names,
     fit_egodex_mano_template,
     has_egodex_mano_source,
-    required_egodex_mano_names,
     retarget_egodex_mano_frame,
     source_is_retargeted,
 )
@@ -256,7 +256,7 @@ def _write_episode_parquet(
 
             def read_hand(side: str, rows: np.ndarray) -> np.ndarray:
                 template = templates[side]
-                required = side_hand_joint_names(side) if template is None else required_egodex_mano_names(side)
+                required = side_hand_joint_names(side) if template is None else egodex_mano_source_names(transforms, side)
                 blocks = {
                     name: apply_s1_repair(
                         _take_rows(transforms[name], rows), repair, source_relative, f"transforms/{name}", rows,

@@ -25,7 +25,7 @@ from scipy.spatial.transform import Rotation, Slerp
 
 from .action_mapping import generate_episode_action, load_episode_action_mapping, validate_episode_action_mapping
 from .behavior_annotator import annotate_episode_behavior, load_behavior_annotation, media_fingerprint_matches, snapshot_behavior_annotation_for_run
-from .full_export import _find_transform_source, export_episode, write_dataset_index
+from .full_export import EPISODE_LEROBOT_JSON_OUTPUT_FORMAT, SUBTASK_JSON_OUTPUT_FORMAT, _find_transform_source, export_episode, write_dataset_index
 from .full_run import (
     artifact_record,
     finalize_full_run,
@@ -48,7 +48,7 @@ from .video_smoothing import smooth_video
 
 
 CURATION_SCHEMA = "alice/paper-curation/v1"
-CURATION_PIPELINE_VERSION = 14
+CURATION_PIPELINE_VERSION = 15
 QUALITY_MARK_GAP_SECONDS = 0.3
 ROT6D_ABSOLUTE_JUMP_DEGREES = 45.0
 NEXUS_TACTILE_SPIKE_MAX_FRAMES = 2
@@ -514,6 +514,164 @@ def _nexus_mode_enabled(manifest: dict) -> bool:
         str(manifest.get("format_family") or format_map.get("format_family") or "") == "nexus_multimodal"
         or str(strategy.get("id") or "") == "nexus_sensor_fusion_v1"
     )
+
+
+def _hand_visibility_capability(manifest: dict) -> tuple[bool, str | None]:
+    """Apply the family-specific camera contract for projection-based C3."""
+    format_map = manifest.get("format_map") or {}
+    capabilities = format_map.get("capabilities") or {}
+    family = str(manifest.get("format_family") or format_map.get("format_family") or "").casefold()
+    # EgoDex stores the camera pose and intrinsics in the episode HDF5.  It
+    # does not require the separate, applied-extrinsics contract used by
+    # Nexus.  This also overrides stale pre-v15 EgoDex format maps.
+    if family == "egodex":
+        return True, None
+    calibration = manifest.get("camera_calibration") or format_map.get("camera_calibration") or {}
+    if family == "nexus_multimodal":
+        if (
+            capabilities.get("can_hand_visibility") is True
+            or calibration.get("hand_projection_ready") is True
+            or calibration.get("source_extrinsics_applied") is True
+        ):
+            return True, None
+        if calibration.get("source_extrinsics_applied") is not True:
+            return False, "Nexus 整手投影需要已应用的相机外参"
+    if capabilities.get("can_hand_visibility") is not False:
+        return True, None
+    issues = format_map.get("issues") or []
+    reason = next(
+        (
+            str(item.get("message") or "")
+            for item in issues
+            if isinstance(item, dict) and item.get("code") == "camera_extrinsics_missing"
+        ),
+        "格式预检未启用整手可见性：缺少可用于投影的相机外参",
+    )
+    return False, reason
+
+
+def _normalized_hand_sides(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = [value]
+    sides: list[str] = []
+    for item in values:
+        side = str(item or "").casefold().strip()
+        if side in {"left", "right"} and side not in sides:
+            sides.append(side)
+    return sides
+
+
+def _hand_side_text_hint(value: object) -> list[str]:
+    text = str(value or "").casefold().replace("\\", "/")
+    if not text:
+        return []
+    left = bool(re.search(r"(?<![a-z])(?:left|l_hand|l_arm)(?![a-z])", text))
+    right = bool(re.search(r"(?<![a-z])(?:right|r_hand|r_arm)(?![a-z])", text))
+    return [side for side, present in (("left", left), ("right", right)) if present]
+
+
+def _hdf5_hand_side_hint(path: Path) -> list[str]:
+    """Read only small HDF5 attributes that declare the active hand.
+
+    EgoDex files commonly keep task metadata such as ``hand=right`` on the
+    file (or the transforms group).  This is a bounded metadata read and does
+    not load any trajectory samples.
+    """
+    try:
+        import h5py
+
+        with h5py.File(path, "r") as source:
+            objects = [source]
+            for name in ("transforms", "metadata", "task"):
+                value = source.get(name)
+                if value is not None:
+                    objects.append(value)
+            for obj in objects:
+                for key, value in obj.attrs.items():
+                    key_text = str(key).casefold()
+                    if not (
+                        any(token in key_text for token in ("hand", "side"))
+                        or key_text in {"object", "task", "description", "llm_description", "llm_description2"}
+                    ):
+                        continue
+                    sides = _normalized_hand_sides(value)
+                    if sides:
+                        return sides
+                    sides = _hand_side_text_hint(value)
+                    if sides:
+                        return sides
+    except (OSError, ValueError, ImportError):
+        return []
+    return []
+
+
+def _required_hand_sides(
+    manifest: dict,
+    episode: dict,
+    generated_s2: dict | None = None,
+    generated_action_report: dict | None = None,
+) -> list[str]:
+    """Infer only explicitly supported hand sides for C3.
+
+    An absent Action stream is not evidence that both hands are required.  If
+    no trustworthy side is declared, return an empty list so C3 can report the
+    limitation without manufacturing an all-frame rejection mask.
+    """
+    sides = _normalized_hand_sides((generated_s2 or {}).get("required_sides"))
+    if sides:
+        return sides
+
+    report = generated_action_report or {}
+    config = report.get("config") or {}
+    profile = report.get("profile") or {}
+    profile_sides = int(profile.get("sides") or 0) if str(profile.get("sides") or "").isdigit() else 0
+    if profile_sides == 1:
+        sides = _normalized_hand_sides(config.get("source_hand"))
+        if sides:
+            return sides
+
+    candidates = _signal_candidates(manifest, episode)
+    explicit: list[str] = []
+    for item in candidates:
+        for value in (item.get("side"), item.get("side_hint"), item.get("source_hand")):
+            explicit.extend(_normalized_hand_sides(value))
+        if not explicit:
+            for value in (item.get("relative_path"), item.get("field"), *(item.get("dimension_names") or [])):
+                explicit.extend(_hand_side_text_hint(value))
+    explicit = list(dict.fromkeys(explicit))
+    if explicit:
+        return explicit
+
+    for value in (episode.get("side"), episode.get("hand"), episode.get("hand_side")):
+        sides = _normalized_hand_sides(value) or _hand_side_text_hint(value)
+        if sides:
+            return sides
+
+    try:
+        _, source_relative, _ = _find_transform_source(manifest, episode, prefer_applied=False)
+        source_path = (Path(manifest["root_path"]).expanduser().resolve() / source_relative).resolve()
+        return _hdf5_hand_side_hint(source_path)
+    except (KeyError, OSError, RuntimeError, ValueError):
+        return []
+
+
+def _hand_visibility_skipped(frame_count: int, message: str, required_sides: list[str] | None = None) -> dict:
+    sides = list(required_sides or [])
+    return {
+        "available": False,
+        "skipped": True,
+        "message": message,
+        "invalid_mask": np.zeros(max(0, int(frame_count)), dtype=bool),
+        "review_mask": np.zeros(max(0, int(frame_count)), dtype=bool),
+        "metrics": {
+            "available": False,
+            "skipped": True,
+            "required_sides": sides,
+            "message": message,
+        },
+    }
 
 
 def _nexus_pressure_side(record: dict) -> str:
@@ -2427,6 +2585,14 @@ def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | No
     nexus_mode = _nexus_mode_enabled(manifest)
     nexus_tactile_ready = nexus_mode and bool(_nexus_pressure_records(manifest, episode))
     s1_ready = bool(kinds or nexus_tactile_ready)
+    hand_visibility_ready, hand_visibility_reason = _hand_visibility_capability(manifest)
+    c3_status = "ready" if hand_visibility_ready else "warning"
+    c3_target = media.get("stream_name") or media.get("relative_path") or "所选视频"
+    c3_message = (
+        f"将检查 {c3_target} 的画质与整手可见性"
+        if hand_visibility_ready
+        else f"将检查 {c3_target} 的视频画质；整手可见性已停用：{hand_visibility_reason}"
+    )
     stages = [
         _stage(
             "t0",
@@ -2455,7 +2621,11 @@ def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | No
         _stage("s3", "ready" if kinds else "skipped", "可运行" if kinds else "没有已识别的数值流"),
         _stage("s4", "skipped", "当前版本未实现 FK 一致性计算；即使检测到 URDF/Pinocchio 也不会宣称可运行"),
         _stage("s5", "skipped", "当前版本仅记录坐标修正建议，不自动改写坐标；标定信息不会触发执行"),
-        _stage("c3", "ready", f"将检查 {media.get('stream_name') or media.get('relative_path') or '所选视频'} 的画质与整手可见性"),
+        _stage("c3", c3_status, c3_message, {
+            "video_quality": True,
+            "can_hand_visibility": hand_visibility_ready,
+            "hand_visibility_reason": hand_visibility_reason,
+        }),
         _stage("c1", "pending", "初筛后将校验已有 VLM 是否匹配有效区间" if behavior else "将在 S1-S5/C3 初筛后标注有效片段"),
         _stage(
             "c2",
@@ -2774,19 +2944,43 @@ def run_episode_curation(
     preflight_stages = {item["id"]: item for item in preflight["stages"]}
     stages.append(_stage("s4", "skipped", preflight_stages["s4"]["message"]))
     stages.append(_stage("s5", "skipped", "检测到标定也只生成修正建议；当前版本不自动改写坐标" if preflight_stages["s5"]["status"] == "ready" else preflight_stages["s5"]["message"]))
-    required_hand_sides = list((generated_s2 or {}).get("required_sides") or ["left", "right"])
+    can_hand_visibility, hand_visibility_reason = _hand_visibility_capability(manifest)
+    required_hand_sides = _required_hand_sides(manifest, episode, generated_s2, generated_action_report)
     progress(58, "C3 检查整手是否完整位于画面内")
-    hand_visibility = inspect_full_hand_visibility(manifest, episode, media, required_hand_sides)
+    if not can_hand_visibility:
+        hand_visibility = _hand_visibility_skipped(
+            frame_count,
+            f"整手可见性不可用：{hand_visibility_reason or '格式预检未启用该能力'}",
+            required_hand_sides,
+        )
+    elif not required_hand_sides:
+        hand_visibility = _hand_visibility_skipped(
+            frame_count,
+            "整手可见性未执行：未发现明确的 Action/元数据手侧，不能默认要求左右手",
+        )
+    else:
+        hand_visibility = inspect_full_hand_visibility(manifest, episode, media, required_hand_sides)
     hand_invalid = np.asarray(hand_visibility["invalid_mask"], dtype=bool)
+    hand_review = np.asarray(hand_visibility.get("review_mask", np.zeros(frame_count, dtype=bool)), dtype=bool)
     if hand_visibility.get("available") and hand_invalid.shape == (frame_count,):
         invalid |= hand_invalid
+        if hand_review.shape == (frame_count,):
+            review |= hand_review & ~invalid
         findings.extend(_mask_findings(
             hand_invalid,
             "c3",
             "reject",
-            f"C3 整手未完整位于画面内（检查 {'+'.join(required_hand_sides)}）",
+            f"C3 MANO 超过 60% 关节不可见（检查 {'+'.join(required_hand_sides)}）",
             fps,
             0.92,
+        ))
+        findings.extend(_mask_findings(
+            hand_review,
+            "c3",
+            "review",
+            f"C3 MANO 仅部分关节可见，标黄待复核（检查 {'+'.join(required_hand_sides)}）",
+            fps,
+            0.72,
         ))
     progress(62, "C3 黑帧、模糊与长静止检查")
     quality = inspect_video_quality(media, action, request, lambda value, message: progress(62 + value * 0.25, message))
@@ -3631,7 +3825,10 @@ class CurationJobManager(CancellableJobMixin):
                             self._raise_if_cancelled(job_id)
                             update(88 + max(0.0, min(100.0, value)) * 0.12, message)
 
-                        export_supported = ((manifest.get("format_map") or {}).get("capabilities") or {}).get("can_full_export") is not False
+                        export_supported = (
+                            request.full_output_format == SUBTASK_JSON_OUTPUT_FORMAT
+                            or ((manifest.get("format_map") or {}).get("capabilities") or {}).get("can_full_export") is not False
+                        )
                         if output_setup_error:
                             export_error = f"无法创建 Full 输出目录，质量报告已保留：{output_setup_error}"
                         elif not export_supported:
@@ -3652,7 +3849,10 @@ class CurationJobManager(CancellableJobMixin):
                                     output_format=request.full_output_format,
                                     run_id=run_id,
                                     timeline_id=timeline_id,
-                                ) if behavior else {
+                                ) if (
+                                    behavior
+                                    or request.full_output_format in {SUBTASK_JSON_OUTPUT_FORMAT, EPISODE_LEROBOT_JSON_OUTPUT_FORMAT}
+                                ) else {
                                     "pairs": [],
                                     "filtering": {"retained_frame_count": 0, "removed_vlm_frame_count": 0},
                                     "transform_source": None,
@@ -3847,7 +4047,7 @@ class CurationJobManager(CancellableJobMixin):
                         "timeline_ids": timeline_ids,
                     })
                 except RuntimeError:
-                    pass
+                    passr
             self._mark_cancelled(job_id)
         except Exception as exc:
             if run_id:

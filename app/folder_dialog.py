@@ -108,14 +108,14 @@ function Add-VLAFolderNode([System.Windows.Forms.TreeNodeCollection]$collection,
     $node = New-Object System.Windows.Forms.TreeNode
     $node.Text = $labelText
     $node.Tag = $path
-    try {{
-        if ([System.IO.Directory]::EnumerateDirectories($path).GetEnumerator().MoveNext()) {{
-            $placeholder = New-Object System.Windows.Forms.TreeNode
-            $placeholder.Text = 'Loading...'
-            $placeholder.Tag = $null
-            [void]$node.Nodes.Add($placeholder)
-        }}
-    }} catch {{}}
+    # Never probe a directory merely to decide whether it has children.  A
+    # network/removable drive can block that call and make the whole dialog
+    # appear frozen during startup.  The real enumeration is deferred until
+    # the user expands the node.
+    $placeholder = New-Object System.Windows.Forms.TreeNode
+    $placeholder.Text = 'Loading...'
+    $placeholder.Tag = $null
+    [void]$node.Nodes.Add($placeholder)
     [void]$collection.Add($node)
     return $node
 }}
@@ -124,11 +124,7 @@ $desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop)
 $documents = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
 if ($desktop -and (Test-Path -LiteralPath $desktop)) {{ [void](Add-VLAFolderNode $tree.Nodes $desktop 'Desktop') }}
 if ($documents -and (Test-Path -LiteralPath $documents) -and $documents -ne $desktop) {{ [void](Add-VLAFolderNode $tree.Nodes $documents 'Documents') }}
-foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {{
-    if (-not $drive.IsReady) {{ continue }}
-    $driveLabel = if ($drive.VolumeLabel) {{ "$($drive.Name)  $($drive.VolumeLabel)" }} else {{ $drive.Name }}
-    [void](Add-VLAFolderNode $tree.Nodes $drive.RootDirectory.FullName $driveLabel)
-}}
+[void](Add-VLAFolderNode $tree.Nodes '__VLA_DRIVES__' 'This PC')
 
 $tree.Add_BeforeExpand({{
     param($sender, $eventArgs)
@@ -136,6 +132,14 @@ $tree.Add_BeforeExpand({{
     if ($node.Nodes.Count -ne 1 -or $null -ne $node.Nodes[0].Tag) {{ return }}
     $node.Nodes.Clear()
     try {{
+        if ([string]$node.Tag -eq '__VLA_DRIVES__') {{
+            foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {{
+                if (-not $drive.IsReady) {{ continue }}
+                $driveLabel = if ($drive.VolumeLabel) {{ "$($drive.Name)  $($drive.VolumeLabel)" }} else {{ $drive.Name }}
+                [void](Add-VLAFolderNode $node.Nodes $drive.RootDirectory.FullName $driveLabel)
+            }}
+            return
+        }}
         $directories = [System.IO.Directory]::EnumerateDirectories([string]$node.Tag) | Sort-Object
         foreach ($directory in $directories) {{
             $info = New-Object System.IO.DirectoryInfo($directory)
@@ -147,7 +151,7 @@ $tree.Add_BeforeExpand({{
 
 $tree.Add_AfterSelect({{
     param($sender, $eventArgs)
-    if ($eventArgs.Node.Tag) {{ $pathBox.Text = [string]$eventArgs.Node.Tag }}
+    if ($eventArgs.Node.Tag -and [string]$eventArgs.Node.Tag -ne '__VLA_DRIVES__') {{ $pathBox.Text = [string]$eventArgs.Node.Tag }}
 }})
 
 $script:selectedPath = $null

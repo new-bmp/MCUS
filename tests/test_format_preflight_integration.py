@@ -55,6 +55,15 @@ def sample_report(root: Path, *, token: str = "format-token", status: str = "war
 
 
 class FormatPreflightApiTests(unittest.TestCase):
+    def test_export_folder_dialog_converts_native_string_to_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            selected = Path(temporary)
+            destination = selected / "dataset"
+            with patch.object(main_module, "choose_folder", return_value=str(selected)), patch.object(main_module, "export_dataset", return_value=destination) as export:
+                payload = main_module.write_export_with_dialog("dataset")
+            export.assert_called_once_with("dataset", selected, False)
+            self.assertEqual({"cancelled": False, "path": str(destination)}, payload)
+
     def test_preflight_endpoint_returns_episode_modalities_warnings_and_capabilities(self) -> None:
         root = Path("dataset").resolve()
         report = sample_report(root)

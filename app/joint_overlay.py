@@ -13,6 +13,7 @@ import numpy as np
 
 from .egodex_mano import (
     direct_mano21_transforms,
+    egodex_mano_source_names,
     fit_egodex_mano_template,
     has_egodex_mano_source,
     required_egodex_mano_names,
@@ -241,7 +242,7 @@ def _cached_h5_mano_frame(
             return tuple(), None
         already_retargeted = source_is_retargeted(handle)
         for side_index, side in enumerate(("left", "right")):
-            names = side_hand_joint_names(side) if already_retargeted else required_egodex_mano_names(side)
+            names = side_hand_joint_names(side) if already_retargeted else egodex_mano_source_names(transforms, side)
             if not all(name in transforms for name in names):
                 continue
             frame_count = min(int(transforms[name].shape[0]) for name in names)

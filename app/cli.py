@@ -731,9 +731,9 @@ def build_parser() -> argparse.ArgumentParser:
     full.add_argument("--s1-max-repair-frames", type=int, default=5, choices=range(1, 16), metavar="N")
     full.add_argument(
         "--output-format",
-        choices=("lerobot", "hdf5_mp4"),
+        choices=("lerobot", "hdf5_mp4", "subtask_json", "episode_lerobot_json"),
         default="lerobot",
-        help="Full output format; LeRobot is the default and HDF5+MP4 is retained for compatibility",
+        help="Full output format; LeRobot is the default, HDF5+MP4 is compatibility output, subtask_json writes one JSON per Episode, and episode_lerobot_json writes one complete LeRobot Episode plus JSON",
     )
     full.add_argument(
         "--robot",

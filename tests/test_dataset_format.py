@@ -5,6 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import h5py
+import numpy as np
+
 from app.camera_profiles import NEXUS_OAKD_PRO_W9_PROFILE_ID
 from app.dataset_format import describe_source, inspect_dataset_format, is_self_describing_dataset_root, processing_strategy_for_family
 
@@ -139,6 +142,24 @@ class DatasetFormatTests(unittest.TestCase):
         self.assertFalse(report["capabilities"]["can_joint_overlay"])
         self.assertFalse(report["capabilities"]["can_hand_visibility"])
         self.assertIn("rgb_depth_camera_profile_selected", {item["code"] for item in report["issues"]})
+
+    def test_egodex_embedded_camera_pose_does_not_require_external_extrinsics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "0.mp4").touch()
+            with h5py.File(root / "0.hdf5", "w") as output:
+                output.create_dataset("camera/intrinsic", data=np.eye(3, dtype=np.float32))
+                output.create_dataset("transforms/camera", data=np.eye(4, dtype=np.float32)[None])
+                output.create_dataset("transforms/rightHand", data=np.eye(4, dtype=np.float32)[None])
+
+            report = inspect_dataset_format(root)
+
+        self.assertEqual("egodex", report["format_family"])
+        self.assertTrue(report["capabilities"]["can_joint_overlay"])
+        self.assertTrue(report["capabilities"]["can_hand_visibility"])
+        self.assertFalse(report["camera_calibration"]["hand_projection_requires_extrinsics"])
+        self.assertEqual("embedded_camera_pose", report["camera_calibration"]["hand_projection_mode"])
+        self.assertNotIn("camera_extrinsics_missing", {item["code"] for item in report["issues"]})
 
     def test_egodex_and_nexus_use_separate_processing_strategies(self) -> None:
         egodex = processing_strategy_for_family(

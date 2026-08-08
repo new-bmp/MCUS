@@ -336,6 +336,22 @@ def _has_egodex_transform_file(files: list[Path]) -> bool:
     return False
 
 
+def _has_embedded_camera_intrinsics(files: list[Path]) -> bool:
+    """Detect camera intrinsics stored inside an EgoDex HDF5 episode."""
+    candidates = [path for path in files if path.suffix.casefold() in {".h5", ".hdf5", ".h5df"}]
+    for path in candidates[:8]:
+        try:
+            import h5py
+
+            with h5py.File(path, "r") as source:
+                for key in ("camera/intrinsic", "camera/intrinsics", "intrinsic", "intrinsics"):
+                    if key in source:
+                        return True
+        except Exception:
+            continue
+    return False
+
+
 def _metadata_paths(root: Path, episode_directories: list[Path]) -> list[Path]:
     direct = root / "meta" / "metadata.json"
     if direct.is_file():
@@ -514,6 +530,8 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         has_timestamps=has_timestamps,
     )
     has_intrinsics = any("camera_" in item.name.casefold() and item.suffix.casefold() == ".json" for item in sampled_files)
+    if family == "egodex" and not has_intrinsics:
+        has_intrinsics = _has_embedded_camera_intrinsics(sampled_files)
     extrinsics_payloads = [_safe_json(path.parent / "camera_extrinsics.json") for path in metadata_paths]
     source_extrinsics_applied = any(bool(item.get("applied")) for item in extrinsics_payloads if item)
     source_rgb_depth_extrinsics = any(
@@ -525,6 +543,11 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
     if selected_camera_profile and family != "nexus_multimodal":
         raise ValueError("Camera fallback profiles are only available for Nexus datasets")
     effective_rgb_depth_extrinsics = bool(source_rgb_depth_extrinsics or selected_camera_profile)
+    hand_projection_requires_extrinsics = family == "nexus_multimodal"
+    hand_projection_ready = bool(
+        has_intrinsics
+        and (not hand_projection_requires_extrinsics or source_extrinsics_applied)
+    )
     available_camera_profiles = (
         nexus_camera_profiles()
         if family == "nexus_multimodal" and has_rgb and has_depth and not source_rgb_depth_extrinsics
@@ -540,6 +563,10 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         "selected_profile": selected_camera_profile,
         "profiles": available_camera_profiles,
         "source_files_modified": False,
+        "hand_projection_mode": "embedded_camera_pose" if family == "egodex" else "calibrated_extrinsics",
+        "hand_projection_requires_extrinsics": hand_projection_requires_extrinsics,
+        "hand_projection_ready": hand_projection_ready,
+        "intrinsics_available": has_intrinsics,
     }
     node_counts: set[int] = set()
     for metadata in metadata_samples or ([representative] if representative else []):
@@ -562,7 +589,7 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
             else:
                 severity = "warning" if has_rgb else "error"
                 issues.append(_issue(severity, "raw_depth_geometry_unknown", "发现原始深度文件，但缺少可靠的分辨率或 dtype，深度只会索引而不会猜测解码。"))
-    if has_joint and has_rgb and not source_extrinsics_applied:
+    if has_joint and has_rgb and hand_projection_requires_extrinsics and not source_extrinsics_applied:
         issues.append(_issue("warning", "camera_extrinsics_missing", "手部/关节轨迹存在，但相机外参未应用；可做时序质量检查，不能宣称 2D 投影或整手可见性准确。"))
     if has_joint and not has_action:
         issues.append(_issue("info", "action_missing", "未发现原生 Action；S2 需要先生成 Action，其他可用检查不受影响。"))
@@ -599,8 +626,8 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
             item.get("modality") == "depth" and item.get("width") and item.get("height") and item.get("dtype") == "uint16"
             for item in declared_streams
         ),
-        "can_joint_overlay": bool(processing_strategy["joint_overlay"] and has_joint and has_intrinsics and source_extrinsics_applied),
-        "can_hand_visibility": has_joint and has_intrinsics and source_extrinsics_applied,
+        "can_joint_overlay": bool(processing_strategy["joint_overlay"] and has_joint and hand_projection_ready),
+        "can_hand_visibility": bool(has_joint and hand_projection_ready),
         "can_rgb_depth_registration": bool(has_rgb and has_depth and has_intrinsics and effective_rgb_depth_extrinsics),
         "can_depth_arm_localization": bool(has_depth and has_intrinsics and effective_rgb_depth_extrinsics),
         "can_pose_recovery": bool(processing_strategy["pose_recovery"]),

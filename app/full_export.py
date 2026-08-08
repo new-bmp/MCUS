@@ -14,9 +14,9 @@ import numpy as np
 
 from .egodex_mano import (
     EGODEX_MANO_REVISION,
+    egodex_mano_source_names,
     fit_egodex_mano_template,
     has_egodex_mano_source,
-    required_egodex_mano_names,
     retarget_egodex_mano_frame,
     source_is_retargeted,
 )
@@ -34,9 +34,12 @@ from .video_smoothing import _create_frame_writer
 FULL_DATASET_SCHEMA = "alice/full-dataset/v2"
 LEGACY_FULL_DATASET_SCHEMA = "alice/full-mano-dataset/v1"
 FULL_PAIR_SCHEMA = "alice/full-mano-pair/v1"
-FULL_EXPORT_PIPELINE_VERSION = 3
+SUBTASK_JSON_SCHEMA = "alice/episode-subtasks/v1"
+SUBTASK_JSON_OUTPUT_FORMAT = "subtask_json"
+EPISODE_LEROBOT_JSON_OUTPUT_FORMAT = "episode_lerobot_json"
+FULL_EXPORT_PIPELINE_VERSION = 4
 DEFAULT_FULL_OUTPUT_FORMAT = "lerobot"
-SUPPORTED_FULL_OUTPUT_FORMATS = {"lerobot", "hdf5_mp4"}
+SUPPORTED_FULL_OUTPUT_FORMATS = {"lerobot", "hdf5_mp4", SUBTASK_JSON_OUTPUT_FORMAT, EPISODE_LEROBOT_JSON_OUTPUT_FORMAT}
 REMOVED_VLM_PHASES = {"idle", "reach"}
 DEFAULT_MAX_INTERNAL_GAP_SECONDS = 0.25
 DEFAULT_MIN_CLIP_SECONDS = 0.75
@@ -179,6 +182,337 @@ def _mask_intervals(mask: np.ndarray) -> list[tuple[int, int]]:
     starts = np.flatnonzero(changes == 1)
     ends = np.flatnonzero(changes == -1) - 1
     return [(int(start), int(end)) for start, end in zip(starts, ends)]
+
+
+def _curation_state_masks(frame_count: int, curation: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Return red/bad and yellow/review masks using the final curation ranges."""
+
+    invalid = np.zeros(max(0, int(frame_count)), dtype=bool)
+    review = np.zeros_like(invalid)
+    if invalid.size == 0:
+        return invalid, review
+    for segment in curation.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        state = str(segment.get("state") or "").strip().casefold()
+        if state not in {"invalid", "uncertain", "review"}:
+            continue
+        start = max(0, min(invalid.size - 1, int(segment.get("start_frame") or 0)))
+        end = max(start, min(invalid.size - 1, int(segment.get("end_frame") or start)))
+        if state == "invalid":
+            invalid[start:end + 1] = True
+        else:
+            review[start:end + 1] = True
+    review &= ~invalid
+    return invalid, review
+
+
+def _mask_range_records(mask: np.ndarray, findings: list[dict] | None = None) -> list[dict]:
+    """Serialize contiguous frame marks, retaining relevant quality reasons."""
+
+    values = np.asarray(mask, dtype=bool)
+    records: list[dict] = []
+    findings = [item for item in (findings or []) if isinstance(item, dict)]
+    for start, end in _mask_intervals(values):
+        reasons = sorted({
+            f"{str(item.get('stage') or 'quality')}:{str(item.get('reason') or 'marked')}"
+            for item in findings
+            if int(item.get("start_frame") or item.get("frame") or 0) <= end
+            and int(item.get("end_frame") or item.get("frame") or 0) >= start
+        })
+        records.append({
+            "start_frame": int(start),
+            "end_frame": int(end),
+            "frame_count": int(end - start + 1),
+            "reasons": reasons,
+        })
+    return records
+
+
+def _subtask_json_path(output_root: Path, episode: dict) -> Path:
+    episode_key = _category_name(str(episode.get("id") or episode.get("name") or "episode"))
+    return output_root / "episodes" / episode_key / "subtasks.json"
+
+
+def _export_subtask_json(
+    output_root: Path,
+    manifest: dict,
+    episode: dict,
+    curation: dict,
+    behavior: dict | None,
+    *,
+    run_id: str | None,
+    timeline_id: str | None,
+    output_format: str = SUBTASK_JSON_OUTPUT_FORMAT,
+    episode_root: Path | None = None,
+) -> dict:
+    """Write one frame-indexed subtask document for a source Episode."""
+
+    frame_count = max(0, int(episode.get("frame_count") or (curation.get("summary") or {}).get("frame_count") or 0))
+    fps = max(0.01, float(episode.get("fps") or (curation.get("source_video") or {}).get("fps") or 30.0))
+    invalid, review = _curation_state_masks(frame_count, curation)
+    findings = curation.get("findings") or []
+    invalid_ranges = _mask_range_records(invalid, findings)
+    review_ranges = _mask_range_records(review, findings)
+    medium_segments = [item for item in ((behavior or {}).get("medium") or []) if isinstance(item, dict)]
+    fine_segments = [item for item in ((behavior or {}).get("fine") or (behavior or {}).get("segments") or []) if isinstance(item, dict)]
+    source_subtasks = medium_segments
+    if not source_subtasks:
+        source_subtasks = [{
+            "start_frame": 0,
+            "end_frame": max(0, frame_count - 1),
+            "description": "No medium-level subtask annotation was returned.",
+            "confidence": 0.0,
+            "boundary_source": "fallback",
+        }]
+    subtasks: list[dict] = []
+    for index, source in enumerate(source_subtasks, start=1):
+        if frame_count:
+            start = max(0, min(frame_count - 1, int(source.get("start_frame") or 0)))
+            end = max(start, min(frame_count - 1, int(source.get("end_frame") or start)))
+        else:
+            start = max(0, int(source.get("start_frame") or 0))
+            end = max(start, int(source.get("end_frame") or start))
+        bad_frames = np.flatnonzero(invalid[start:end + 1]).astype(np.int64) + start if frame_count else np.asarray([], dtype=np.int64)
+        review_frames = np.flatnonzero(review[start:end + 1]).astype(np.int64) + start if frame_count else np.asarray([], dtype=np.int64)
+        state = "bad" if bad_frames.size == end - start + 1 else "review" if review_frames.size else "valid"
+        if bad_frames.size and bad_frames.size < end - start + 1:
+            state = "mixed"
+        nested_fine = []
+        for fine in fine_segments:
+            fine_start = max(start, int(fine.get("start_frame") or 0))
+            fine_end = min(end, int(fine.get("end_frame") or fine_start))
+            if fine_end < fine_start:
+                continue
+            nested_fine.append({
+                "start_frame": fine_start,
+                "end_frame": fine_end,
+                "phase_label": str(fine.get("phase_label") or fine.get("label") or "unknown"),
+                "skill": fine.get("skill"),
+                "description": str(fine.get("description") or "")[:800],
+            })
+        description = str(source.get("description") or "").strip()[:800]
+        subtasks.append({
+            "id": f"subtask_{index:03d}",
+            "level": "medium",
+            "name": description or f"subtask_{index:03d}",
+            "description": description,
+            "start_frame": int(start),
+            "end_frame": int(end),
+            "start_time": round(start / fps, 3),
+            "end_time": round(end / fps, 3),
+            "frame_count": int(end - start + 1),
+            "state": state,
+            "bad_frames": [int(value) for value in bad_frames.tolist()],
+            "review_frames": [int(value) for value in review_frames.tolist()],
+            "bad_frame_count": int(bad_frames.size),
+            "review_frame_count": int(review_frames.size),
+            "confidence": max(0.0, min(1.0, float(source.get("confidence") or 0.0))),
+            "boundary_source": str(source.get("boundary_source") or "unknown"),
+            "primary_targets": list(source.get("primary_targets") or []),
+            "target_instance": str(source.get("target_instance") or ""),
+            "fine_segments": nested_fine,
+        })
+    path = episode_root / "subtasks.json" if episode_root is not None else _subtask_json_path(output_root, episode)
+    payload = {
+        "schema": SUBTASK_JSON_SCHEMA,
+        "output_format": output_format,
+        "dataset_id": manifest.get("id"),
+        "episode_id": episode.get("id"),
+        "episode_name": episode.get("name") or episode.get("id"),
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "frame_index_space": "source_video",
+        "frame_end_inclusive": True,
+        "subtask_level": "medium",
+        "fine_level": "fine_segments",
+        "frame_count": frame_count,
+        "fps": fps,
+        "subtask_count": len(subtasks),
+        "subtasks": subtasks,
+        "bad_frames": [int(value) for value in np.flatnonzero(invalid).tolist()],
+        "review_frames": [int(value) for value in np.flatnonzero(review).tolist()],
+        "bad_frame_ranges": invalid_ranges,
+        "review_frame_ranges": review_ranges,
+        "summary": {
+            "bad_frame_count": int(invalid.sum()),
+            "review_frame_count": int(review.sum()),
+            "valid_frame_count": int(frame_count - invalid.sum() - review.sum()),
+            "curation_artifact_path": curation.get("artifact_path"),
+            "behavior_artifact_path": (behavior or {}).get("artifacts", {}).get("behavior"),
+        },
+    }
+    _write_json_atomic(path, payload)
+    classification = classify_behavior(behavior or {}, 0, max(0, frame_count - 1))
+    pair = {
+        "id": str(episode.get("id") or path.parent.name),
+        "output_format": output_format,
+        "episode_id": episode.get("id"),
+        "episode_name": episode.get("name") or episode.get("id"),
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+        **classification,
+        "start_frame": 0,
+        "end_frame": max(0, frame_count - 1),
+        "frame_count": frame_count,
+        "fps": fps,
+        "subtask_count": len(subtasks),
+        "bad_frame_count": int(invalid.sum()),
+        "review_frame_count": int(review.sum()),
+        "subtasks_json": str(path),
+        "json": str(path),
+    }
+    return {
+        "pairs": [pair],
+        "filtering": {
+            "source_frame_count": frame_count,
+            "retained_frame_count": int(frame_count - invalid.sum() - review.sum()),
+            "bad_frame_count": int(invalid.sum()),
+            "review_frame_count": int(review.sum()),
+        },
+        "transform_source": None,
+        "category": classification["category"],
+        "categories": [classification["category"]],
+        "output_format": output_format,
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+    }
+
+
+def _export_episode_lerobot_json(
+    output_root: Path,
+    manifest: dict,
+    episode: dict,
+    smoothed_media: dict,
+    curation: dict,
+    behavior: dict | None,
+    progress,
+    *,
+    run_id: str | None,
+    timeline_id: str | None,
+) -> dict:
+    """Export one complete source Episode as an independent LeRobot dataset.
+
+    The normal Full LeRobot mode exports only retained clips into one shared
+    dataset.  This mode keeps every source-video frame and puts the quality
+    decisions in ``subtasks.json`` beside that Episode's LeRobot metadata.
+    """
+
+    format_map = manifest.get("format_map") or {}
+    capabilities = format_map.get("capabilities") or {}
+    if capabilities and capabilities.get("can_full_export") is False:
+        blocking_issues = [
+            str(item.get("message") or "")
+            for item in format_map.get("issues") or []
+            if item.get("severity") in {"warning", "error"}
+        ]
+        detail = "; ".join(item for item in blocking_issues if item) or "源数据没有可验证的左右手 21 点变换与相机变换"
+        raise RuntimeError(f"当前格式不能安全输出 Episode LeRobot：{detail}")
+
+    frame_count = int(smoothed_media.get("frame_count") or episode.get("frame_count") or 0)
+    if frame_count <= 0:
+        raise RuntimeError("Episode 没有可导出的完整视频帧")
+    episode_key = _category_name(str(episode.get("id") or episode.get("name") or "episode"))
+    episode_root = output_root / "episodes" / episode_key
+    episode_root.mkdir(parents=True, exist_ok=True)
+
+    json_episode = {**episode, "frame_count": frame_count, "fps": smoothed_media.get("fps") or episode.get("fps")}
+    subtask_result = _export_subtask_json(
+        output_root,
+        manifest,
+        json_episode,
+        curation,
+        behavior,
+        run_id=run_id,
+        timeline_id=timeline_id,
+        output_format=EPISODE_LEROBOT_JSON_OUTPUT_FORMAT,
+        episode_root=episode_root,
+    )
+    source_path, source_relative, source_count = _find_transform_source(manifest, episode, "lerobot")
+    repair = load_s1_repair(curation)
+    repair_cell_count = s1_repair_cell_count(repair, source_relative, "transforms/")
+    row_map = _aligned_rows(manifest, episode, source_relative, source_count, frame_count)
+    frames = np.arange(frame_count, dtype=np.int64)
+    classification = classify_behavior(behavior or {}, 0, frame_count - 1)
+    staging_root = output_root / ".staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    video_temporary = staging_root / f".episode-video.{uuid.uuid4().hex}.part.mp4"
+    try:
+        progress(5.0, "准备 Episode 全帧 LeRobot 数据")
+        video_info = _write_video_clip(Path(str(smoothed_media["path"])), video_temporary, 0, frame_count - 1)
+        if int(video_info.get("frame_count") or 0) != frame_count or _video_frame_count(video_temporary) != frame_count:
+            raise RuntimeError("Episode LeRobot 视频帧数校验失败")
+        lerobot_pair = write_lerobot_pair(
+            episode_root,
+            video_temporary,
+            video_info,
+            source_path,
+            source_relative,
+            source_count,
+            row_map[frames],
+            frames,
+            _phase_labels(behavior or {}, frames),
+            manifest,
+            episode,
+            classification,
+            repair,
+        )
+        info_path = write_lerobot_metadata(episode_root, manifest, [lerobot_pair])
+        progress(100.0, "已写入 Episode LeRobot + JSON")
+    finally:
+        video_temporary.unlink(missing_ok=True)
+
+    json_pair = subtask_result["pairs"][0]
+    pair = {
+        **json_pair,
+        "id": str(episode.get("id") or episode_key),
+        "output_format": EPISODE_LEROBOT_JSON_OUTPUT_FORMAT,
+        "episode_index": lerobot_pair.get("episode_index"),
+        "task_index": lerobot_pair.get("task_index"),
+        "start_frame": 0,
+        "end_frame": frame_count - 1,
+        "frame_count": frame_count,
+        "fps": video_info.get("fps"),
+        "width": video_info.get("width"),
+        "height": video_info.get("height"),
+        "data": lerobot_pair.get("data"),
+        "body": lerobot_pair.get("body"),
+        "mp4": lerobot_pair.get("mp4"),
+        "meta_info": str(info_path),
+        "lerobot_root": str(episode_root),
+        "source_hdf5": source_relative,
+        "body_joint_names": lerobot_pair.get("body_joint_names") or [],
+        "camera_intrinsic": lerobot_pair.get("camera_intrinsic"),
+        "s1_repair_applied": repair_cell_count > 0,
+        "s1_repair_cell_count": repair_cell_count,
+        "bad_frame_count": int(json_pair.get("bad_frame_count") or 0),
+        "review_frame_count": int(json_pair.get("review_frame_count") or 0),
+        "subtasks_json": str(episode_root / "subtasks.json"),
+        "json": str(episode_root / "subtasks.json"),
+    }
+    return {
+        "pairs": [pair],
+        "filtering": {
+            "source_frame_count": frame_count,
+            "source_valid_frame_count": max(0, frame_count - int(json_pair.get("bad_frame_count") or 0) - int(json_pair.get("review_frame_count") or 0)),
+            "retained_frame_count": frame_count,
+            "removed_frame_count": 0,
+            "removed_vlm_frame_count": 0,
+            "bad_frame_count": int(json_pair.get("bad_frame_count") or 0),
+            "review_frame_count": int(json_pair.get("review_frame_count") or 0),
+            "policy": "keep_all_frames_mark_quality_in_json",
+        },
+        "transform_source": source_relative,
+        "category": classification["category"],
+        "categories": [classification["category"]],
+        "output_format": EPISODE_LEROBOT_JSON_OUTPUT_FORMAT,
+        "full_run_id": run_id,
+        "timeline_id": timeline_id,
+        "episode_root": str(episode_root),
+        "subtasks_json": str(episode_root / "subtasks.json"),
+        "lerobot_info": str(info_path),
+    }
 
 
 def _fill_short_internal_gaps(mask: np.ndarray, maximum_gap_frames: int) -> np.ndarray:
@@ -461,8 +795,8 @@ def _write_mano_hdf5(
             rows = source_rows[offset:right]
             required_names = tuple(dict.fromkeys((
                 *MANO_44_JOINT_NAMES,
-                *required_egodex_mano_names("left"),
-                *required_egodex_mano_names("right"),
+                *egodex_mano_source_names(transforms, "left"),
+                *egodex_mano_source_names(transforms, "right"),
             )))
             available_names = tuple(name for name in required_names if name in transforms)
             blocks = {
@@ -481,7 +815,7 @@ def _write_mano_hdf5(
                 if template is None:
                     hand_values = np.stack([blocks[name] for name in side_hand_joint_names(side)], axis=1)
                 else:
-                    required = required_egodex_mano_names(side)
+                    required = egodex_mano_source_names(transforms, side)
                     hand_values = np.stack([
                         retarget_egodex_mano_frame(
                             {name: blocks[name][local_index] for name in required},
@@ -535,6 +869,29 @@ def export_episode(
 ) -> dict:
     if output_format not in SUPPORTED_FULL_OUTPUT_FORMATS:
         raise ValueError(f"Unsupported Full output format: {output_format}")
+    if output_format == SUBTASK_JSON_OUTPUT_FORMAT:
+        progress(100.0, "写入 Episode subtask JSON")
+        return _export_subtask_json(
+            output_root,
+            manifest,
+            episode,
+            curation,
+            behavior,
+            run_id=run_id,
+            timeline_id=timeline_id,
+        )
+    if output_format == EPISODE_LEROBOT_JSON_OUTPUT_FORMAT:
+        return _export_episode_lerobot_json(
+            output_root,
+            manifest,
+            episode,
+            smoothed_media,
+            curation,
+            behavior,
+            progress,
+            run_id=run_id,
+            timeline_id=timeline_id,
+        )
     format_map = manifest.get("format_map") or {}
     capabilities = format_map.get("capabilities") or {}
     if capabilities and capabilities.get("can_full_export") is False:
@@ -744,6 +1101,14 @@ def write_dataset_index(
             "pipeline": ["video_smoothing", "nexus_pressure_empty_p1_when_applicable", "optional_action_s2", "s1_s5_c3", "vlm_non_red_segments", "c1_c2", "drop_idle_reach", "anti_fragment", "classify_and_export"],
             "default_output_format": DEFAULT_FULL_OUTPUT_FORMAT,
             "output_formats": output_formats,
+            "subtask_json_schema": SUBTASK_JSON_SCHEMA,
+            "subtask_frame_index_convention": {
+                "space": "source_video",
+                "base": 0,
+                "end_inclusive": True,
+                "bad_frames": "curation invalid/red",
+                "review_frames": "curation uncertain/yellow",
+            },
             "hand_joint_names": list(HAND_21_JOINT_NAMES),
             "hand_joint_count_per_side": 21,
             "hand_transform_shape": ["T", 21, 4, 4],

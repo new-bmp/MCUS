@@ -9,10 +9,29 @@ import numpy as np
 
 from app.egodex_mano import required_egodex_mano_names
 from app.full_export import MANO_44_JOINT_NAMES
-from app.hand_visibility import inspect_full_hand_visibility
+from app.hand_visibility import _classify_mano_visibility, inspect_full_hand_visibility
 
 
 class HandVisibilityTests(unittest.TestCase):
+    def test_mano_visibility_uses_three_level_thresholds(self) -> None:
+        passed, review, invalid = _classify_mano_visibility({
+            "right": np.asarray([21, 20, 9, 8, 0], dtype=np.int64),
+        })
+
+        self.assertEqual([True, False, False, False, False], passed.tolist())
+        self.assertEqual([False, True, True, False, False], review.tolist())
+        self.assertEqual([False, False, False, True, True], invalid.tolist())
+
+    def test_missing_required_hand_is_not_diluted_by_visible_other_hand(self) -> None:
+        passed, review, invalid = _classify_mano_visibility({
+            "left": np.asarray([21], dtype=np.int64),
+            "right": np.asarray([0], dtype=np.int64),
+        })
+
+        self.assertFalse(passed[0])
+        self.assertFalse(review[0])
+        self.assertTrue(invalid[0])
+
     @staticmethod
     def _fixture(root: Path) -> tuple[dict, dict, dict]:
         path = root / "episode.hdf5"

@@ -1123,7 +1123,7 @@ def write_export_with_dialog(dataset_id: str, include_media: bool = False):
     if selected is None:
         return {"cancelled": True, "path": None}
     try:
-        path = export_dataset(dataset_id, selected, include_media)
+        path = export_dataset(dataset_id, Path(selected), include_media)
     except KeyError:
         raise HTTPException(404, "数据集不存在")
     except OSError as exc:

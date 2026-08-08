@@ -26,9 +26,9 @@ from .egodex_mano import (
     MANO21_RETARGETED_ATTRIBUTE,
     MANO21_RETARGET_REVISION_ATTRIBUTE,
     direct_mano21_transforms,
+    egodex_mano_source_names,
     fit_egodex_mano_template,
     has_egodex_mano_source,
-    required_egodex_mano_names,
     retarget_egodex_mano_frame,
     source_is_retargeted,
 )
@@ -1532,7 +1532,7 @@ def run_projection_correction(
 
         def source_mano_frame(side: str, row: int) -> np.ndarray:
             template = mano_templates[side]
-            required = side_hand_joint_names(side) if template is None else required_egodex_mano_names(side)
+            required = side_hand_joint_names(side) if template is None else egodex_mano_source_names(transforms, side)
             named = {name: np.asarray(transforms[name][row], dtype=np.float64) for name in required}
             return direct_mano21_transforms(named, side) if template is None else retarget_egodex_mano_frame(named, template)
 
@@ -1651,7 +1651,7 @@ def run_projection_correction(
                         intrinsic = _intrinsic(source, int(selected_rows[local_index]), width, height)
                         for side_offset, side in enumerate(("left", "right")):
                             template = mano_templates[side]
-                            required = side_hand_joint_names(side) if template is None else required_egodex_mano_names(side)
+                            required = side_hand_joint_names(side) if template is None else egodex_mano_source_names(transform_block, side)
                             named = {name: np.asarray(transform_block[name][local_index], dtype=np.float64).copy() for name in required}
                             matrices = (
                                 direct_mano21_transforms(named, side)

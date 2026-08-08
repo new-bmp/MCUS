@@ -16,6 +16,7 @@ from app.curation_pipeline import (
     _build_s3_references,
     _episode_records,
     _full_action_config,
+    _hand_visibility_capability,
     _load_signal_bundle,
     _signal_candidates,
     _write_curation_report,
@@ -50,6 +51,23 @@ from app.schema_profiler import build_inventory
 
 
 class CurationPipelineTests(unittest.TestCase):
+    def test_egodex_ignores_stale_external_extrinsics_capability_flag(self) -> None:
+        manifest = {
+            "format_family": "egodex",
+            "format_map": {"capabilities": {"can_hand_visibility": False}},
+        }
+        self.assertEqual((True, None), _hand_visibility_capability(manifest))
+
+    def test_nexus_requires_applied_external_extrinsics_for_hand_visibility(self) -> None:
+        manifest = {
+            "format_family": "nexus_multimodal",
+            "format_map": {"capabilities": {"can_hand_visibility": False}},
+            "camera_calibration": {"source_extrinsics_applied": False},
+        }
+        available, reason = _hand_visibility_capability(manifest)
+        self.assertFalse(available)
+        self.assertIn("Nexus", reason)
+
     def test_full_request_locks_one_action_profile_for_every_shard(self) -> None:
         request = CurationJobRequest(
             episode_ids=["ep"],

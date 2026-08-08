@@ -18,11 +18,16 @@ import numpy as np
 from .mano21 import MANO21_EDGES, side_hand_joint_names
 
 
-EGODEX_MANO_SCHEMA = "alice/egodex-mano21-retarget/v1"
-EGODEX_MANO_REVISION = "rigid-palm-relative-rotation-fk-v1"
+EGODEX_MANO_SCHEMA = "alice/egodex-mano21-retarget/v2"
+EGODEX_MANO_REVISION = "forearm-proportional-wrist-relative-rotation-fk-v2"
 MANO21_RETARGETED_ATTRIBUTE = "alice_mano21_retargeted"
 MANO21_RETARGET_REVISION_ATTRIBUTE = "alice_mano21_retarget_revision"
-WRIST_BACK_PALM_WIDTH_RATIO = 0.45
+# The EgoDex Hand transform is a forearm-attached rigid root.  MANO joint 0 is
+# closer to the palm, so the new root is placed on the Forearm -> Hand axis and
+# extended towards the palm by a bounded fraction of the forearm length.
+FOREARM_HAND_WRIST_EXTENSION_RATIO = 0.14
+MIN_WRIST_EXTENSION_PALM_WIDTH_RATIO = 0.55
+MAX_WRIST_EXTENSION_PALM_WIDTH_RATIO = 1.20
 
 _FINGER_STEMS = ("Thumb", "IndexFinger", "MiddleFinger", "RingFinger", "LittleFinger")
 _MCP_INDICES = (1, 5, 9, 13, 17)
@@ -34,7 +39,7 @@ class EgoDexManoTemplate:
     side: str
     mcp_offsets: np.ndarray
     bone_offsets: np.ndarray
-    wrist_back_ratio: float
+    forearm_extension_ratio: float
     sample_count: int
 
     def metadata(self) -> dict:
@@ -43,7 +48,9 @@ class EgoDexManoTemplate:
             "revision": EGODEX_MANO_REVISION,
             "side": self.side,
             "sample_count": int(self.sample_count),
-            "wrist_back_palm_width_ratio": float(self.wrist_back_ratio),
+            "forearm_hand_wrist_extension_ratio": float(self.forearm_extension_ratio),
+            "min_wrist_extension_palm_width_ratio": float(MIN_WRIST_EXTENSION_PALM_WIDTH_RATIO),
+            "max_wrist_extension_palm_width_ratio": float(MAX_WRIST_EXTENSION_PALM_WIDTH_RATIO),
             "mcp_offsets": np.asarray(self.mcp_offsets, dtype=float).round(9).tolist(),
             "bone_offsets": np.asarray(self.bone_offsets, dtype=float).round(9).tolist(),
         }
@@ -54,6 +61,22 @@ def required_egodex_mano_names(side: str) -> tuple[str, ...]:
     direct = side_hand_joint_names(normalized)
     metacarpals = tuple(f"{normalized}{stem}Metacarpal" for stem in _NON_THUMB_STEMS)
     return tuple(dict.fromkeys((*direct, *metacarpals)))
+
+
+def egodex_mano_source_names(values: Mapping[str, Any], side: str) -> tuple[str, ...]:
+    """Return the MANO source names plus an optional forearm anchor.
+
+    Some historical EgoDex-like files contain the complete hand but omit the
+    body ``*Forearm`` transform.  Keep those files usable and fall back to the
+    palm-only estimator when the optional anchor is absent.
+    """
+
+    normalized = str(side).strip().casefold()
+    names = list(required_egodex_mano_names(normalized))
+    forearm = f"{normalized}Forearm"
+    if forearm in values:
+        names.append(forearm)
+    return tuple(names)
 
 
 def has_egodex_mano_source(values: Mapping[str, Any], side: str) -> bool:
@@ -97,9 +120,15 @@ def estimate_mano_palm_frame(
     named: Mapping[str, Any],
     side: str,
     *,
-    wrist_back_ratio: float = WRIST_BACK_PALM_WIDTH_RATIO,
+    forearm_extension_ratio: float = FOREARM_HAND_WRIST_EXTENSION_RATIO,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Estimate visual wrist translation and palm rotation from full palm bones."""
+    """Estimate a palm rotation and a proportional visual MANO wrist.
+
+    When EgoDex provides ``*Forearm``, the root is placed on the extension of
+    the Forearm -> Hand segment towards the palm.  The extension is bounded by
+    palm width so a bad body frame cannot move joint 0 arbitrarily.  Older
+    hand-only files use the same palm geometry with a conservative fallback.
+    """
 
     normalized = str(side).strip().casefold()
     metacarpals = np.stack([
@@ -126,11 +155,44 @@ def estimate_mano_palm_frame(
     if not np.isfinite(palm_width) or palm_width <= 1e-8:
         pairwise = np.linalg.norm(metacarpals[:, None, :] - metacarpals[None, :, :], axis=2)
         palm_width = float(np.max(pairwise)) if pairwise.size else 0.08
-    wrist = meta_center - rotation[:, 1] * max(1e-6, palm_width * float(wrist_back_ratio))
+    hand_root = _matrix(named, f"{normalized}Hand")[:3, 3]
+    forearm_name = f"{normalized}Forearm"
+    forearm_root = None
+    if forearm_name in named:
+        candidate = _matrix(named, forearm_name)[:3, 3]
+        if np.isfinite(candidate).all():
+            forearm_root = candidate
+    if forearm_root is not None:
+        forearm_vector = hand_root - forearm_root
+        forearm_length = float(np.linalg.norm(forearm_vector))
+    else:
+        forearm_vector = np.zeros(3, dtype=np.float64)
+        forearm_length = 0.0
+    if forearm_length > 1e-8 and np.isfinite(forearm_length):
+        forearm_axis = forearm_vector / forearm_length
+        # If the body anchor is numerically reversed, use the palm axis rather
+        # than extending the wrist in the wrong direction.
+        if float(forearm_axis @ distal) < 0.0:
+            forearm_axis = distal
+        extension = forearm_length * float(forearm_extension_ratio)
+        extension = float(np.clip(
+            extension,
+            palm_width * MIN_WRIST_EXTENSION_PALM_WIDTH_RATIO,
+            palm_width * MAX_WRIST_EXTENSION_PALM_WIDTH_RATIO,
+        ))
+        wrist = hand_root + forearm_axis * extension
+    else:
+        # Conservative fallback for old hand-only recordings.
+        extension = palm_width * MIN_WRIST_EXTENSION_PALM_WIDTH_RATIO
+        wrist = meta_center - rotation[:, 1] * extension
     return wrist, rotation, {
         "palm_width": palm_width,
         "meta_center": meta_center,
         "knuckle_center": knuckle_center,
+        "hand_root": hand_root,
+        "forearm_root": forearm_root,
+        "forearm_length": forearm_length,
+        "wrist_extension": float(np.linalg.norm(wrist - hand_root)),
     }
 
 
@@ -149,12 +211,12 @@ def fit_egodex_mano_template(
     *,
     sample_rows: np.ndarray | None = None,
     maximum_samples: int = 64,
-    wrist_back_ratio: float = WRIST_BACK_PALM_WIDTH_RATIO,
+    forearm_extension_ratio: float = FOREARM_HAND_WRIST_EXTENSION_RATIO,
 ) -> EgoDexManoTemplate:
     """Fit fixed palm anchors and local bone vectors from an EgoDex episode."""
 
     normalized = str(side).strip().casefold()
-    names = required_egodex_mano_names(normalized)
+    names = egodex_mano_source_names(transforms, normalized)
     missing = [name for name in names if name not in transforms]
     if missing:
         raise KeyError(f"Missing EgoDex MANO source transforms: {', '.join(missing)}")
@@ -175,7 +237,7 @@ def fit_egodex_mano_template(
         wrist, palm_rotation, _ = estimate_mano_palm_frame(
             named,
             normalized,
-            wrist_back_ratio=wrist_back_ratio,
+            forearm_extension_ratio=forearm_extension_ratio,
         )
         mcp_samples.append(np.stack([
             palm_rotation.T @ (_matrix(named, direct_names[index])[:3, 3] - wrist)
@@ -198,7 +260,7 @@ def fit_egodex_mano_template(
         side=normalized,
         mcp_offsets=np.asarray(mcp_offsets, dtype=np.float64),
         bone_offsets=np.asarray(bone_offsets, dtype=np.float64),
-        wrist_back_ratio=float(wrist_back_ratio),
+        forearm_extension_ratio=float(forearm_extension_ratio),
         sample_count=int(len(rows)),
     )
 
@@ -219,7 +281,7 @@ def retarget_egodex_mano_frame(
     wrist, palm_rotation, _ = estimate_mano_palm_frame(
         named,
         side,
-        wrist_back_ratio=template.wrist_back_ratio,
+        forearm_extension_ratio=template.forearm_extension_ratio,
     )
     output = np.repeat(np.eye(4, dtype=np.float64)[None, ...], 21, axis=0)
     output[0, :3, :3] = palm_rotation

@@ -13,7 +13,7 @@ import numpy as np
 import pyarrow.parquet as parquet
 
 from app import storage as storage_module
-from app.full_export import MANO_44_JOINT_NAMES, classify_behavior, export_episode, filtered_intervals, write_dataset_index
+from app.full_export import MANO_44_JOINT_NAMES, SUBTASK_JSON_SCHEMA, classify_behavior, export_episode, filtered_intervals, write_dataset_index
 from app.lerobot_export import HAND_21_JOINT_NAMES
 from app.s1_repair import S1_REPAIR_SCHEMA
 
@@ -241,6 +241,76 @@ class FullExportTests(unittest.TestCase):
             combined = json.loads(index.read_text(encoding="utf-8"))
             self.assertEqual(2, combined["pair_count"])
             self.assertEqual({"insert_usb/ep1", "insert_usb/ep2"}, {item["id"] for item in combined["pairs"]})
+
+    def test_subtask_json_writes_one_document_per_source_episode_with_bad_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output_root = root / "full"
+            manifest = {"id": "dataset", "name": "dataset", "root_path": str(root), "files": []}
+            episode = {"id": "ep6", "name": "insert_remove_bookshelf", "frame_count": 10, "fps": 5.0}
+            behavior = {"task_label": "insert_remove_bookshelf", "medium": [
+                {
+                    "start_frame": 0,
+                    "end_frame": 4,
+                    "description": "pick up the book",
+                    "confidence": 0.9,
+                    "boundary_source": "joint_refined",
+                },
+                {
+                    "start_frame": 5,
+                    "end_frame": 9,
+                    "description": "place the book",
+                    "confidence": 0.8,
+                    "boundary_source": "vlm",
+                },
+            ], "fine": [
+                {"start_frame": 0, "end_frame": 1, "phase_label": "reach", "skill": "Reach"},
+                {"start_frame": 2, "end_frame": 4, "phase_label": "grasp", "skill": "Grasp"},
+                {"start_frame": 5, "end_frame": 9, "phase_label": "place", "skill": "Place"},
+            ]}
+            curation = {
+                "segments": [
+                    {"start_frame": 0, "end_frame": 2, "state": "valid"},
+                    {"start_frame": 3, "end_frame": 4, "state": "invalid"},
+                    {"start_frame": 5, "end_frame": 5, "state": "uncertain"},
+                    {"start_frame": 6, "end_frame": 9, "state": "valid"},
+                ],
+                "findings": [
+                    {"start_frame": 3, "end_frame": 4, "stage": "c3", "reason": "hand outside frame"},
+                    {"start_frame": 5, "end_frame": 5, "stage": "c3", "reason": "partial hand visibility"},
+                ],
+                "artifact_path": str(root / "episode.curation.alice"),
+            }
+
+            result = export_episode(
+                output_root,
+                manifest,
+                episode,
+                {"frame_count": 10, "fps": 5.0},
+                curation,
+                behavior,
+                lambda _value, _message: None,
+                output_format="subtask_json",
+                run_id="run-1",
+                timeline_id="timeline-1",
+            )
+
+            path = output_root / "episodes" / "ep6" / "subtasks.json"
+            self.assertEqual(path, Path(result["pairs"][0]["subtasks_json"]))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(SUBTASK_JSON_SCHEMA, payload["schema"])
+            self.assertEqual([3, 4], payload["bad_frames"])
+            self.assertEqual([5], payload["review_frames"])
+            self.assertEqual(2, payload["subtask_count"])
+            self.assertEqual((0, 4), (payload["subtasks"][0]["start_frame"], payload["subtasks"][0]["end_frame"]))
+            self.assertEqual("medium", payload["subtasks"][0]["level"])
+            self.assertEqual(["reach", "grasp"], [item["phase_label"] for item in payload["subtasks"][0]["fine_segments"]])
+            self.assertEqual([3, 4], payload["subtasks"][0]["bad_frames"])
+            self.assertEqual([5], payload["subtasks"][1]["review_frames"])
+            self.assertEqual(["c3:hand outside frame"], payload["bad_frame_ranges"][0]["reasons"])
+            index = write_dataset_index(output_root, manifest, result["pairs"], [], output_format="subtask_json")
+            combined = json.loads(index.read_text(encoding="utf-8"))
+            self.assertEqual({"subtask_json": 1}, combined["output_formats"])
 
     def test_lerobot_export_applies_s1_patch_without_modifying_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
