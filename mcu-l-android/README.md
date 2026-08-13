@@ -11,7 +11,7 @@ MCUS 是一个离线 MCU 选型应用，采用现代浅色、紧凑且信息密�
 - 厂商与核心筛选
 - 核心、最高频率、Flash、RAM、TIM、ADC、连接外设等详情
 - 来源外设清单：I²S、看门狗、RTC、LIN、SDIO、比较器、触摸、显示、摄像头、外部总线、安全单元等
-- ADC 转换器单元、ADC 通道、ADC 外部输入引脚与 CMSIS 原始参数分栏显示
+- ADC 转换器单元、ADC 通道与 CMSIS 原始参数分栏显示；不把 ADC 引脚数量作为选型指标
 - 厂商卡片使用随包离线 Logo，加载失败时回退到厂商缩写
 - MCUS 选型指数及数据覆盖率
 - 厂商加速器和特性；待核验候选与已支持能力明确分开
@@ -26,7 +26,7 @@ MCUS 是一个离线 MCU 选型应用，采用现代浅色、紧凑且信息密�
 .\build.ps1
 ```
 
-生成文件位于 `dist\MCUS-0.6.0-debug.apk`。构建脚本使用工作区 `.tools\android-build` 内的本地 JDK 与 Android SDK，不依赖系统全局环境。
+生成文件位于 `dist\MCUS-0.6.1-debug.apk`。构建脚本使用工作区 `.tools\android-build` 内的本地 JDK 与 Android SDK，不依赖系统全局环境。
 
 ## 数据说明
 

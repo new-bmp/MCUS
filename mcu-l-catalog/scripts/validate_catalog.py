@@ -104,7 +104,7 @@ def main() -> int:
         for key in (
             "core_count", "max_clock_hz", "timer_count", "pwm_source_quantity",
             "adc_source_quantity", "adc_unit_count", "adc_channel_count",
-            "adc_external_pin_count", "dac_source_quantity", "gpio_count", "spi_count",
+            "dac_source_quantity", "gpio_count", "spi_count",
             "i2c_count", "usart_count", "uart_count", "can_count", "usb_device_count",
             "usb_host_count", "ethernet_count", "dma_source_quantity", "rng_count",
             "i2s_count", "lin_count", "configurable_serial_count", "usb_otg_count", "sdio_count", "watchdog_count",
@@ -130,6 +130,22 @@ def main() -> int:
 
     if capabilities and len(capabilities) != len(devices):
         errors.append(f"capability coverage mismatch: devices={len(devices)}, capabilities={len(capabilities)}")
+
+    espressif_uart_missing = []
+    for capability in capabilities:
+        if capability.get("manufacturer") != "Espressif":
+            continue
+        try:
+            uart_count = float(capability.get("uart_count") or 0)
+        except ValueError:
+            uart_count = 0
+        if uart_count <= 0:
+            espressif_uart_missing.append(capability.get("device_name") or capability.get("device_id"))
+    if espressif_uart_missing:
+        errors.append(
+            "Espressif devices missing positive UART count: "
+            + ", ".join(espressif_uart_missing[:20])
+        )
 
     for score in scores:
         if score.get("device_id") not in device_ids:

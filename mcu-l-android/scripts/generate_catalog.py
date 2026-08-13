@@ -50,6 +50,23 @@ def feature_labels(value):
     return result
 
 
+def inventory_quantity(value, feature_type, preferred_source_kind=None):
+    matches = [
+        item for item in json_value(value)
+        if isinstance(item, dict) and item.get("type") == feature_type
+    ]
+    preferred = [
+        item for item in matches
+        if preferred_source_kind and item.get("source_kind") == preferred_source_kind
+    ]
+    values = [
+        number(item.get("count") if item.get("count") not in (None, "") else item.get("n"))
+        for item in (preferred or matches)
+    ]
+    values = [value for value in values if value is not None and value > 0]
+    return max(values) if values else None
+
+
 INVENTORY_LABELS = {
     "Timer": "定时器", "TimerOther": "其他定时资源", "PWM": "PWM", "WDT": "看门狗",
     "RTC": "RTC", "ADC": "ADC", "ADC12": "12-bit ADC", "ADC16": "16-bit ADC",
@@ -94,6 +111,8 @@ def inventory_records(value):
         if not isinstance(item, dict):
             continue
         feature_type = str(item.get("type") or "").strip()
+        if feature_type.lower() == "adcexternalpins":
+            continue
         raw_n = item.get("count") if item.get("count") not in (None, "") else item.get("n", "")
         raw_m = item.get("m", "")
         source_name = str(item.get("name") or "").strip()
@@ -191,14 +210,22 @@ def main():
         put(record, "adcs", text(cap.get("adc_quantity_semantics")))
         put(record, "adcu", number(cap.get("adc_unit_count")))
         put(record, "adch", number(cap.get("adc_channel_count")))
-        put(record, "adcpin", number(cap.get("adc_external_pin_count")))
         put(record, "adr", text(cap.get("adc_resolution_bits")))
         put(record, "dac", number(cap.get("dac_source_quantity")))
         put(record, "gpio", number(cap.get("gpio_count")))
         put(record, "spi", number(cap.get("spi_count")))
         put(record, "i2c", number(cap.get("i2c_count")))
         put(record, "usart", number(cap.get("usart_count")))
-        put(record, "uart", number(cap.get("uart_count")))
+        uart_count = number(cap.get("uart_count"))
+        if variant["manufacturer"] == "Espressif" and not uart_count:
+            uart_count = inventory_quantity(
+                cap.get("peripheral_inventory_json"),
+                "UART",
+                preferred_source_kind="espressif_idf_soc_caps",
+            )
+        if variant["manufacturer"] == "Espressif" and not uart_count:
+            raise ValueError(f"Espressif device has no verified UART count: {device_id}")
+        put(record, "uart", uart_count)
         put(record, "can", number(cap.get("can_count")))
         put(record, "cfd", text(cap.get("can_fd_present")))
         put(record, "usbd", number(cap.get("usb_device_count")))
@@ -249,6 +276,13 @@ def main():
         series.add((variant["manufacturer"], variant["series"]))
         product_lines.add((variant["manufacturer"], variant["product_line"]))
 
+    esp_devices = [record for record in devices if record["m"] == "Espressif"]
+    esp_uart_missing = [record["n"] for record in esp_devices if not record.get("uart")]
+    if esp_uart_missing:
+        raise ValueError(
+            "Espressif UART coverage check failed: " + ", ".join(esp_uart_missing[:20])
+        )
+
     coverage = []
     for row in rows(catalog / "coverage-manifest.csv"):
         coverage.append({
@@ -270,7 +304,7 @@ def main():
     )
     payload = {
         "meta": {
-            "version": "0.6.0",
+            "version": "0.6.1",
             "name": "MCUS",
             "author": "new.bmp",
             "repository": "https://github.com/new-bmp/MCUS",

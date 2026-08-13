@@ -463,20 +463,6 @@ def main() -> int:
                 adc_unit_values.append(item_quantity)
         adc_unit_count = sum(adc_unit_values) if adc_unit_values else None
         adc_channel_count = sum(adc_channel_values) if adc_channel_values else None
-        # External ADC-capable pin counts require a pinout table or datasheet.
-        # Never derive them from the generic CMSIS feature n/count attribute.
-        adc_external_pin_features = [
-            item for item in features
-            if item.get("type", "").lower() == "adcexternalpins"
-            and item.get("source_kind") in {"cubemx_device_db", "microchip_atdf"}
-        ]
-        adc_external_pin_values = [
-            quantity(item) for item in adc_external_pin_features
-            if quantity(item) is not None
-        ]
-        adc_external_pin_count = (
-            sum(adc_external_pin_values) if adc_external_pin_values else None
-        )
         adc_semantics = "unknown"
         if adc_features:
             names = " ".join(item.get("name", "").lower() for item in adc_features)
@@ -517,7 +503,7 @@ def main() -> int:
                     (
                         candidate for candidate in (
                             adc_source_quantity, adc_unit_count,
-                            adc_channel_count, adc_external_pin_count,
+                            adc_channel_count,
                         )
                         if candidate is not None
                     ),
@@ -545,7 +531,6 @@ def main() -> int:
             "adc_quantity_semantics": adc_semantics,
             "adc_unit_count": compact_number(adc_unit_count),
             "adc_channel_count": compact_number(adc_channel_count),
-            "adc_external_pin_count": compact_number(adc_external_pin_count),
             "adc_resolution_bits": ";".join(str(value) for value in bit_widths(features, {"ADC", "ADCUnits", "A/D"})),
             "dac_source_quantity": compact_number(dac_source_quantity),
             "dac_resolution_bits": ";".join(str(value) for value in bit_widths(features, {"DAC", "D/A"})),
@@ -601,8 +586,8 @@ def main() -> int:
         peripheral_pieces: list[float] = []
         if timer_count is not None:
             peripheral_pieces.append(min(25, timer_count / 12 * 25))
-        if adc_source_quantity is not None:
-            peripheral_pieces.append(min(12, adc_source_quantity / 16 * 12))
+        if adc_channel_count is not None:
+            peripheral_pieces.append(min(12, adc_channel_count / 16 * 12))
         if dac_source_quantity is not None:
             peripheral_pieces.append(min(5, dac_source_quantity / 2 * 5))
         serial_total = sum(value or 0 for value in (spi_count, i2c_count, usart_count, uart_count))
@@ -667,7 +652,7 @@ def main() -> int:
         "core_count", "max_clock_hz", "fpu_present", "mpu_present",
         "dsp_extension_present", "trustzone_present", "timer_count", "timer_width_bits",
         "pwm_source_quantity", "adc_source_quantity", "adc_quantity_semantics",
-        "adc_unit_count", "adc_channel_count", "adc_external_pin_count",
+        "adc_unit_count", "adc_channel_count",
         "adc_resolution_bits", "dac_source_quantity", "dac_resolution_bits", "gpio_count",
         "spi_count", "i2c_count", "usart_count", "uart_count", "can_count",
         "can_fd_present", "usb_device_count", "usb_host_count", "ethernet_count",

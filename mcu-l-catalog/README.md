@@ -1,6 +1,6 @@
-﻿# MCUS catalog workspace
+# MCU-L catalog workspace
 
-This directory turns the MCUS coverage policy into a reproducible catalog.
+This directory turns the MCU-L coverage policy into a reproducible catalog.
 Generated CSV files are suitable for import into SQLite/Room or another search
 index used by the Android app.
 
@@ -103,10 +103,10 @@ source-backed `peripheral_inventory_json` so less common resources such as I²S,
 LIN, SDIO, watchdogs, RTC, comparators, op-amps, touch, display, camera,
 external buses and security blocks are not discarded.
 
-ADC converter units, ADC channels, external ADC-capable pins and the raw CMSIS
-ADC quantity parameter are separate fields. The raw `n`/`count` attribute is
-never treated as an ADC pin count without a datasheet or pinout source.
-`device-scores.csv` keeps the MCUS derived selection index separate from empty
+ADC converter units, ADC channels and the raw CMSIS ADC quantity parameter are
+separate fields. ADC-capable pin counts are deliberately not derived or used as
+an MCUS selection metric; raw pinout evidence remains only in source records.
+`device-scores.csv` keeps the MCU-L derived selection index separate from empty
 benchmark fields. See `SCORING_MODEL.md` for the formula and limitations.
 
 ## Current boundary
@@ -116,4 +116,3 @@ coverage of PIC, AVR, 8051, RL78, RX, C2000, or other proprietary/non-Arm
 catalogs. Those require manufacturer-specific import adapters. Likewise, a
 device row such as `STM32F103C8` is not counted as complete orderable-part
 coverage until every official package/temperature/packing code is collected.
-
