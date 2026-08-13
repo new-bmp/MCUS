@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+mcu-l-android/build/
+mcu-l-android/dist/
+mcu-l-catalog/cache/

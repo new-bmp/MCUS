@@ -1,0 +1,165 @@
+(function(){
+  'use strict';
+  const catalog=window.MCU_CATALOG;
+  if(!catalog){document.querySelector('.splash-sub').textContent='目录载入失败';return;}
+  const $=s=>document.querySelector(s);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const value=v=>v===undefined||v===null||v===''?'—':v;
+  const count=v=>Number(v||0).toLocaleString('zh-CN');
+  const clock=v=>!v?'—':v>=1e9?(v/1e9).toFixed(v%1e9?2:0)+' GHz':v>=1e6?(v/1e6).toFixed(v%1e6?1:0)+' MHz':v>=1e3?(v/1e3).toFixed(0)+' kHz':v+' Hz';
+  const memory=v=>!v?'—':v>=1048576?(v/1048576).toFixed(v%1048576?1:0)+' MB':v>=1024?(v/1024).toFixed(v%1024?1:0)+' KB':v+' B';
+  const natural=(a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
+  const devices=catalog.devices;
+  const byId=new Map(devices.map(d=>[d.id,d]));
+  const manufacturers=[...new Set(devices.map(d=>d.m))].sort(natural);
+  const cores=[...new Set(devices.map(d=>d.c||d.a).filter(Boolean))].sort(natural);
+  const coverage=new Map(catalog.coverage.map(v=>[v.m,v]));
+  const peripheralFilters=[
+    {key:'tim',label:'TIM / 定时器',aliases:'tim timer 定时器 计数器'},
+    {key:'pwm',label:'PWM',aliases:'pwm 脉宽调制 电机控制'},
+    {key:'adch',label:'ADC 通道',aliases:'adc 模数转换 模拟通道'},
+    {key:'adcu',label:'ADC 转换器单元',aliases:'adc converter 模数转换器'},
+    {key:'dac',label:'DAC',aliases:'dac 数模转换'},
+    {key:'gpio',label:'GPIO',aliases:'gpio io 输入输出'},
+    {key:'uart',label:'UART',aliases:'uart 串口 异步串口'},
+    {key:'usart',label:'USART',aliases:'usart 串口 同步异步串口'},
+    {key:'sercom',label:'SERCOM / FLEXCOM',aliases:'sercom flexcom 可配置串行'},
+    {key:'spi',label:'SPI',aliases:'spi 串行外设接口'},
+    {key:'i2c',label:'I²C',aliases:'i2c i²c 两线总线'},
+    {key:'i2s',label:'I²S',aliases:'i2s i²s 音频接口'},
+    {key:'can',label:'CAN / TWAI',aliases:'can canfd can-fd twai 总线'},
+    {key:'usbd',label:'USB Device',aliases:'usb device usb设备'},
+    {key:'usbh',label:'USB Host',aliases:'usb host usb主机'},
+    {key:'otg',label:'USB OTG',aliases:'usb otg'},
+    {key:'eth',label:'Ethernet',aliases:'ethernet eth 以太网'},
+    {key:'sdio',label:'SDIO / SDMMC',aliases:'sdio sdmmc sd卡'},
+    {key:'dma',label:'DMA',aliases:'dma 直接存储器访问'},
+    {key:'wdt',label:'看门狗',aliases:'watchdog wdt iwdg wwdg 看门狗'},
+    {key:'rtc',label:'RTC',aliases:'rtc 实时时钟'},
+    {key:'rng',label:'硬件随机数',aliases:'rng trng random 随机数'},
+    {key:'comp',label:'比较器',aliases:'comparator comp 比较器'},
+    {key:'opamp',label:'运算放大器',aliases:'opamp op amp 运算放大器'},
+    {key:'touch',label:'触摸感应',aliases:'touch capacitive 触摸 电容感应'},
+    {key:'cam',label:'摄像头接口',aliases:'camera dcmi dvp 摄像头 相机'},
+    {key:'display',label:'显示控制器',aliases:'display lcd glcd 显示控制器'},
+    {key:'extbus',label:'外部存储总线',aliases:'external bus fmc fsmc qspi octospi 外部存储总线'},
+    {key:'tempsens',label:'温度传感器',aliases:'temperature sensor temp 温度传感器'},
+    {key:'crypto',label:'硬件加密',aliases:'crypto aes hash sha pka 加密 安全'},
+    {key:'wifi',label:'Wi-Fi',aliases:'wifi wi-fi 无线局域网'},
+    {key:'bluetooth',label:'Bluetooth',aliases:'bluetooth ble 蓝牙'}
+  ];
+  const peripheralByKey=new Map(peripheralFilters.map(item=>[item.key,item]));
+  function inventoryPresence(d,...types){const wanted=new Set(types.flat().map(v=>String(v).toLowerCase()));return (d.pi||[]).some(item=>wanted.has(String(item.t||'').toLowerCase()))?1:null}
+  function peripheralCount(d,key){
+    const direct={tim:'tim',pwm:'pwm',adch:'adch',adcu:'adcu',dac:'dac',gpio:'gpio',uart:'uart',usart:'usart',sercom:'sercom',spi:'spi',i2c:'i2c',i2s:'i2s',can:'can',usbd:'usbd',usbh:'usbh',otg:'otg',eth:'eth',sdio:'sdio',dma:'dma',wdt:'wdt',comp:'comp',opamp:'opamp',touch:'touch',cam:'cam',display:'display',extbus:'extbus',tempsens:'tempsens'};
+    if(direct[key]){const v=d[direct[key]];return typeof v==='number'&&Number.isFinite(v)&&v>0?v:null}
+    if(key==='rtc')return d.rtc==='yes'?1:inventoryPresence(d,'RTC');
+    if(key==='rng')return inventoryPresence(d,'RNG');
+    if(key==='crypto')return d.crypto==='yes'?1:inventoryPresence(d,'Crypto');
+    if(key==='wifi')return inventoryPresence(d,'WiFi','WiFi6');
+    if(key==='bluetooth')return inventoryPresence(d,'Bluetooth');
+    return null;
+  }
+  devices.forEach(d=>{const peripheralText=(d.pi||[]).flatMap(item=>[item.n,item.t,item.d]).join(' ');const aliases=peripheralFilters.filter(item=>peripheralCount(d,item.key)).map(item=>item.aliases).join(' ');const vendorAliases=d.m==='Qinheng'?'沁恒 wch qinheng nanjing qinheng microelectronics qingke 青稞':d.m==='STC'?'stc 宏晶 hongjing stc microelectronics 8051':' ';d._q=[d.n,d.l,d.s,d.f,d.m,vendorAliases,d.v,d.c,d.a,peripheralText,aliases,...(d.boards||[]),...(d.parts||[]).map(p=>p.n)].join(' ').toLowerCase()});
+  const state={tab:'catalog',query:'',vendorFilter:'',coreFilter:'',peripheralFilter:'',peripheralMin:1,sort:'score',limit:120,detail:null,browse:{vendor:null,series:null,line:null},compare:new Set(JSON.parse(localStorage.getItem('mcul_compare')||'[]').filter(id=>byId.has(id)))};
+  const previewDevice=new URLSearchParams(location.search).get('device');
+  let toastTimer;
+
+  function group(list,key){const map=new Map();list.forEach(item=>{const k=typeof key==='function'?key(item):item[key];if(!map.has(k))map.set(k,[]);map.get(k).push(item)});return map}
+  function unique(list,key){return new Set(list.map(item=>item[key]).filter(Boolean)).size}
+  function partCount(list){return list.reduce((sum,d)=>sum+(d.parts||[]).length,0)}
+  function summary(label,val){return `<div class="summary-item"><b>${esc(val)}</b><span>${esc(label)}</span></div>`}
+  function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),1500)}
+  function saveCompare(){localStorage.setItem('mcul_compare',JSON.stringify([...state.compare]));updateNav()}
+  function setTab(tab){state.tab=tab;state.detail=null;$('#view').scrollTop=0;render()}
+  function updateNav(){document.querySelectorAll('#bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===state.tab));const badge=$('#compare-badge');badge.textContent=state.compare.size;badge.classList.toggle('show',state.compare.size>0)}
+  function renderHeader(){
+    const searchable=state.tab==='search';
+    document.documentElement.style.setProperty('--fl-top',searchable?'108px':'58px');
+    $('#search-slot').innerHTML=searchable?`<div class="search-box"><span>⌕</span><input id="search" value="${esc(state.query)}" placeholder="搜索型号、订货号或外设"><button id="clear-search">${state.query?'×':'↵'}</button></div>`:'';
+    if(searchable){const input=$('#search');input.addEventListener('input',e=>{state.query=e.target.value;state.limit=120;renderSearch(false)});$('#clear-search').onclick=()=>{if(state.query){state.query='';input.value='';renderSearch(false)}else input.focus()}}
+  }
+  function breadcrumb(items){return `<div class="breadcrumb">${items.map((item,i)=>`${i?'<span>›</span>':''}<button data-crumb="${item.level}">${esc(item.label)}</button>`).join('')}</div>`}
+  function vendorGlyph(name){if(name==='STMicroelectronics')return 'ST';if(name==='Texas Instruments')return 'TI';if(name==='Qinheng')return 'WCH';return name.replace(/[^A-Z]/g,'').slice(0,2)||name.slice(0,2).toUpperCase()}
+  const vendorLogoFiles={Espressif:'espressif.svg',Geehy:'geehy.ico',GigaDevice:'gigadevice.svg',Infineon:'infineon.svg',Microchip:'microchip.ico',MindMotion:'mindmotion.png',Nuvoton:'nuvoton.jpg',Puya:'puya.ico',Qinheng:'qinheng.svg',STC:'stc.svg',STMicroelectronics:'stmicroelectronics.svg','Texas Instruments':'texas-instruments.ico'};
+  function vendorLogo(name){const file=vendorLogoFiles[name];const cssName=name.toLowerCase().replace(/[^a-z0-9]+/g,'-');return `<span class="folder-icon vendor logo-${cssName}"><span class="vendor-fallback">${esc(vendorGlyph(name))}</span>${file?`<img src="vendor-${esc(file)}" alt="${esc(name)} Logo" onerror="this.remove()">`:''}</span>`}
+  function vendorName(name){if(name==='Microchip')return 'Microchip（原 Atmel）';if(name==='Qinheng')return '沁恒（WCH）';if(name==='STC')return 'STC（宏晶）';return name}
+  function boardTags(d,full=false){const boards=d.boards||[];if(!boards.length)return '';const shown=full?boards:boards.slice(0,3);return `<div class="board-tags"><span>Arduino 开发板</span>${shown.map(name=>`<i>${esc(name)}</i>`).join('')}${!full&&boards.length>shown.length?`<i>+${boards.length-shown.length}</i>`:''}</div>`}
+  function maxClock(list){return Math.max(0,...list.map(d=>d.hz||0))}
+  function renderCatalog(){
+    const browse=state.browse;
+    if(!browse.vendor){
+      $('#view').innerHTML=`<div class="page-heading"><h1>芯片目录</h1></div><div class="summary-strip">${summary('厂商',catalog.meta.manufacturers)}${summary('系列大类',count(catalog.meta.series))}${summary('器件变体',count(catalog.meta.devices))}</div><div class="section-heading"><h2>厂商</h2><span>${manufacturers.length} 家</span></div><div class="folder-list">${manufacturers.map(m=>{const c=coverage.get(m)||{};return `<button class="folder-row" data-vendor="${esc(m)}">${vendorLogo(m)}<span class="folder-main"><h3>${esc(vendorName(m))}</h3><p>${count(c.series)} 个系列大类 · ${count(c.lines)} 条产品线</p></span><span class="folder-meta"><b>${count(c.devices)}</b><span>器件变体 <i class="folder-chevron">›</i></span></span></button>`}).join('')}</div>`;
+      document.querySelectorAll('[data-vendor]').forEach(b=>b.onclick=()=>{browse.vendor=b.dataset.vendor;browse.series=null;browse.line=null;$('#view').scrollTop=0;renderCatalog()});
+      return;
+    }
+
+    const vendorDevices=devices.filter(d=>d.m===browse.vendor);
+    if(!browse.series){
+      const categories=[...group(vendorDevices,'s').entries()].sort((a,b)=>natural(a[0],b[0]));
+      $('#view').innerHTML=`${breadcrumb([{level:'root',label:'芯片目录'},{level:'vendor',label:browse.vendor}])}<div class="page-heading"><h1>${esc(browse.vendor)}</h1><p>先按芯片系列大类进入，例如 STMicroelectronics 的 STM32F1、STM32F4、STM32H7。</p></div><div class="summary-strip">${summary('系列大类',categories.length)}${summary('产品线',unique(vendorDevices,'l'))}${summary('器件变体',count(vendorDevices.length))}</div><div class="section-heading"><h2>系列大类</h2><span>第 1 层</span></div><div class="category-grid">${categories.map(([series,list])=>`<button class="category-tile" data-series="${esc(series)}"><div class="category-code">${esc(series)}</div><div class="category-title">${esc(list[0].a||list[0].c||'MCU 系列')}</div><div class="category-stats">${unique(list,'l')} 条产品线 · ${count(list.length)} 个变体<br>最高 ${clock(maxClock(list))} · ${partCount(list)} 个订货号</div></button>`).join('')}</div>`;
+      bindCrumbs();document.querySelectorAll('[data-series]').forEach(b=>b.onclick=()=>{browse.series=b.dataset.series;browse.line=null;$('#view').scrollTop=0;renderCatalog()});return;
+    }
+
+    const seriesDevices=vendorDevices.filter(d=>d.s===browse.series);
+    if(!browse.line){
+      const lines=[...group(seriesDevices,'l').entries()].sort((a,b)=>natural(a[0],b[0]));
+      $('#view').innerHTML=`${breadcrumb([{level:'root',label:'芯片目录'},{level:'vendor',label:browse.vendor},{level:'series',label:browse.series}])}<div class="page-heading"><h1>${esc(browse.series)}</h1><p>选择产品线，例如 STM32F1 下的 STM32F100、STM32F101、STM32F103。</p></div><div class="summary-strip">${summary('产品线',lines.length)}${summary('器件变体',count(seriesDevices.length))}${summary('完整订货号',count(partCount(seriesDevices)))}</div><div class="section-heading"><h2>产品线</h2><span>第 2 层</span></div><div class="folder-list">${lines.map(([line,list])=>`<button class="folder-row" data-line="${esc(line)}"><span class="folder-icon">${esc(line.replace(browse.series,'').slice(0,3)||'MCU')}</span><span class="folder-main"><h3>${esc(line)}</h3><p>${[...new Set(list.map(d=>d.c||d.a).filter(Boolean))].join(' / ')||'核心未知'} · 最高 ${clock(maxClock(list))}</p></span><span class="folder-meta"><b>${count(list.length)}</b><span>变体 · ${partCount(list)} 订货号 <i class="folder-chevron">›</i></span></span></button>`).join('')}</div>`;
+      bindCrumbs();document.querySelectorAll('[data-line]').forEach(b=>b.onclick=()=>{browse.line=b.dataset.line;$('#view').scrollTop=0;renderCatalog()});return;
+    }
+
+    const lineDevices=seriesDevices.filter(d=>d.l===browse.line).sort((a,b)=>natural(a.n,b.n));
+    $('#view').innerHTML=`${breadcrumb([{level:'root',label:'芯片目录'},{level:'vendor',label:browse.vendor},{level:'series',label:browse.series},{level:'line',label:browse.line}])}<div class="page-heading"><h1>${esc(browse.line)}</h1><p>器件变体层。这里保留 C / V / R / Z 等封装引脚与存储组合，不把它们合并成一个型号。</p></div><div class="summary-strip">${summary('器件变体',count(lineDevices.length))}${summary('完整订货号',count(partCount(lineDevices)))}${summary('最高主频',clock(maxClock(lineDevices)))}</div><div class="section-heading"><h2>具体器件变体</h2><span>第 3 层</span></div><div class="variant-list">${lineDevices.map(d=>`<button class="variant-row" data-device="${esc(d.id)}"><span class="variant-id"><h3>${esc(d.n)}</h3><p>变体码 ${esc(d.v||'—')} · ${esc(d.c||d.a||'—')} · ${clock(d.hz)} · ${d.sercom!==undefined?'SERCOM/FLEXCOM '+value(d.sercom):'UART '+value(d.uart)} · ${memory(d.fl)} Flash · ${memory(d.ra)} RAM</p></span><span class="variant-side"><b>${value(d.idx)}</b><span>选型指数 ${(d.parts||[]).length?`<i class="variant-parts">${(d.parts||[]).length} 订货号</i>`:''}</span></span></button>`).join('')}</div>`;
+    bindCrumbs();document.querySelectorAll('[data-device]').forEach(b=>b.onclick=()=>openDetail(b.dataset.device));
+  }
+  function bindCrumbs(){document.querySelectorAll('[data-crumb]').forEach(b=>b.onclick=()=>{const level=b.dataset.crumb;if(level==='root'){state.browse.vendor=null;state.browse.series=null;state.browse.line=null}else if(level==='vendor'){state.browse.series=null;state.browse.line=null}else if(level==='series'){state.browse.line=null}$('#view').scrollTop=0;renderCatalog()})}
+  function filtered(){const q=state.query.trim().toLowerCase();const list=devices.filter(d=>(!q||d._q.includes(q))&&(!state.vendorFilter||d.m===state.vendorFilter)&&(!state.coreFilter||(d.c||d.a)===state.coreFilter)&&(!state.peripheralFilter||(peripheralCount(d,state.peripheralFilter)||0)>=state.peripheralMin));list.sort(state.sort==='name'?(a,b)=>natural(a.n,b.n):(a,b)=>(b.idx??-1)-(a.idx??-1)||natural(a.n,b.n));return list}
+  function deviceRow(d){const selected=state.compare.has(d.id);const selectedPeripheral=peripheralByKey.get(state.peripheralFilter);const peripheralSpec=selectedPeripheral?`<span>${value(peripheralCount(d,selectedPeripheral.key))}<small>${esc(selectedPeripheral.label)}</small></span>`:`<span>${value(d.sercom!==undefined?d.sercom:(d.usart!==undefined?d.usart:d.uart))}<small>${d.sercom!==undefined?'SERCOM/FLEXCOM':d.usart!==undefined?'USART':'UART'}</small></span>`;return `<button class="device-row" data-device="${esc(d.id)}"><span><span class="device-title"><h3>${esc(d.n)}</h3>${(d.parts||[]).length?`<i>${(d.parts||[]).length} 订货号</i>`:''}</span><p class="device-path">${esc(vendorName(d.m))} › ${esc(d.s)} › ${esc(d.l)}</p>${boardTags(d)}<span class="device-specs"><span>${esc(d.c||d.a||'—')}<small>核心</small></span><span>${clock(d.hz)}<small>主频</small></span><span>${memory(d.fl)}<small>Flash</small></span>${peripheralSpec}</span></span><span class="device-score"><b>${value(d.idx)}</b><span>选型指数</span><i class="compare-toggle ${selected?'selected':''}" data-compare="${esc(d.id)}">${selected?'已对比':'＋ 对比'}</i></span></button>`}
+  function renderSearch(full=true){
+    if(full)renderHeader();const list=filtered();
+    const active=state.query||state.vendorFilter||state.coreFilter||state.peripheralFilter;
+    $('#view').innerHTML=`<div class="page-heading"><h1>搜索与筛选</h1><p>支持型号、订货号、核心以及外设名称搜索，并可按外设数量筛选。</p></div><div class="filter-panel"><div class="select-wrap"><label>厂商</label><select id="vendor-filter"><option value="">全部厂商</option>${manufacturers.map(v=>`<option value="${esc(v)}" ${state.vendorFilter===v?'selected':''}>${esc(v)}</option>`).join('')}</select></div><div class="select-wrap"><label>核心</label><select id="core-filter"><option value="">全部核心</option>${cores.map(v=>`<option value="${esc(v)}" ${state.coreFilter===v?'selected':''}>${esc(v)}</option>`).join('')}</select></div><div class="select-wrap"><label>外设</label><select id="peripheral-filter"><option value="">全部外设</option>${peripheralFilters.map(item=>`<option value="${item.key}" ${state.peripheralFilter===item.key?'selected':''}>${esc(item.label)}</option>`).join('')}</select></div><div class="select-wrap"><label>最少数量</label><select id="peripheral-min" ${state.peripheralFilter?'':'disabled'}>${[1,2,3,4,8,16,32].map(v=>`<option value="${v}" ${state.peripheralMin===v?'selected':''}>≥ ${v}</option>`).join('')}</select></div></div><div class="filter-hint">关键词可直接输入 UART、CAN、USB OTG、摄像头、触摸、加密、蓝牙等外设名称。</div><div class="result-head"><b>${count(list.length)} 个匹配器件</b><span class="result-actions">${active?'<button id="clear-filters">清除条件</button>':''}<button id="sort-toggle">${state.sort==='score'?'按选型指数':'按型号'} ▾</button></span></div>${list.length?`<div class="device-list">${list.slice(0,state.limit).map(deviceRow).join('')}</div>${list.length>state.limit?`<button class="more-button" id="load-more">继续显示（剩余 ${count(list.length-state.limit)}）</button>`:''}`:'<div class="empty"><strong>没有找到匹配器件</strong>请降低外设数量，或清除部分筛选条件。</div>'}`;
+    $('#vendor-filter').onchange=e=>{state.vendorFilter=e.target.value;state.limit=120;renderSearch(false)};$('#core-filter').onchange=e=>{state.coreFilter=e.target.value;state.limit=120;renderSearch(false)};$('#peripheral-filter').onchange=e=>{state.peripheralFilter=e.target.value;if(!state.peripheralFilter)state.peripheralMin=1;state.limit=120;renderSearch(false)};$('#peripheral-min').onchange=e=>{state.peripheralMin=Number(e.target.value)||1;state.limit=120;renderSearch(false)};if($('#clear-filters'))$('#clear-filters').onclick=()=>{state.query='';state.vendorFilter='';state.coreFilter='';state.peripheralFilter='';state.peripheralMin=1;state.limit=120;renderSearch(true)};$('#sort-toggle').onclick=()=>{state.sort=state.sort==='score'?'name':'score';renderSearch(false)};if($('#load-more'))$('#load-more').onclick=()=>{state.limit+=200;renderSearch(false)};bindDeviceRows();updateNav();
+  }
+  function bindDeviceRows(){document.querySelectorAll('#vendor-filter option').forEach(option=>{if(option.value==='Microchip')option.textContent=vendorName(option.value)});document.querySelectorAll('[data-device]').forEach(row=>row.onclick=()=>openDetail(row.dataset.device));document.querySelectorAll('[data-compare]').forEach(control=>control.onclick=e=>{e.stopPropagation();toggleCompare(control.dataset.compare);if(state.tab==='search')renderSearch(false)})}
+  function toggleCompare(id){if(state.compare.has(id)){state.compare.delete(id);toast('已移出对比')}else{if(state.compare.size>=4){toast('最多同时对比 4 款');return}state.compare.add(id);toast('已加入对比')}saveCompare()}
+  function renderCompare(){
+    const list=[...state.compare].map(id=>byId.get(id)).filter(Boolean);if(!list.length){$('#view').innerHTML='<div class="page-heading"><h1>参数对比</h1><p>最多同时比较四款器件。</p></div><div class="empty"><strong>尚未加入对比</strong>在器件详情或搜索结果中点击“对比”。</div>';updateNav();return}
+    const numeric=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+    const sumKnown=(...values)=>values.some(v=>numeric(v)!==null)?values.reduce((sum,v)=>sum+(numeric(v)??0),0):null;
+    const row=(label,display,metric)=>{const scores=metric?list.map(metric).map(numeric):[];const known=scores.filter(v=>v!==null);const best=known.length>=2&&new Set(known).size>1?Math.max(...known):null;return `<tr><td>${label}</td>${list.map((d,i)=>`<td class="${best!==null&&scores[i]===best?'compare-best':''}">${esc(display(d))}</td>`).join('')}</tr>`};
+    $('#view').innerHTML=`<div class="page-heading"><h1>参数对比</h1><p>${list.length} / 4 款器件，绿色标出存在差异且数值领先的项目。</p></div><div class="compare-scroll"><table class="compare-table"><thead><tr><th>项目</th>${list.map(d=>`<th>${esc(d.n)}<button class="remove-compare" data-remove="${esc(d.id)}">移出</button></th>`).join('')}</tr></thead><tbody>${row('厂商',d=>d.m)}${row('目录',d=>d.s+' › '+d.l)}${row('核心',d=>d.c||d.a||'—')}${row('FPU',d=>d.fpu==='yes'?'有':d.fpu==='no'?'无':'—',d=>d.fpu==='yes'?1:d.fpu==='no'?0:null)}${row('最高主频',d=>clock(d.hz),d=>d.hz)}${row('Flash',d=>memory(d.fl),d=>d.fl)}${row('RAM',d=>memory(d.ra),d=>d.ra)}${row('TIM',d=>value(d.tim)+(d.tw?' × '+d.tw+' bit':''),d=>d.tim)}${row('ADC 转换器单元',d=>value(d.adcu),d=>d.adcu)}${row('ADC 通道（含内部）',d=>value(d.adch),d=>d.adch)}${row('来源 ADC 原始参数',d=>value(d.adc),d=>d.adc)}${row('GPIO',d=>value(d.gpio),d=>d.gpio)}${row('SERCOM / FLEXCOM',d=>value(d.sercom),d=>d.sercom)}${row('SPI / I²C',d=>value(d.spi)+' / '+value(d.i2c),d=>sumKnown(d.spi,d.i2c))}${row('USART / UART',d=>value(d.usart)+' / '+value(d.uart),d=>sumKnown(d.usart,d.uart))}${row('CAN',d=>value(d.can),d=>d.can)}${row('选型指数',d=>value(d.idx)+' / 100',d=>d.idx)}${row('数据覆盖率',d=>value(d.cov)+'%',d=>d.cov)}${row('完整订货号',d=>(d.parts||[]).length,d=>(d.parts||[]).length)}</tbody></table></div>`;document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{state.compare.delete(b.dataset.remove);saveCompare();renderCompare()});updateNav();
+  }
+  function renderData(){
+    $('#view').innerHTML=`<div class="page-heading"><h1>数据与版本</h1><p>当前目录快照、可信度规则和厂商覆盖情况。</p></div><div class="info-banner"><b>离线快照 ${esc(catalog.meta.snapshot)}</b><p>全库评分字段平均覆盖率已通过 90% 构建门槛。缺失能力仍显示“—”，不会通过同系列型号自行补齐。</p></div><div class="summary-strip">${summary('平均覆盖率',catalog.meta.averageCoverage+'%')}${summary('覆盖率 ≥ 90%',count(catalog.meta.devicesAt90))}${summary('FPU 已核验',catalog.meta.fpuCoverage+'%')}</div><div class="summary-strip">${summary('系列大类',count(catalog.meta.series))}${summary('产品线',count(catalog.meta.productLines))}${summary('器件变体',count(catalog.meta.devices))}</div><div class="data-panel"><h3>覆盖范围</h3><table class="coverage-table"><thead><tr><th>厂商</th><th>系列</th><th>产品线</th><th>变体</th><th>订货号</th></tr></thead><tbody>${catalog.coverage.map(c=>`<tr><td>${esc(c.m)}</td><td>${count(c.series)}</td><td>${count(c.lines)}</td><td>${count(c.devices)}</td><td>${count(c.parts)}</td></tr>`).join('')}</tbody></table></div><div class="data-panel"><h3>可信度规则</h3><p class="good">● 完整订货号只收录有官方来源的记录，不通过后缀排列组合生成。</p><p>● MCUS 选型指数用于候选排序，不是 CoreMark、DMIPS 或 ULPMark 实测成绩。</p><p>● FPU 的“有 / 无”都必须来自处理器元数据、官方目标能力宏或明确的核心架构事实。</p><p>● 厂商加速器保留原名；没有逐器件完成确认的 Chrom-ART、Neural-ART 等标为待核验候选。</p><p class="caution">● 当前数据是已导入范围，不代表所有厂商完整在售目录已经全部完成。</p></div><div class="data-panel"><h3>应用版本</h3><p>MCUS Android ${esc(catalog.meta.version)} · 现代浅色界面版<br>生成时间：${esc(catalog.meta.generated)}</p></div>`;updateNav();
+  }
+  function renderAuthor(){
+    $('#view').innerHTML=`<div class="page-heading"><h1>关于 MCUS</h1><p>一个面向工程师的离线 MCU 选型目录。</p></div><div class="author-card"><div class="chip-logo">M</div><h2>作者：new.bmp</h2><p>MCUS 汇总厂商 MCU、器件变体、外设资源、核心能力与官方订货号，帮助工程师快速筛选和比较。</p><p>当前版本：${esc(catalog.meta.version)} · 数据器件：${count(catalog.meta.devices)}</p><a class="author-link" href="https://github.com/new-bmp/MCUS">项目主页<br>https://github.com/new-bmp/MCUS ↗</a></div>`;
+    updateNav();
+  }
+  function spec(v,label){return `<div class="spec-cell"><b>${esc(v)}</b><span>${esc(label)}</span></div>`}
+  function inventorySection(d){
+    const items=d.pi||[];
+    const categoryLabels={timing:'定时与控制',analog:'模拟外设',gpio:'GPIO 与中断',connectivity:'通信接口',wireless:'无线连接',memory_bus:'DMA 与外部总线',display_multimedia:'显示与多媒体',security:'安全',accelerator:'计算加速',clock:'时钟',power:'电源与低功耗',system:'系统资源',other:'其他来源特征'};
+    const order=['timing','analog','gpio','connectivity','wireless','memory_bus','display_multimedia','security','accelerator','clock','power','system','other'];
+    if(!items.length)return `<div class="detail-section"><h2>来源外设清单</h2><div class="feature-panel"><div class="feature-label">当前 CMSIS Pack 没有提供可展开的外设特征；不代表芯片没有外设。</div></div></div>`;
+    const grouped=new Map();items.forEach(item=>{const key=item.g||'other';if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(item)});
+    return `<div class="detail-section"><h2>来源外设清单 · ${items.length}</h2><div class="inventory-note">这里逐项展示来源明确列出的资源。ADC 以转换器单元和通道为选型参数，不统计 ADC 引脚数量。</div>${order.filter(key=>grouped.has(key)).map(key=>`<div class="inventory-group"><h3>${categoryLabels[key]||key}</h3><div class="inventory-list">${grouped.get(key).map(item=>`<div class="inventory-item"><b>${esc(item.n)}</b><span>${esc(item.d)}</span></div>`).join('')}</div></div>`).join('')}</div>`;
+  }
+  function openDetail(id){
+    state.detail=id;const d=byId.get(id);if(!d)return;const features=[...(d.acc||[]),...(d.feat||[])];const parts=d.parts||[];const selected=state.compare.has(d.id);const layer=$('#detail-layer');
+    layer.innerHTML=`<div class="detail-backdrop"></div><section class="detail-page"><div class="detail-header"><button class="back-btn">‹</button><div class="detail-title"><h1>${esc(d.n)}</h1><p>${esc(d.m)} · ${esc(d.s)}</p></div><div class="detail-score"><b>${value(d.idx)}</b><span>选型指数 / 100</span></div></div><div class="detail-hero"><div class="detail-path">${esc(d.m)} › ${esc(d.s)} › ${esc(d.l)} › 器件变体</div><div class="detail-model"><b>${esc(d.n)}</b><span>变体码 ${esc(d.v||'—')}</span></div></div><div class="detail-section"><h2>核心与存储</h2><div class="spec-grid">${spec(d.c||d.a||'—','处理器核心')}${spec((d.cc||1)+' core','核心数')}${spec(clock(d.hz),'最高核心频率')}${spec(memory(d.fl),'Flash')}${spec(memory(d.ra),'RAM')}${spec(d.fpu==='yes'?'有':d.fpu==='no'?'无':'—','FPU')}</div></div><div class="detail-section"><h2>外设资源</h2><div class="spec-grid">${spec(value(d.tim)+(d.tw?' × '+d.tw+'b':''),'TIM 数量 / 位宽')}${spec(value(d.adcu),'ADC 转换器单元')}${spec(value(d.adch),'ADC 通道（含内部）')}${spec(value(d.adc)+(d.adr?' · '+d.adr+' bit':''),'来源 ADC 原始参数')}${spec(value(d.gpio),'GPIO')}${spec(value(d.sercom),'SERCOM / FLEXCOM')}${spec(value(d.spi),'SPI')}${spec(value(d.i2c),'I²C')}${spec(value(d.usart),'USART')}${spec(value(d.uart),'UART')}${spec(value(d.can),'CAN')}${spec(value(d.usbd),'USB Device')}${spec(value(d.usbh),'USB Host')}${spec(value(d.eth),'Ethernet')}${spec(d.pin||'—','引脚数')}</div></div>${inventorySection(d)}<div class="detail-section"><h2>厂商加速器与特性</h2><div class="feature-panel">${features.length?`<div class="feature-label">来源已经确认的能力</div><div class="feature-list">${features.map(x=>`<span class="feature-chip confirmed">${esc(x)}</span>`).join('')}</div>`:'<div class="feature-label">当前来源没有已确认的专用加速器记录</div>'}${(d.pending||[]).length?`<div class="feature-label" style="margin-top:10px">待逐器件官方文档核验</div><div class="feature-list">${d.pending.map(x=>`<span class="feature-chip pending">${esc(x)}</span>`).join('')}</div><p class="feature-note">候选项不代表该具体后缀型号已经确认支持。</p>`:''}</div></div><div class="detail-section"><h2>评分拆解</h2><div class="score-panel">${[['计算',d.cs],['存储',d.ms],['外设',d.ps],['加速器',d.acs]].map(x=>`<div class="score-row"><label>${x[0]}</label><div class="score-bar"><i style="width:${Math.max(0,Math.min(100,x[1]||0))}%"></i></div><b>${value(x[1])}</b></div>`).join('')}<p class="score-note">数据覆盖率 ${value(d.cov)}%。这是选型排序指标，不是实测性能。CoreMark：${value(d.cm)} · DMIPS：${value(d.dm)}。</p></div></div><div class="detail-section"><h2>官方完整订货号 · ${parts.length}</h2>${parts.length?`<div class="parts">${parts.map(p=>`<div class="part-row"><div><b>${esc(p.n)}</b><p>后缀 ${esc(p.s||'—')} · 封装码 ${esc(p.p||'—')} · 温度码 ${esc(p.t||'—')} · 包装 ${esc(p.k||'—')}</p></div><span class="verified">✓ 已核验</span></div>`).join('')}</div>`:'<div class="feature-panel"><div class="feature-label">完整订货号尚未导入，不会根据后缀组合自动生成。</div></div>'}</div><button class="detail-action primary" id="detail-compare">${selected?'✓ 已加入对比':'＋ 加入参数对比'}</button>${d.src?`<a class="detail-action" href="${esc(d.src)}">打开来源页面 ↗</a>`:''}</section>`;
+    if(d.m==='Microchip'){
+      layer.querySelector('.detail-title p').textContent=`${vendorName(d.m)} · ${d.s}`;
+      const path=layer.querySelector('.detail-path');path.textContent=path.textContent.replace(/^Microchip/,vendorName(d.m));
+    }
+    if((d.boards||[]).length)layer.querySelector('.detail-hero').insertAdjacentHTML('beforeend',boardTags(d,true));
+    requestAnimationFrame(()=>layer.classList.add('open'));layer.querySelector('.back-btn').onclick=closeDetail;layer.querySelector('.detail-backdrop').onclick=closeDetail;$('#detail-compare').onclick=()=>{toggleCompare(d.id);openDetail(d.id)};
+  }
+  function closeDetail(){state.detail=null;const layer=$('#detail-layer');layer.classList.remove('open');setTimeout(()=>{if(!state.detail)layer.innerHTML=''},220)}
+  function render(){renderHeader();if(state.tab==='catalog')renderCatalog();else if(state.tab==='search')renderSearch(false);else if(state.tab==='compare')renderCompare();else if(state.tab==='data')renderData();else renderAuthor();updateNav()}
+  window.MCUL={handleAndroidBack:function(){if(state.detail){closeDetail();return true}if(state.tab==='catalog'){if(state.browse.line){state.browse.line=null;renderCatalog();return true}if(state.browse.series){state.browse.series=null;renderCatalog();return true}if(state.browse.vendor){state.browse.vendor=null;renderCatalog();return true}}if(state.tab!=='catalog'){setTab('catalog');return true}return false}};
+  document.querySelectorAll('#bottom-nav button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+  $('#snapshot-pill').textContent=`${count(catalog.meta.devices)} DEVICES · OFFLINE`;
+  $('#splash').remove();$('#app').hidden=false;render();if(previewDevice&&byId.has(previewDevice))setTimeout(()=>openDetail(previewDevice),50);
+})();
