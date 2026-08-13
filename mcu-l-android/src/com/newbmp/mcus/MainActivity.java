@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
         setContentView(webView);
         if (savedInstanceState == null) {
             webView.clearCache(true);
-            webView.loadUrl("file:///android_asset/index.html?build=8");
+            webView.loadUrl("file:///android_asset/index.html?build=9");
         } else webView.restoreState(savedInstanceState);
     }
 
