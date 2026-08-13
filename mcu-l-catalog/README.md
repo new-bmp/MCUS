@@ -72,6 +72,8 @@ python scripts/import_st_official.py
 python scripts/import_ti_official.py
 python scripts/import_microchip_official.py
 python scripts/import_gigadevice_official.py
+python scripts/import_qinheng_official.py
+python scripts/import_stc32_official.py
 python scripts/import_espressif_products.py
 python scripts/augment_infineon_from_device_db.py
 python scripts/augment_espressif_from_idf_soc_caps.py
@@ -116,3 +118,11 @@ coverage of PIC, AVR, 8051, RL78, RX, C2000, or other proprietary/non-Arm
 catalogs. Those require manufacturer-specific import adapters. Likewise, a
 device row such as `STM32F103C8` is not counted as complete orderable-part
 coverage until every official package/temperature/packing code is collected.
+
+The STC32 adapter reads the official STC Micro STC32G family and product pages.
+It imports the exact models named by the public selection tables, including
+STC32G12K64/G12K128, STC32G8K48/G8K64, STC32CL8K48/CL8K64 and STC32G144K246.
+The catalog preserves the 8051-compatible 1T core, MDU32, DSP32/TFPU, UART /
+USART, timer, ADC channel and ADC-unit distinctions, and records STC32G18K64
+and STC32G96K246 only as official page mentions because their individual
+public specification table is not present on the linked page.

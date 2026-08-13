@@ -1,0 +1,24 @@
+{
+  "status": "ok",
+  "adapter": "import_stc32_official.py",
+  "manufacturer": "STC",
+  "device_variants": 9,
+  "orderable_parts": 9,
+  "sources": 5,
+  "exact_models": [
+    "STC32G12K64",
+    "STC32G12K128",
+    "STC32G8K48",
+    "STC32G8K64",
+    "STC32CL8K48",
+    "STC32CL8K64",
+    "STC32G18K64",
+    "STC32G96K246",
+    "STC32G144K246"
+  ],
+  "mentioned_only_models": [
+    "STC32G18K64",
+    "STC32G96K246"
+  ],
+  "completeness_claim": "Exact STC32 model names and capabilities published by STC Micro product pages; no suffix expansion and no claim for models without an official public specification table."
+}

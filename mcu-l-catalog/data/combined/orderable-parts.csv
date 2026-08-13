@@ -4123,6 +4123,1064 @@ microchip::wbz351pe-i,microchip::wbz351,Microchip,PIC32CX-BZ3,PIC32CX-BZ3,PIC32C
 microchip::wbz351pe-i-sl3,microchip::wbz351-sl3,Microchip,PIC32CX-BZ3,PIC32CX-BZ3,PIC32CX-BZ3,WBZ351_SL3,WBZ351PE-I-SL3,,,,,LGA39,-40..85 °C,,unknown,microchip-atdf:PIC32CX-BZ3_DFP@1.4.259,https://packs.download.microchip.com/Microchip.PIC32CX-BZ3_DFP.1.4.259.pack,2026-08-12T09:31:18+00:00,manufacturer_device_database,atdf_variant_record
 microchip::wbz351ue-i,microchip::wbz351,Microchip,PIC32CX-BZ3,PIC32CX-BZ3,PIC32CX-BZ3,WBZ351,WBZ351UE-I,UE-I,,,,LGA39,-40..85 °C,,unknown,microchip-atdf:PIC32CX-BZ3_DFP@1.4.259,https://packs.download.microchip.com/Microchip.PIC32CX-BZ3_DFP.1.4.259.pack,2026-08-12T09:31:18+00:00,manufacturer_device_database,atdf_variant_record
 microchip::wbz351ue-i-sl3,microchip::wbz351-sl3,Microchip,PIC32CX-BZ3,PIC32CX-BZ3,PIC32CX-BZ3,WBZ351_SL3,WBZ351UE-I-SL3,,,,,LGA39,-40..85 °C,,unknown,microchip-atdf:PIC32CX-BZ3_DFP@1.4.259,https://packs.download.microchip.com/Microchip.PIC32CX-BZ3_DFP.1.4.259.pack,2026-08-12T09:31:18+00:00,manufacturer_device_database,atdf_variant_record
+qinheng::ch32f103c6t6,qinheng::ch32f103c6,Qinheng,CH32,CH32F103,CH32F103,CH32F103C6,CH32F103C6T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-data-yaml:CH32F103C6T6.yaml,"https://www.wch.cn/products/CH32F103.html
+cores:
+  - name: cortex-m3
+    arch: arm
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32F1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C1.yaml""
+      - ""../peripherals/FV2x_V3x_SPI1.yaml""
+      - ""../peripherals/V1x_V2x_ADV_TIM1.yaml""
+      - ""../peripherals/V1x_GP16_TIM23.yaml""
+    include_interrupts: ""../interrupts/CH32V1.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V103.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32f103c8t6,qinheng::ch32f103c8,Qinheng,CH32,CH32F103,CH32F103,CH32F103C8,CH32F103C8T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-data-yaml:CH32F103C8T6.yaml,"https://www.wch.cn/products/CH32F103.html
+cores:
+  - name: cortex-m3
+    arch: arm
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32F1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C2.yaml""
+      - ""../peripherals/FV2x_V3x_SPI1.yaml""
+      - ""../peripherals/FV2x_V3x_SPI2.yaml""
+      - ""../peripherals/V1x_V2x_ADV_TIM1.yaml""
+      - ""../peripherals/FV2x_V3x_GP16_TIM234.yaml""
+    include_interrupts: ""../interrupts/CH32V1.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V103.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32f103r8t6,qinheng::ch32f103r8,Qinheng,CH32,CH32F103,CH32F103,CH32F103R8,CH32F103R8T6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-data-yaml:CH32F103R8T6.yaml,"https://www.wch.cn/products/CH32F103.html
+cores:
+  - name: cortex-m3
+    arch: arm
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32F1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C2.yaml""
+      - ""../peripherals/FV2x_V3x_SPI1.yaml""
+      - ""../peripherals/FV2x_V3x_SPI2.yaml""
+      - ""../peripherals/V1x_V2x_ADV_TIM1.yaml""
+      - ""../peripherals/FV2x_V3x_GP16_TIM234.yaml""
+    include_interrupts: ""../interrupts/CH32V1.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V103.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32f205rbt6,qinheng::ch32f205rb,Qinheng,CH32,CH32F205,CH32F205,CH32F205RB,CH32F205RBT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH32F207.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32f207vct6,qinheng::ch32f207vc,Qinheng,CH32,CH32F207,CH32F207,CH32F207VC,CH32F207VCT6,T6,LQFP100,,,LQFP100,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH32F207.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32h415reu6,qinheng::ch32h415re,Qinheng,CH32,CH32H415,CH32H415,CH32H415RE,CH32H415REU6,U6,QFN60,,,QFN60,,,unknown,qinheng:ch32-data-yaml:CH32H415REU6.yaml,"https://www.wch.cn/products/CH32H415.html
+cores:
+  - name: qingke-v3f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USART8.yaml""
+      - ""../peripherals/H4_SPI4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml""
+  - name: qingke-v5f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USART8.yaml""
+      - ""../peripherals/H4_SPI4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32h416rdu6,qinheng::ch32h416rd,Qinheng,CH32,CH32H416,CH32H416,CH32H416RD,CH32H416RDU6,U6,QFN60,,,QFN60,,,unknown,qinheng:ch32-data-yaml:CH32H416RDU6.yaml,"https://www.wch.cn/products/CH32H416.html
+cores:
+  - name: qingke-v3f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml""
+  - name: qingke-v5f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32h417meu6,qinheng::ch32h417me,Qinheng,CH32,CH32H417,CH32H417,CH32H417ME,CH32H417MEU6,U6,QFN88,,,QFN88,,,unknown,qinheng:ch32-data-yaml:CH32H417MEU6.yaml,"https://www.wch.cn/products/CH32H417.html
+cores:
+  - name: qingke-v3f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USART8.yaml""
+      - ""../peripherals/H4_SPI4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml""
+  - name: qingke-v5f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USART8.yaml""
+      - ""../peripherals/H4_SPI4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32h417qeu6,qinheng::ch32h417qe,Qinheng,CH32,CH32H417,CH32H417,CH32H417QE,CH32H417QEU6,U6,QFN128,,,QFN128,,,unknown,qinheng:ch32-data-yaml:CH32H417QEU6.yaml,"https://www.wch.cn/products/CH32H417.html
+cores:
+  - name: qingke-v3f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USART8.yaml""
+      - ""../peripherals/H4_SPI4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml""
+  - name: qingke-v5f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USART8.yaml""
+      - ""../peripherals/H4_SPI4.yaml""
+      - ""../peripherals/H4_USBFS.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+      - ""../peripherals/H4_USBPD.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32h417weu6,qinheng::ch32h417we,Qinheng,CH32,CH32H417,CH32H417,CH32H417WE,CH32H417WEU6,U6,QFN68,,,QFN68,,,unknown,qinheng:ch32-data-yaml:CH32H417WEU6.yaml,"https://www.wch.cn/products/CH32H417.html
+cores:
+  - name: qingke-v3f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml""
+  - name: qingke-v5f
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32H4.yaml""
+      - ""../peripherals/H4_USBSS.yaml""
+    include_interrupts: ""../interrupts/CH32H4.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32l103c8t6,qinheng::ch32l103c8,Qinheng,CH32,CH32L103,CH32L103,CH32L103C8,CH32L103C8T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32L103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32l103f7p6,qinheng::ch32l103f7,Qinheng,CH32,CH32L103,CH32L103,CH32L103F7,CH32L103F7P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32L103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32l103f8p6,qinheng::ch32l103f8,Qinheng,CH32,CH32L103,CH32L103,CH32L103F8,CH32L103F8P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32L103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32l103f8u6,qinheng::ch32l103f8,Qinheng,CH32,CH32L103,CH32L103,CH32L103F8,CH32L103F8U6,U6,QFN20,,,QFN20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32L103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32l103g8r6,qinheng::ch32l103g8,Qinheng,CH32,CH32L103,CH32L103,CH32L103G8,CH32L103G8R6,R6,QSOP28,,,QSOP28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32L103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32l103k8u6,qinheng::ch32l103k8,Qinheng,CH32,CH32L103,CH32L103,CH32L103K8,CH32L103K8U6,U6,QFN32,,,QFN32,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32L103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32m007e8r6,qinheng::ch32m007e8,Qinheng,CH32,CH32M007,CH32M007,CH32M007E8,CH32M007E8R6,R6,QSOP24,,,QSOP24,,,unknown,qinheng:ch32-data-yaml:CH32M007x8x6.yaml,"https://www.wch-ic.com/products/CH32M007.html
+cores:
+  - name: qingke-v2c
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32V00X.yaml""
+      - ""../peripherals/V00X_USART2.yaml""
+      - ""../peripherals/V007_M007_TIM2.yaml""
+      - ""../peripherals/V00X_TIM3.yaml""
+      - ""../peripherals/V007_M007_OPA.yaml""
+      - ""../peripherals/V006_V007_M007_TKEY.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V00X.yaml""
+    include_interrupts: ""../interrupts/CH32V00X.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32m007e8u6,qinheng::ch32m007e8,Qinheng,CH32,CH32M007,CH32M007,CH32M007E8,CH32M007E8U6,U6,QFN26C3,,,QFN26C3,,,unknown,qinheng:ch32-data-yaml:CH32M007x8x6.yaml,"https://www.wch-ic.com/products/CH32M007.html
+cores:
+  - name: qingke-v2c
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32V00X.yaml""
+      - ""../peripherals/V00X_USART2.yaml""
+      - ""../peripherals/V007_M007_TIM2.yaml""
+      - ""../peripherals/V00X_TIM3.yaml""
+      - ""../peripherals/V007_M007_OPA.yaml""
+      - ""../peripherals/V006_V007_M007_TKEY.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V00X.yaml""
+    include_interrupts: ""../interrupts/CH32V00X.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32m007g8r6,qinheng::ch32m007g8,Qinheng,CH32,CH32M007,CH32M007,CH32M007G8,CH32M007G8R6,R6,QSOP28,,,QSOP28,,,unknown,qinheng:ch32-data-yaml:CH32M007x8x6.yaml,"https://www.wch-ic.com/products/CH32M007.html
+cores:
+  - name: qingke-v2c
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32V00X.yaml""
+      - ""../peripherals/V00X_USART2.yaml""
+      - ""../peripherals/V007_M007_TIM2.yaml""
+      - ""../peripherals/V00X_TIM3.yaml""
+      - ""../peripherals/V007_M007_OPA.yaml""
+      - ""../peripherals/V006_V007_M007_TKEY.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V00X.yaml""
+    include_interrupts: ""../interrupts/CH32V00X.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32m007k8u7,qinheng::ch32m007k8,Qinheng,CH32,CH32M007,CH32M007,CH32M007K8,CH32M007K8U7,U7,QFN32,,,QFN32,,,unknown,qinheng:ch32-data-yaml:CH32M007x8x6.yaml,"https://www.wch-ic.com/products/CH32M007.html
+cores:
+  - name: qingke-v2c
+    arch: riscv
+    peripherals: []
+    include_peripherals:
+      - ""../family/CH32V00X.yaml""
+      - ""../peripherals/V00X_USART2.yaml""
+      - ""../peripherals/V007_M007_TIM2.yaml""
+      - ""../peripherals/V00X_TIM3.yaml""
+      - ""../peripherals/V007_M007_OPA.yaml""
+      - ""../peripherals/V006_V007_M007_TKEY.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V00X.yaml""
+    include_interrupts: ""../interrupts/CH32V00X.yaml",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32v003a4m6,qinheng::ch32v003a4,Qinheng,CH32,CH32V003,CH32V003,CH32V003A4,CH32V003A4M6,M6,SOP16,,,SOP16,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V003.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v003f4p6,qinheng::ch32v003f4,Qinheng,CH32,CH32V003,CH32V003,CH32V003F4,CH32V003F4P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V003.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v003f4u6,qinheng::ch32v003f4,Qinheng,CH32,CH32V003,CH32V003,CH32V003F4,CH32V003F4U6,U6,QFN20,,,QFN20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V003.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v003j4m6,qinheng::ch32v003j4,Qinheng,CH32,CH32V003,CH32V003,CH32V003J4,CH32V003J4M6,M6,SOP8,,,SOP8,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V003.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v103c6t6,qinheng::ch32v103c6,Qinheng,CH32,CH32V103,CH32V103,CH32V103C6,CH32V103C6T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v103c8t6,qinheng::ch32v103c8,Qinheng,CH32,CH32V103,CH32V103,CH32V103C8,CH32V103C8T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v103c8u6,qinheng::ch32v103c8,Qinheng,CH32,CH32V103,CH32V103,CH32V103C8,CH32V103C8U6,U6,QFN48X7,,,QFN48X7,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v103r8t6,qinheng::ch32v103r8,Qinheng,CH32,CH32V103,CH32V103,CH32V103R8,CH32V103R8T6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V103.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203c6t6,qinheng::ch32v203c6,Qinheng,CH32,CH32V203,CH32V203,CH32V203C6,CH32V203C6T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203c8t6,qinheng::ch32v203c8,Qinheng,CH32,CH32V203,CH32V203,CH32V203C8,CH32V203C8T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203c8u6,qinheng::ch32v203c8,Qinheng,CH32,CH32V203,CH32V203,CH32V203C8,CH32V203C8U6,U6,QFN48X7,,,QFN48X7,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203f6p6,qinheng::ch32v203f6,Qinheng,CH32,CH32V203,CH32V203,CH32V203F6,CH32V203F6P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203f8p6,qinheng::ch32v203f8,Qinheng,CH32,CH32V203,CH32V203,CH32V203F8,CH32V203F8P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203f8u6,qinheng::ch32v203f8,Qinheng,CH32,CH32V203,CH32V203,CH32V203F8,CH32V203F8U6,U6,QFN20,,,QFN20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203g6u6,qinheng::ch32v203g6,Qinheng,CH32,CH32V203,CH32V203,CH32V203G6,CH32V203G6U6,U6,QFN28,,,QFN28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203g8r6,qinheng::ch32v203g8,Qinheng,CH32,CH32V203,CH32V203,CH32V203G8,CH32V203G8R6,R6,QSOP28,,,QSOP28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203k6t6,qinheng::ch32v203k6,Qinheng,CH32,CH32V203,CH32V203,CH32V203K6,CH32V203K6T6,T6,LQFP32,,,LQFP32,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203k8t6,qinheng::ch32v203k8,Qinheng,CH32,CH32V203,CH32V203,CH32V203K8,CH32V203K8T6,T6,LQFP32,,,LQFP32,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v203rbt6,qinheng::ch32v203rb,Qinheng,CH32,CH32V203,CH32V203,CH32V203RB,CH32V203RBT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V203.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v208cbu6,qinheng::ch32v208cb,Qinheng,CH32,CH32V208,CH32V208,CH32V208CB,CH32V208CBU6,U6,QFN48,,,QFN48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V208.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v208gbu6,qinheng::ch32v208gb,Qinheng,CH32,CH32V208,CH32V208,CH32V208GB,CH32V208GBU6,U6,QFN28,,,QFN28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V208.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v208rbt6,qinheng::ch32v208rb,Qinheng,CH32,CH32V208,CH32V208,CH32V208RB,CH32V208RBT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V208.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v208wbu6,qinheng::ch32v208wb,Qinheng,CH32,CH32V208,CH32V208,CH32V208WB,CH32V208WBU6,U6,QFN68,,,QFN68,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V208.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v303cbt6,qinheng::ch32v303cb,Qinheng,CH32,CH32V303,CH32V303,CH32V303CB,CH32V303CBT6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V303.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v303rbt6,qinheng::ch32v303rb,Qinheng,CH32,CH32V303,CH32V303,CH32V303RB,CH32V303RBT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V303.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v303rct6,qinheng::ch32v303rc,Qinheng,CH32,CH32V303,CH32V303,CH32V303RC,CH32V303RCT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V303.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v303vct6,qinheng::ch32v303vc,Qinheng,CH32,CH32V303,CH32V303,CH32V303VC,CH32V303VCT6,T6,LQFP100,,,LQFP100,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V303.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v305fbp6,qinheng::ch32v305fb,Qinheng,CH32,CH32V305,CH32V305,CH32V305FB,CH32V305FBP6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V307.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v305gbu6,qinheng::ch32v305gb,Qinheng,CH32,CH32V305,CH32V305,CH32V305GB,CH32V305GBU6,U6,QFN28,,,QFN28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V307.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v305rbt6,qinheng::ch32v305rb,Qinheng,CH32,CH32V305,CH32V305,CH32V305RB,CH32V305RBT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V307.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v307rct6,qinheng::ch32v307rc,Qinheng,CH32,CH32V307,CH32V307,CH32V307RC,CH32V307RCT6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V307.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v307vct6,qinheng::ch32v307vc,Qinheng,CH32,CH32V307,CH32V307,CH32V307VC,CH32V307VCT6,T6,LQFP100,,,LQFP100,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V307.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v307wcu6,qinheng::ch32v307wc,Qinheng,CH32,CH32V307,CH32V307,CH32V307WC,CH32V307WCU6,U6,QFN68,,,QFN68,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32V307.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32v317vct6,qinheng::ch32v317vc,Qinheng,CH32,CH32V317,CH32V317,CH32V317VC,CH32V317VCT6,T6,LQFP100,,,LQFP100,,,unknown,qinheng:ch32-data-yaml:CH32V317VCT6.yaml,"https://www.wch.cn/products/CH32V317.html
+cores:
+  - name: qingke-v4f
+    arch: riscv
+    peripherals:
+      - name: RCC
+        address: 0x40021000
+        registers:
+          kind: rcc
+          version: v3_d8c
+          block: RCC
+        pins:
+          - pin: PA8
+            signal: MCO
+    include_peripherals:
+      - ""../family/CH32V3.yaml""
+      - ""../peripherals/FV2x_V3x_USART1.yaml""
+      - ""../peripherals/FV2x_V3x_USART2.yaml""
+      - ""../peripherals/FV2x_V3x_USART3.yaml""
+      - ""../peripherals/FV2x_V3x_USART4.yaml""
+      - ""../peripherals/FV2x_V3x_USART5.yaml""
+      - ""../peripherals/FV2x_V3x_USART678.yaml""
+      - ""../peripherals/FV2x_V3x_ADV_TIM1.yaml""
+      - ""../peripherals/FV2x_V3x_GP16_TIM234.yaml""
+      - ""../peripherals/FV2x_V3x_GP16_TIM5.yaml""
+      - ""../peripherals/FV2x_V3x_BASIC_TIM67.yaml""
+      - ""../peripherals/FV2x_V3x_ADV_TIM8910.yaml""
+      - ""../peripherals/FV2x_V3x_ADC1.yaml""
+      - ""../peripherals/FV2x_V3x_ADC2.yaml""
+      - ""../peripherals/FV2x_V3x_SPI1.yaml""
+      - ""../peripherals/FV2x_V3x_SPI2.yaml""
+      - ""../peripherals/FV2x_V3x_SPI3.yaml""
+      - ""../peripherals/FV2x_V3x_I2C1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C2.yaml""
+      - ""../peripherals/FV2x_V3x_RNG.yaml""
+      - ""../peripherals/FV2x_V3x_USBHS.yaml""
+      - ""../peripherals/FV2x_V3x_USB_OTG_FS.yaml""
+      - ""../peripherals/FV2x_V3x_DAC.yaml""
+      - ""../peripherals/FV2x_V3x_SDIO.yaml""
+      - ""../peripherals/FV2x_V3x_CAN1.yaml""
+      - ""../peripherals/FV2x_V3x_CAN2.yaml""
+      - ""../peripherals/FV2x_V3x_OPA.yaml""
+
+    include_interrupts: ""../interrupts/CH32V3.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V_V4F_DMA1.yaml""
+      DMA2: ""../dma/CH32V_V4F_DMA2.yaml""
+
+_raw:
+  url: http://www.wch.cn/products/CH32V317.html",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32v317wcu6,qinheng::ch32v317wc,Qinheng,CH32,CH32V317,CH32V317,CH32V317WC,CH32V317WCU6,U6,QFN68,,,QFN68,,,unknown,qinheng:ch32-data-yaml:CH32V317WCU6.yaml,"https://www.wch.cn/products/CH32V317.html
+cores:
+  - name: qingke-v4f
+    arch: riscv
+    peripherals:
+      - name: RCC
+        address: 0x40021000
+        registers:
+          kind: rcc
+          version: v3_d8c
+          block: RCC
+        pins:
+          - pin: PA8
+            signal: MCO
+    include_peripherals:
+      - ""../family/CH32V3.yaml""
+      - ""../peripherals/FV2x_V3x_USART1.yaml""
+      - ""../peripherals/FV2x_V3x_USART2.yaml""
+      - ""../peripherals/FV2x_V3x_USART3.yaml""
+      - ""../peripherals/FV2x_V3x_USART4.yaml""
+      - ""../peripherals/FV2x_V3x_USART5.yaml""
+      - ""../peripherals/FV2x_V3x_USART678.yaml""
+      - ""../peripherals/FV2x_V3x_ADV_TIM1.yaml""
+      - ""../peripherals/FV2x_V3x_GP16_TIM234.yaml""
+      - ""../peripherals/FV2x_V3x_GP16_TIM5.yaml""
+      - ""../peripherals/FV2x_V3x_BASIC_TIM67.yaml""
+      - ""../peripherals/FV2x_V3x_ADV_TIM8910.yaml""
+      - ""../peripherals/FV2x_V3x_ADC1.yaml""
+      - ""../peripherals/FV2x_V3x_ADC2.yaml""
+      - ""../peripherals/FV2x_V3x_SPI1.yaml""
+      - ""../peripherals/FV2x_V3x_SPI2.yaml""
+      - ""../peripherals/FV2x_V3x_SPI3.yaml""
+      - ""../peripherals/FV2x_V3x_I2C1.yaml""
+      - ""../peripherals/FV2x_V3x_I2C2.yaml""
+      - ""../peripherals/FV2x_V3x_RNG.yaml""
+      - ""../peripherals/FV2x_V3x_USBHS.yaml""
+      - ""../peripherals/FV2x_V3x_USB_OTG_FS.yaml""
+      - ""../peripherals/FV2x_V3x_DAC.yaml""
+      - ""../peripherals/FV2x_V3x_SDIO.yaml""
+      - ""../peripherals/FV2x_V3x_CAN1.yaml""
+      - ""../peripherals/FV2x_V3x_CAN2.yaml""
+      - ""../peripherals/FV2x_V3x_OPA.yaml""
+
+    include_interrupts: ""../interrupts/CH32V3.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32V_V4F_DMA1.yaml""
+      DMA2: ""../dma/CH32V_V4F_DMA2.yaml""
+
+_raw:
+  url: http://www.wch.cn/products/CH32V317.html",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch32x033f8p6,qinheng::ch32x033f8,Qinheng,CH32,CH32X033,CH32X033,CH32X033F8,CH32X033F8P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x034f8p6,qinheng::ch32x034f8,Qinheng,CH32,CH32X034,CH32X034,CH32X034F8,CH32X034F8P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x034f8u6,qinheng::ch32x034f8,Qinheng,CH32,CH32X034,CH32X034,CH32X034F8,CH32X034F8U6,U6,QFN20,,,QFN20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x035c8t6,qinheng::ch32x035c8,Qinheng,CH32,CH32X035,CH32X035,CH32X035C8,CH32X035C8T6,T6,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x035f7p6,qinheng::ch32x035f7,Qinheng,CH32,CH32X035,CH32X035,CH32X035F7,CH32X035F7P6,P6,TSSOP20,,,TSSOP20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x035f8u6,qinheng::ch32x035f8,Qinheng,CH32,CH32X035,CH32X035,CH32X035F8,CH32X035F8U6,U6,QFN20,,,QFN20,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x035g8r6,qinheng::ch32x035g8,Qinheng,CH32,CH32X035,CH32X035,CH32X035G8,CH32X035G8R6,R6,QSOP28,,,QSOP28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x035g8u6,qinheng::ch32x035g8,Qinheng,CH32,CH32X035,CH32X035,CH32X035G8,CH32X035G8U6,U6,QFN28,,,QFN28,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch32x035r8t6,qinheng::ch32x035r8,Qinheng,CH32,CH32X035,CH32X035,CH32X035R8,CH32X035R8T6,T6,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-table,https://www.wch.cn/products/CH32X035.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch561,qinheng::ch561,Qinheng,CH,CH561,CH561,CH561,CH561,,LQFP64M,,,LQFP64M,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH561.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch563,qinheng::ch563,Qinheng,CH,CH563,CH563,CH563,CH563,,LQFP128/LQFP64M,,,LQFP128/LQFP64M,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH563.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch564d,qinheng::ch564d,Qinheng,CH,CH564,CH564,CH564D,CH564D,,QFN26C3,,,QFN26C3,,,unknown,qinheng:ch32-data-yaml:CH564.yaml,"https://www.wch.cn/products/CH564.html
+cores:
+  - name: qingke-v4j
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch564l,qinheng::ch564l,Qinheng,CH,CH564,CH564,CH564L,CH564L,,LQFP128,,,LQFP128,,,unknown,qinheng:ch32-data-yaml:CH564.yaml,"https://www.wch.cn/products/CH564.html
+cores:
+  - name: qingke-v4j
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch564q,qinheng::ch564q,Qinheng,CH,CH564,CH564,CH564Q,CH564Q,,LQFP64M,,,LQFP64M,,,unknown,qinheng:ch32-data-yaml:CH564.yaml,"https://www.wch.cn/products/CH564.html
+cores:
+  - name: qingke-v4j
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch567,qinheng::ch567,Qinheng,CH,CH567,CH567,CH567,CH567,,LQFP48,,,LQFP48,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH567.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch568,qinheng::ch568,Qinheng,CH,CH568,CH568,CH568,CH568,,LQFP48,,,LQFP48,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH568.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch569,qinheng::ch569,Qinheng,CH,CH569,CH569,CH569,CH569,,QFN68/QFN40,,,QFN68/QFN40,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH569.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch571d,qinheng::ch571d,Qinheng,CH,CH571,CH571,CH571D,CH571D,,QFN20,,,QFN20,,,unknown,qinheng:ch32-data-yaml:CH571.yaml,"https://www.wch.cn/products/CH573.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  BLE: ""4.2""
+  LCD: ""-""
+  row_no: bff986aa886947c1b2d86b0d3e7ce629
+  url: http://www.wch.cn/products/CH573.html
+  LEDC: ""-""
+  PWM: ""4""
+  DataFlash: 32K
+  head: Part NO.
+  GPIO: ""20""
+  Package: QFN28/QFN20
+  Timer: 4*26b
+  Freq: 20MHz
+  TouchKey/ADC: -/6*12b
+  Core: RISC-V
+  Flash: 192K
+  UART/SPI/IIC: 2/1/-
+  USB: 1*D
+  VDD: 2.3/3.3
+  RTC/WDOG: √/√
+  Part NO.: CH571
+  SRAM: 18K",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch571f,qinheng::ch571f,Qinheng,CH,CH571,CH571,CH571F,CH571F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH571.yaml,"https://www.wch.cn/products/CH573.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  BLE: ""4.2""
+  LCD: ""-""
+  row_no: bff986aa886947c1b2d86b0d3e7ce629
+  url: http://www.wch.cn/products/CH573.html
+  LEDC: ""-""
+  PWM: ""4""
+  DataFlash: 32K
+  head: Part NO.
+  GPIO: ""20""
+  Package: QFN28/QFN20
+  Timer: 4*26b
+  Freq: 20MHz
+  TouchKey/ADC: -/6*12b
+  Core: RISC-V
+  Flash: 192K
+  UART/SPI/IIC: 2/1/-
+  USB: 1*D
+  VDD: 2.3/3.3
+  RTC/WDOG: √/√
+  Part NO.: CH571
+  SRAM: 18K",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch571k,qinheng::ch571k,Qinheng,CH,CH571,CH571,CH571K,CH571K,,ESSOP10,,,ESSOP10,,,unknown,qinheng:ch32-data-yaml:CH571.yaml,"https://www.wch.cn/products/CH573.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  BLE: ""4.2""
+  LCD: ""-""
+  row_no: bff986aa886947c1b2d86b0d3e7ce629
+  url: http://www.wch.cn/products/CH573.html
+  LEDC: ""-""
+  PWM: ""4""
+  DataFlash: 32K
+  head: Part NO.
+  GPIO: ""20""
+  Package: QFN28/QFN20
+  Timer: 4*26b
+  Freq: 20MHz
+  TouchKey/ADC: -/6*12b
+  Core: RISC-V
+  Flash: 192K
+  UART/SPI/IIC: 2/1/-
+  USB: 1*D
+  VDD: 2.3/3.3
+  RTC/WDOG: √/√
+  Part NO.: CH571
+  SRAM: 18K",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch573f,qinheng::ch573f,Qinheng,CH,CH573,CH573,CH573F,CH573F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH573.yaml,"https://www.wch.cn/products/CH573.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Flash: 448K
+  VDD: 1.7/3.3
+  Core: RISC-V
+  url: http://www.wch.cn/products/CH573.html
+  BLE: ""4.2""
+  row_no: 9f43e7849a3a4ce385020a544ccd0e33
+  RTC/WDOG: √/√
+  Freq: 20MHz
+  Timer: 4*26b
+  LEDC: ""-""
+  DataFlash: 32K
+  LCD: ""-""
+  UART/SPI/IIC: 4/1/-
+  USB: 1*H/1*D
+  SRAM: 18K
+  head: Part NO.
+  PWM: ""12""
+  TouchKey/ADC: 10/10*12b
+  Package: QFN32/QFN28
+  GPIO: ""22""
+  Part NO.: CH573",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch573q,qinheng::ch573q,Qinheng,CH,CH573,CH573,CH573Q,CH573Q,,LQFP32,,,LQFP32,,,unknown,qinheng:ch32-data-yaml:CH573.yaml,"https://www.wch.cn/products/CH573.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Flash: 448K
+  VDD: 1.7/3.3
+  Core: RISC-V
+  url: http://www.wch.cn/products/CH573.html
+  BLE: ""4.2""
+  row_no: 9f43e7849a3a4ce385020a544ccd0e33
+  RTC/WDOG: √/√
+  Freq: 20MHz
+  Timer: 4*26b
+  LEDC: ""-""
+  DataFlash: 32K
+  LCD: ""-""
+  UART/SPI/IIC: 4/1/-
+  USB: 1*H/1*D
+  SRAM: 18K
+  head: Part NO.
+  PWM: ""12""
+  TouchKey/ADC: 10/10*12b
+  Package: QFN32/QFN28
+  GPIO: ""22""
+  Part NO.: CH573",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch581f,qinheng::ch581f,Qinheng,CH,CH581,CH581,CH581F,CH581F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH581.yaml,"https://www.wch.cn/products/CH583.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Freq: 20MHz
+  head: Part NO.
+  RTC/WDOG: √/√
+  Flash: 192K
+  LCD: ""-""
+  SRAM: 32K
+  Timer: 4*26b
+  USB: 1*D
+  GPIO: ""20""
+  row_no: 7ff4059f2c324afaa6caa9edff69ad27
+  Part NO.: CH581
+  PWM: ""10""
+  VDD: 2.3/3.3
+  UART/SPI/IIC: 2/1/-
+  url: http://www.wch.cn/products/CH583.html
+  DataFlash: 32K
+  Core: RISC-V
+  TouchKey/ADC: -/6*12b
+  Package: QFN28
+  BLE: ""5.3""
+  LEDC: ""-",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch582f,qinheng::ch582f,Qinheng,CH,CH582,CH582,CH582F,CH582F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH582.yaml,"https://www.wch.cn/products/CH583.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  RTC/WDOG: √/√
+  Flash: 448K
+  PWM: ""12""
+  USB: 2*H/2*D
+  LEDC: ""-""
+  VDD: 2.3/3.3
+  url: http://www.wch.cn/products/CH583.html
+  BLE: ""5.3""
+  TouchKey/ADC: 14/14*12b
+  Timer: 4*26b
+  Part NO.: CH582
+  Core: RISC-V
+  DataFlash: 32K
+  GPIO: ""40""
+  Package: QFN48/QFN28
+  SRAM: 32K
+  head: Part NO.
+  row_no: 4be5186a4c7d40a69ccd6eeac0be3fd2
+  UART/SPI/IIC: 4/1/1
+  Freq: 20MHz
+  LCD: ""-",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch582m,qinheng::ch582m,Qinheng,CH,CH582,CH582,CH582M,CH582M,,QFN48,,,QFN48,,,unknown,qinheng:ch32-data-yaml:CH582.yaml,"https://www.wch.cn/products/CH583.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  RTC/WDOG: √/√
+  Flash: 448K
+  PWM: ""12""
+  USB: 2*H/2*D
+  LEDC: ""-""
+  VDD: 2.3/3.3
+  url: http://www.wch.cn/products/CH583.html
+  BLE: ""5.3""
+  TouchKey/ADC: 14/14*12b
+  Timer: 4*26b
+  Part NO.: CH582
+  Core: RISC-V
+  DataFlash: 32K
+  GPIO: ""40""
+  Package: QFN48/QFN28
+  SRAM: 32K
+  head: Part NO.
+  row_no: 4be5186a4c7d40a69ccd6eeac0be3fd2
+  UART/SPI/IIC: 4/1/1
+  Freq: 20MHz
+  LCD: ""-",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch583m,qinheng::ch583m,Qinheng,CH,CH583,CH583,CH583M,CH583M,,QFN48,,,QFN48,,,unknown,qinheng:ch32-data-yaml:CH583.yaml,"https://www.wch.cn/products/CH583.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Flash: 448K
+  BLE: ""5.3""
+  row_no: 489bcda291ed4487af1052e9898561d3
+  VDD: 1.7/3.3
+  Freq: 20MHz
+  RTC/WDOG: √/√
+  Part NO.: CH583
+  LEDC: ""-""
+  USB: 2*H/2*D
+  PWM: ""12""
+  LCD: ""-""
+  DataFlash: 32K
+  Timer: 4*26b
+  TouchKey/ADC: 14/14*12b
+  SRAM: 32K
+  GPIO: ""40""
+  UART/SPI/IIC: 4/2/1
+  head: Part NO.
+  url: http://www.wch.cn/products/CH583.html
+  Core: RISC-V
+  Package: QFN48",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch591d,qinheng::ch591d,Qinheng,CH,CH591,CH591,CH591D,CH591D,,QFN20,,,QFN20,,,unknown,qinheng:ch32-data-yaml:CH591.yaml,"https://www.wch.cn/products/CH592.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Freq: 20MHz
+  Part NO.: CH591
+  Core: RISC-V
+  SRAM: 26K
+  UART/SPI/IIC: 2/1/-
+  RTC/WDOG: √/√
+  PWM: ""10""
+  Timer: 4*26b
+  row_no: 4459858be5f145ea993f89cea2aad7e3
+  Flash: 192K
+  GPIO: ""20""
+  LCD: 16*4
+  VDD: 2.3/3.3
+  BLE: ""5.4""
+  url: http://www.wch.cn/products/CH592.html
+  LEDC: ""-""
+  USB: 1*D
+  DataFlash: 32K
+  TouchKey/ADC: -/6*12b
+  head: Part NO.
+  Package: QFN28/QFN20/TSSOP16",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch591f,qinheng::ch591f,Qinheng,CH,CH591,CH591,CH591F,CH591F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH591.yaml,"https://www.wch.cn/products/CH592.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Freq: 20MHz
+  Part NO.: CH591
+  Core: RISC-V
+  SRAM: 26K
+  UART/SPI/IIC: 2/1/-
+  RTC/WDOG: √/√
+  PWM: ""10""
+  Timer: 4*26b
+  row_no: 4459858be5f145ea993f89cea2aad7e3
+  Flash: 192K
+  GPIO: ""20""
+  LCD: 16*4
+  VDD: 2.3/3.3
+  BLE: ""5.4""
+  url: http://www.wch.cn/products/CH592.html
+  LEDC: ""-""
+  USB: 1*D
+  DataFlash: 32K
+  TouchKey/ADC: -/6*12b
+  head: Part NO.
+  Package: QFN28/QFN20/TSSOP16",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch591r,qinheng::ch591r,Qinheng,CH,CH591,CH591,CH591R,CH591R,,TSSOP16,,,TSSOP16,,,unknown,qinheng:ch32-data-yaml:CH591.yaml,"https://www.wch.cn/products/CH592.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Freq: 20MHz
+  Part NO.: CH591
+  Core: RISC-V
+  SRAM: 26K
+  UART/SPI/IIC: 2/1/-
+  RTC/WDOG: √/√
+  PWM: ""10""
+  Timer: 4*26b
+  row_no: 4459858be5f145ea993f89cea2aad7e3
+  Flash: 192K
+  GPIO: ""20""
+  LCD: 16*4
+  VDD: 2.3/3.3
+  BLE: ""5.4""
+  url: http://www.wch.cn/products/CH592.html
+  LEDC: ""-""
+  USB: 1*D
+  DataFlash: 32K
+  TouchKey/ADC: -/6*12b
+  head: Part NO.
+  Package: QFN28/QFN20/TSSOP16",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch592f,qinheng::ch592f,Qinheng,CH,CH592,CH592,CH592F,CH592F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH592.yaml,"https://www.wch.cn/products/CH592.html
+cores:
+  - name: qingke-v4
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0
+_raw:
+  Core: RISC-V
+  BLE: ""5.4""
+  Timer: 4*26b
+  Freq: 20MHz
+  VDD: 1.7/3.3
+  head: Part NO.
+  TouchKey/ADC: 12/12*12b
+  url: http://www.wch.cn/products/CH592.html
+  PWM: ""12""
+  USB: 1*H/1*D
+  Flash: 448K
+  LCD: 20*4
+  UART/SPI/IIC: 4/1/1
+  DataFlash: 32K
+  Part NO.: CH592
+  Package: QFN32/QFN28
+  row_no: 2626bb78642246beac86ef0601afe578
+  SRAM: 26K
+  GPIO: ""24""
+  LEDC: ""-""
+  RTC/WDOG: √/√",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch641,qinheng::ch641,Qinheng,CH,CH641,CH641,CH641,CH641,,QFN28/QSOP24<br>QFN20/QFN16,,,QFN28/QSOP24<br>QFN20/QFN16,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH641.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch641d,qinheng::ch641d,Qinheng,CH,CH641,CH641,CH641D,CH641D,,QFN20,,,QFN20,,,unknown,qinheng:ch32-data-yaml:CH641.yaml,"https://www.wch.cn/products/CH641.html
+cores:
+  - name: qingke-v2a
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH641.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH641.yaml""
+    include_interrupts: ""../interrupts/CH641.yaml""
+
+_raw:
+  Package: QFN28/QSOP24<br>QFN20/QFN16
+  CAP: 5/5
+  Timer: 2*16b
+  Freq: 48MHz
+  url: http://www.wch.cn/products/CH641.html
+  Flash: 16KB
+  UART: ""1""
+  VDD: 5-12
+  row_no: ca25e07005c0447bb56edcbcb9e5952d
+  SERDES/HSPI/DVP: -/-/-/-
+  head: Part NO.
+  RAM: 2KB
+  ETH/SATA: -/-
+  ADC: 15*10b
+  DataFlash: ""-""
+  I/O: ""25""
+  Other Features: QII/ISP<br>BC/USB PD
+  Part NO.: CH641",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch641f,qinheng::ch641f,Qinheng,CH,CH641,CH641,CH641F,CH641F,,QFN28,,,QFN28,,,unknown,qinheng:ch32-data-yaml:CH641.yaml,"https://www.wch.cn/products/CH641.html
+cores:
+  - name: qingke-v2a
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH641.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH641.yaml""
+    include_interrupts: ""../interrupts/CH641.yaml""
+
+_raw:
+  Package: QFN28/QSOP24<br>QFN20/QFN16
+  CAP: 5/5
+  Timer: 2*16b
+  Freq: 48MHz
+  url: http://www.wch.cn/products/CH641.html
+  Flash: 16KB
+  UART: ""1""
+  VDD: 5-12
+  row_no: ca25e07005c0447bb56edcbcb9e5952d
+  SERDES/HSPI/DVP: -/-/-/-
+  head: Part NO.
+  RAM: 2KB
+  ETH/SATA: -/-
+  ADC: 15*10b
+  DataFlash: ""-""
+  I/O: ""25""
+  Other Features: QII/ISP<br>BC/USB PD
+  Part NO.: CH641",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch641p,qinheng::ch641p,Qinheng,CH,CH641,CH641,CH641P,CH641P,,QFN16,,,QFN16,,,unknown,qinheng:ch32-data-yaml:CH641.yaml,"https://www.wch.cn/products/CH641.html
+cores:
+  - name: qingke-v2a
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH641.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH641.yaml""
+    include_interrupts: ""../interrupts/CH641.yaml""
+
+_raw:
+  Package: QFN28/QSOP24<br>QFN20/QFN16
+  CAP: 5/5
+  Timer: 2*16b
+  Freq: 48MHz
+  url: http://www.wch.cn/products/CH641.html
+  Flash: 16KB
+  UART: ""1""
+  VDD: 5-12
+  row_no: ca25e07005c0447bb56edcbcb9e5952d
+  SERDES/HSPI/DVP: -/-/-/-
+  head: Part NO.
+  RAM: 2KB
+  ETH/SATA: -/-
+  ADC: 15*10b
+  DataFlash: ""-""
+  I/O: ""25""
+  Other Features: QII/ISP<br>BC/USB PD
+  Part NO.: CH641",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch641u,qinheng::ch641u,Qinheng,CH,CH641,CH641,CH641U,CH641U,,QSOP24,,,QSOP24,,,unknown,qinheng:ch32-data-yaml:CH641.yaml,"https://www.wch.cn/products/CH641.html
+cores:
+  - name: qingke-v2a
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH641.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH641.yaml""
+    include_interrupts: ""../interrupts/CH641.yaml""
+
+_raw:
+  Package: QFN28/QSOP24<br>QFN20/QFN16
+  CAP: 5/5
+  Timer: 2*16b
+  Freq: 48MHz
+  url: http://www.wch.cn/products/CH641.html
+  Flash: 16KB
+  UART: ""1""
+  VDD: 5-12
+  row_no: ca25e07005c0447bb56edcbcb9e5952d
+  SERDES/HSPI/DVP: -/-/-/-
+  head: Part NO.
+  RAM: 2KB
+  ETH/SATA: -/-
+  ADC: 15*10b
+  DataFlash: ""-""
+  I/O: ""25""
+  Other Features: QII/ISP<br>BC/USB PD
+  Part NO.: CH641",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch643,qinheng::ch643,Qinheng,CH,CH643,CH643,CH643,CH643,,QSOP28/LQFP48<br>LQFP64/QFN80,,,QSOP28/LQFP48<br>LQFP64/QFN80,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH643.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch643l,qinheng::ch643l,Qinheng,CH,CH643,CH643,CH643L,CH643L,,LQFP48,,,LQFP48,,,unknown,qinheng:ch32-data-yaml:CH643.yaml,"https://www.wch.cn/products/CH643.html
+cores:
+  - name: qingke-v4c
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH643.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32X0.yaml""",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch643q,qinheng::ch643q,Qinheng,CH,CH643,CH643,CH643Q,CH643Q,,LQFP64,,,LQFP64,,,unknown,qinheng:ch32-data-yaml:CH643.yaml,"https://www.wch.cn/products/CH643.html
+cores:
+  - name: qingke-v4c
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH643.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32X0.yaml""",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch643u,qinheng::ch643u,Qinheng,CH,CH643,CH643,CH643U,CH643U,,QSOP28,,,QSOP28,,,unknown,qinheng:ch32-data-yaml:CH643.yaml,"https://www.wch.cn/products/CH643.html
+cores:
+  - name: qingke-v4c
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH643.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32X0.yaml""",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch643w,qinheng::ch643w,Qinheng,CH,CH643,CH643,CH643W,CH643W,,QFN80,,,QFN80,,,unknown,qinheng:ch32-data-yaml:CH643.yaml,"https://www.wch.cn/products/CH643.html
+cores:
+  - name: qingke-v4c
+    arch: riscv
+    peripherals:
+    include_peripherals:
+      - ""../family/CH643.yaml""
+    include_dma_channels:
+      DMA1: ""../dma/CH32X0.yaml""",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch645,qinheng::ch645,Qinheng,CH,CH645,CH645,CH645,CH645,,QFN68/QFN32,,,QFN68/QFN32,,,unknown,qinheng:special-table,https://www.wch.cn/products/CH645.html,2026-08-13T08:44:49+00:00,manufacturer_product_page,structured_official_snapshot
+qinheng::ch645f,qinheng::ch645f,Qinheng,CH,CH645,CH645,CH645F,CH645F,,QFN32,,,QFN32,,,unknown,qinheng:ch32-data-yaml:CH645.yaml,"https://www.wch.cn/products/CH645.html
+cores:
+  - name: qingke-v4c
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+qinheng::ch645w,qinheng::ch645w,Qinheng,CH,CH645,CH645,CH645W,CH645W,,QFN68,,,QFN68,,,unknown,qinheng:ch32-data-yaml:CH645.yaml,"https://www.wch.cn/products/CH645.html
+cores:
+  - name: qingke-v4c
+    arch: riscv
+    peripherals:
+
+    interrupts:
+      - name: WWDG
+        number: 1
+    dma_channels:
+      - name: DMA1_CH1
+        dma: DMA1
+        channel: 0",2026-08-13T08:44:49+00:00,manufacturer_device_database,structured_official_snapshot
+stc::stc32cl8k48,stc::stc32cl8k48,STC,STC32,STC32CL,STC32CL8K48,STC32CL8K48,STC32CL8K48,,,,,TSSOP20,,,unknown,stc:stc32:stc32cl8k64,https://www.stcmicro.com/stc/stc32cl8k64.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32cl8k64,stc::stc32cl8k64,STC,STC32,STC32CL,STC32CL8K64,STC32CL8K64,STC32CL8K64,,,,,TSSOP20,,,unknown,stc:stc32:stc32cl8k64,https://www.stcmicro.com/stc/stc32cl8k64.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g12k128,stc::stc32g12k128,STC,STC32,STC32G,STC32G12K128,STC32G12K128,STC32G12K128,,,,,LQFP64;LQFP48;LQFP32;PDIP40,,,unknown,stc:stc32:stc32g12k128,https://www.stcmicro.com/stc/stc32g12k128.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g12k64,stc::stc32g12k64,STC,STC32,STC32G,STC32G12K64,STC32G12K64,STC32G12K64,,,,,LQFP64;LQFP48;LQFP32;PDIP40,,,unknown,stc:stc32:stc32g12k128,https://www.stcmicro.com/stc/stc32g12k128.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g144k246,stc::stc32g144k246,STC,STC32,STC32G,STC32G144K246,STC32G144K246,STC32G144K246,,,,,LQFP100;LQFP64;LQFP48;LQFP44,,,unknown,stc:stc32:stc32g144k246,https://www.stcmicro.com/stc/stc32g144k246.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g18k64,stc::stc32g18k64,STC,STC32,STC32G,STC32G18K64,STC32G18K64,STC32G18K64,,,,,,,,unknown,stc:stc32:stc32g144k246,https://www.stcmicro.com/stc/stc32g144k246.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g8k48,stc::stc32g8k48,STC,STC32,STC32G,STC32G8K48,STC32G8K48,STC32G8K48,,,,,LQFP48;QFN48;LQFP32;QFN32;TSSOP20,,,unknown,stc:stc32:stc32g8k64,https://www.stcmicro.com/stc/stc32g8k64.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g8k64,stc::stc32g8k64,STC,STC32,STC32G,STC32G8K64,STC32G8K64,STC32G8K64,,,,,LQFP48;QFN48;LQFP32;QFN32;TSSOP20,,,unknown,stc:stc32:stc32g8k64,https://www.stcmicro.com/stc/stc32g8k64.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
+stc::stc32g96k246,stc::stc32g96k246,STC,STC32,STC32G,STC32G96K246,STC32G96K246,STC32G96K246,,,,,,,,unknown,stc:stc32:stc32g144k246,https://www.stcmicro.com/stc/stc32g144k246.html,2026-08-13T09:09:58+00:00,manufacturer_product_page,exact_official_model
 st::stm32f100c4t6b,stmicroelectronics::stm32f100c4,STMicroelectronics,STM32,STM32F1,STM32F100,STM32F100C4,STM32F100C4T6B,T6B,T,6B,,,,tray_or_unspecified,unknown,st-product-page:stm32f100c4,https://www.st.com/en/microcontrollers-microprocessors/stm32f100c4.html,2026-08-11T12:20:29+00:00,manufacturer_product_page,code_positions_parsed; descriptions_require_device_datasheet
 st::stm32f100c4t6btr,stmicroelectronics::stm32f100c4,STMicroelectronics,STM32,STM32F1,STM32F100,STM32F100C4,STM32F100C4T6BTR,T6BTR,T,6B,TR,,,tape_and_reel,unknown,st-product-page:stm32f100c4,https://www.st.com/en/microcontrollers-microprocessors/stm32f100c4.html,2026-08-11T12:20:29+00:00,manufacturer_product_page,code_positions_parsed; descriptions_require_device_datasheet
 st::stm32f100c4t7b,stmicroelectronics::stm32f100c4,STMicroelectronics,STM32,STM32F1,STM32F100,STM32F100C4,STM32F100C4T7B,T7B,T,7B,,,,tray_or_unspecified,unknown,st-product-page:stm32f100c4,https://www.st.com/en/microcontrollers-microprocessors/stm32f100c4.html,2026-08-11T12:20:29+00:00,manufacturer_product_page,code_positions_parsed; descriptions_require_device_datasheet
