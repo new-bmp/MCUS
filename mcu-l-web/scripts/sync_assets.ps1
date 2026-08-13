@@ -17,5 +17,18 @@ Get-ChildItem -LiteralPath $logos -File | ForEach-Object {
 }
 if (Test-Path -LiteralPath $staticFiles) { Remove-Item -LiteralPath $staticFiles -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $staticFiles | Out-Null
-Get-ChildItem -LiteralPath $public -File | Copy-Item -Destination $staticFiles -Force
+Get-ChildItem -LiteralPath $public -File | Where-Object { $_.Name -notin @("catalog.js", "index.html") } | Copy-Item -Destination $staticFiles -Force
+python (Join-Path $PSScriptRoot "build_staticfiles.py") --source $public --output $staticFiles
+@'
+/*.js
+  Content-Type: application/javascript; charset=utf-8
+  Cache-Control: public, max-age=3600
+
+/index.html
+  Cache-Control: no-cache
+'@ | Set-Content -LiteralPath (Join-Path $staticFiles "_headers") -Encoding UTF8
+$zipPath = Join-Path $root "MCUS-staticfiles.zip"
+if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+Compress-Archive -Path (Join-Path $staticFiles "*") -DestinationPath $zipPath -CompressionLevel Optimal
 Write-Output "Synced $source to $public and $staticFiles"
+Write-Output "Deploy archive: $zipPath"
