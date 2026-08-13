@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "selected_packs": 1,
+  "successful_packs": 1,
+  "failed_packs": 0,
+  "augmented_device_records": 95,
+  "unique_svd_payloads": 6,
+  "errors": 0,
+  "proxy_mode": "environment_or_direct",
+  "packs": [
+    {
+      "source_id": "cmsis:Keil.STM32F1xx_DFP@2.4.1",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32F1xx_DFP.2.4.1.pack",
+      "sha256": "807ea15da5b172b916bbc47b2b87f1e621240ad208d38e82a417a2ef8191e9d1",
+      "archive_bytes": 50237740,
+      "devices": 95,
+      "unique_svd_files": 6,
+      "status": "ok"
+    }
+  ]
+}

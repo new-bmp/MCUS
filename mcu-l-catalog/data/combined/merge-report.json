@@ -1,0 +1,23 @@
+{
+  "vendor_pack_directories": [
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\espressif",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\geehy",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\gigadevice",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\infineon",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\microchip",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\mindmotion",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\nuvoton",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\puya",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\st",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\texas-instruments"
+  ],
+  "manufacturers": 10,
+  "product_lines": 837,
+  "device_variants": 7504,
+  "orderable_parts": 4427,
+  "source_records": 330,
+  "upstream_import_errors": 9,
+  "merge_collisions": [],
+  "duplicate_part_sources_deduplicated": []
+}

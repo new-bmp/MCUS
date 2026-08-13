@@ -1,0 +1,2 @@
+﻿manufacturer,source_scope,pack_count,family_count,series_count,product_line_count,device_variant_count,orderable_part_count,last_observed,device_coverage_status,orderable_coverage_status,notes
+STMicroelectronics,stm32,27,1,27,231,2778,303,2026-08-11T12:20:28+00:00,indexed_from_selected_cmsis_packs,partial_official_pages:STM32F1,CMSIS metadata is not proof of complete manufacturer purchasing-code coverage. Official product-page ordering codes imported for STM32F1; other series remain pending.

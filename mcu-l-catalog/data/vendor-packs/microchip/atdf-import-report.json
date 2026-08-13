@@ -1,0 +1,26 @@
+{
+  "status": "ok",
+  "input_devices": 450,
+  "official_packs": 43,
+  "downloaded_or_cached_packs": 43,
+  "download_bytes": 191654453,
+  "pack_download_errors": [],
+  "atdf_parse_errors": [],
+  "atdf_device_names": 407,
+  "matched_devices": 407,
+  "unmatched_devices": 43,
+  "field_updates": {
+    "features_json": 407
+  },
+  "scalar_conflicts_resolved": 0,
+  "provenance_records": 2542,
+  "orderable_parts": 1270,
+  "observed_at": "2026-08-12T09:31:18+00:00",
+  "accuracy_policy": [
+    "Only an ATDF device name exactly equal to the catalog device name is accepted.",
+    "Memory and peripheral facts come from that exact ATDF, not from an SVD or sibling device.",
+    "SERCOM/FLEXCOM is stored as a shared configurable serial resource, not multiplied into UART, SPI, and I2C counts.",
+    "ADC external pin count is the intersection of ADC signal pads and the ATDF package pinout.",
+    "Manufacturer order codes are copied only from ATDF variant elements."
+  ]
+}

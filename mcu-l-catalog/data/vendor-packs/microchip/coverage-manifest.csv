@@ -1,0 +1,2 @@
+﻿manufacturer,source_scope,pack_count,family_count,series_count,product_line_count,device_variant_count,orderable_part_count,last_observed,device_coverage_status,orderable_coverage_status,notes
+Microchip,all-dfp,43,43,43,43,450,0,2026-08-12T07:48:53+00:00,indexed_from_selected_cmsis_packs,not_imported,CMSIS metadata is not proof of complete manufacturer purchasing-code coverage.

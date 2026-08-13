@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "counts": {
+    "manufacturers": 1,
+    "families": 1,
+    "series": 27,
+    "product_lines": 231,
+    "device_variants": 2778,
+    "orderable_parts": 303,
+    "sources": 122
+  },
+  "errors": [],
+  "warnings": []
+}

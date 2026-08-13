@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "devices": 5,
+  "orderable_parts": 9,
+  "atdf_files": 5,
+  "pack_url": "http://packs.download.atmel.com/Atmel.SAM3X_DFP.1.0.50.atpack",
+  "pdsc_url": "https://www.keil.com/pack/Atmel.SAM3X_DFP.pdsc",
+  "pack_sha256": "17d719adc9af102faf55a5b625b55151c663ac4a026dde80ab7db4a1a3286168",
+  "pack_bytes": 1457206,
+  "errors": [],
+  "observed_at": "2026-08-12T17:34:10+00:00"
+}

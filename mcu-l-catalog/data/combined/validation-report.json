@@ -1,0 +1,19 @@
+{
+  "status": "ok",
+  "counts": {
+    "manufacturers": 10,
+    "families": 153,
+    "series": 238,
+    "product_lines": 837,
+    "device_variants": 7504,
+    "orderable_parts": 4427,
+    "sources": 330,
+    "capability_records": 7504,
+    "score_records": 7504,
+    "average_score_coverage_percent": 98.73,
+    "devices_at_or_above_90_percent": 7113,
+    "fpu_verified_records": 7364
+  },
+  "errors": [],
+  "warnings": []
+}

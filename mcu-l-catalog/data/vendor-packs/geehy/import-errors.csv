@@ -1,0 +1,8 @@
+﻿pack_vendor,pack_name,pdsc_url,error
+Geehy,G32F031_DFP,https://global.geehy.com/design/software/Geehy.G32F031_DFP.pdsc,"ParseError: mismatched tag: line 30, column 2"
+Geehy,G32M3101_DFP,https://global.geehy.com/design/software/Geehy.G32M3101_DFP.pdsc,"ParseError: mismatched tag: line 30, column 2"
+Geehy,APM32E030_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32E030_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+Geehy,APM32A4xx_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32A4xx_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+Geehy,APM32A0xx_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32A0xx_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+Geehy,APM32A10x_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32A10x_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+Geehy,APM32M35XX_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32M35XX_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed

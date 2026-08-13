@@ -1,0 +1,52 @@
+{
+  "status": "ok",
+  "manufacturer": "Espressif",
+  "source": "https://products.espressif.com/#/product-comparison",
+  "official_api_scopes": [
+    "chip",
+    "module"
+  ],
+  "series": [
+    "ESP32",
+    "ESP32-C2/ESP8684",
+    "ESP32-C3",
+    "ESP32-C5",
+    "ESP32-C6",
+    "ESP32-C61",
+    "ESP32-E22",
+    "ESP32-H2",
+    "ESP32-H21",
+    "ESP32-H4",
+    "ESP32-P4",
+    "ESP32-S2",
+    "ESP32-S3",
+    "ESP32-S31",
+    "ESP8266",
+    "ESP8685"
+  ],
+  "series_count": 16,
+  "soc_variants": 63,
+  "module_variants": 256,
+  "device_variants": 319,
+  "official_mpns": 319,
+  "uart_coverage": {
+    "records_with_positive_uart_count": 319,
+    "total_records": 319,
+    "minimum_uart_count": 1,
+    "maximum_uart_count": 6
+  },
+  "lifecycle_states": [
+    "active",
+    "eol",
+    "nrnd",
+    "replaced",
+    "sampling"
+  ],
+  "field_provenance_records": 16875,
+  "import_errors": 0,
+  "snapshot_sha256": {
+    "chip-products-en.json": "21268a0b9ab6f8c0a94832063507ec6866fbf0e2fd8aeadc7d34357876498b9f",
+    "module-products-en.json": "d0b22e064e8f0fee98db52a0547b22f0affa788ce68abc31378556fb503b48bc"
+  },
+  "completeness_claim": "All records returned by both official API scopes at observation time; not a claim about unpublished products."
+}

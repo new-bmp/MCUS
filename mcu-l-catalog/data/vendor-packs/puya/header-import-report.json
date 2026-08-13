@@ -1,0 +1,24 @@
+{
+  "status": "ok",
+  "official_packs": 6,
+  "pack_errors": [],
+  "input_devices": 87,
+  "matched_devices": 85,
+  "unmatched_devices": 2,
+  "match_counts": {
+    "puya-device-header:PY32E4xx_DFP@1.0.0": 3,
+    "puya-device-header:PY32F0xx_DFP@1.2.8": 57,
+    "puya-device-header:PY32F4xx_DFP@1.0.3": 4,
+    "puya-device-header:PY32L0xx_DFP@1.0.3": 3,
+    "puya-device-header:PY32Mxxx_DFP@1.0.6": 11,
+    "puya-device-header:PY32T0xx_DFP@1.0.7": 7
+  },
+  "provenance_records": 85,
+  "observed_at": "2026-08-12T09:02:57+00:00",
+  "accuracy_policy": [
+    "The normalized header filename must exactly equal the PDSC device name.",
+    "Counts use concrete peripheral instance macros and deduplicate aliases by physical base macro.",
+    "A missing instance in the exact device header is recorded as zero.",
+    "GPIO count, ADC external pins, and package data remain unknown without an official pinout source."
+  ]
+}

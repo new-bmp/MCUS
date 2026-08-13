@@ -1,0 +1,34 @@
+{
+  "status": "partial",
+  "adapter": "import_ti_official.py",
+  "manufacturer": "TexasInstruments",
+  "scope": "all-dfp",
+  "output_dir": "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\ti",
+  "official_source_ids": [
+    "cmsis:TexasInstruments.AM13E230X_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPM0C110X_DFP@1.2.0",
+    "cmsis:TexasInstruments.MSPM0G1X0X_G3X0X_DFP@1.3.1",
+    "cmsis:TexasInstruments.MSPM0G511X_G518X_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPM0GX218_GX207_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPM0GX51X_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPM0H321X_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPM0L111X_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPM0L11XX_L13XX_DFP@1.3.1",
+    "cmsis:TexasInstruments.MSPM0L122X_L222X_DFP@1.1.1",
+    "cmsis:TexasInstruments.MSPM33C321A_DFP@1.0.0",
+    "cmsis:TexasInstruments.MSPS003FX_DFP@1.1.1"
+  ],
+  "official_https_hosts": [
+    "software-dl.ti.com",
+    "www.keil.com"
+  ],
+  "device_variants": 63,
+  "sources": 14,
+  "import_errors": 0,
+  "source_errors": [
+    "unapproved_source:http://software-dl.ti.com/msp430/msp430_public_sw/mcu/msp430/msp432cmsis/latest/exports/TexasInstruments.MSP432E4_DFP.pdsc",
+    "unapproved_source:http://software-dl.ti.com/msp430/msp430_public_sw/mcu/msp430/msp432cmsis/latest/exports/TexasInstruments.MSP432P4xx_DFP.pdsc"
+  ],
+  "subprocess_exit_code": 0,
+  "completeness_claim": "All successfully parsed records from the selected official CMSIS-Pack scope at observation time; not a claim about unpublished products, non-Arm families, or orderable-code completeness."
+}
