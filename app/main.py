@@ -24,6 +24,7 @@ from .episode_resolver import build_sampled_episode_framework, validate_qwen_epi
 from .file_preview import preview_file, preview_file_frame
 from .folder_dialog import choose_folder
 from .full_run import full_run_review_media, load_full_run_episode_bundle
+from .import_jobs import dataset_import_jobs
 from .joint_overlay import draw_joint_overlay, joint_overlay_geometry, joint_overlay_status
 from .models import registry
 from .no_action_trim import load_no_action_trim
@@ -32,7 +33,7 @@ from .projection_correction import preferred_projection_review_media, projection
 from .preview_proxy import preview_proxy_manager
 from .qwen_trim import QwenTrimRequest, load_qwen_action_trim, qwen_trim_jobs
 from .schema_profiler import validate_understanding
-from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment, sensor_alignment_jobs
+from .sensor_alignment import get_valid_sensor_alignment, sensor_alignment_jobs
 from .schemas import ActionMappingRequest, AnalysisRequest, ApplyChangesRequest, BatchAnalysisRequest, BehaviorAnnotationRequest, BehaviorPhaseRemovalRequest, CurationJobRequest, ExcludeFilesRequest, ExportFolderRequest, HandPoseModelConfig, LocalModelConfig, PathOpenRequest, SegmentUpdate, VLMModelConfig
 from .storage import (
     ALICE_ANNOTATION_SCHEMA,
@@ -237,8 +238,8 @@ def datasets():
     return {"items": list_manifests()}
 
 
-def _dataset_format_preflight(path: str) -> dict:
-    report = inspect_dataset_format(path)
+def _dataset_format_preflight(path: str, camera_profile_id: str | None = None) -> dict:
+    report = inspect_dataset_format(path, camera_profile_id=camera_profile_id)
     issues = list(report.get("issues") or [])
     return {
         **report,
@@ -258,7 +259,7 @@ def _dataset_format_preflight(path: str) -> dict:
 def dataset_format_preflight(request: PathOpenRequest):
     """Inspect a source directory without scanning it into the registry."""
     try:
-        return _dataset_format_preflight(request.path)
+        return _dataset_format_preflight(request.path, request.camera_profile_id)
     except (ValueError, OSError) as exc:
         raise HTTPException(422, str(exc))
 
@@ -297,7 +298,8 @@ def dataset_detail(dataset_id: str):
 def rescan_dataset(dataset_id: str):
     try:
         manifest = get_manifest(dataset_id)
-        report = _dataset_format_preflight(manifest["root_path"])
+        selected_profile_id = (manifest.get("camera_calibration") or {}).get("selected_profile_id")
+        report = _dataset_format_preflight(manifest["root_path"], selected_profile_id)
         if report.get("root_mode") == "collection":
             raise HTTPException(409, "原数据集目录现在包含多个独立数据集，请重新选择具体子数据集")
         if report.get("status") == "blocked" or not (report.get("capabilities") or {}).get("can_import"):
@@ -307,7 +309,7 @@ def rescan_dataset(dataset_id: str):
                 manifest["root_path"],
                 manifest["name"],
                 dataset_id=dataset_id,
-                camera_profile_id=(manifest.get("camera_calibration") or {}).get("selected_profile_id"),
+                camera_profile_id=selected_profile_id,
             )
         )
     except HTTPException:
@@ -372,7 +374,7 @@ def open_path(request: PathOpenRequest, confirmation_token: str | None = None):
     try:
         if not confirmation_token:
             raise HTTPException(428, "请先完成格式预检并确认，再导入数据集")
-        report = _dataset_format_preflight(request.path)
+        report = _dataset_format_preflight(request.path, request.camera_profile_id)
         if report.get("confirmation_token") != confirmation_token:
             raise HTTPException(409, "文件夹内容已发生变化，请重新确认数据格式后再导入")
         if report.get("root_mode") == "collection":
@@ -387,6 +389,16 @@ def open_path(request: PathOpenRequest, confirmation_token: str | None = None):
         return _understand_manifest(manifest) if request.analyze_schema else manifest
     except HTTPException:
         raise
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/datasets/import-jobs")
+def create_dataset_import_job(request: PathOpenRequest, confirmation_token: str | None = None):
+    if not confirmation_token:
+        raise HTTPException(428, "请先完成格式预检并确认，再导入数据集")
+    try:
+        return dataset_import_jobs.submit(request, confirmation_token, _understand_manifest)
     except (ValueError, OSError) as exc:
         raise HTTPException(400, str(exc))
 
@@ -881,10 +893,18 @@ def sensor_alignment_status(dataset_id: str):
 
 
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/sensor-alignment")
-def episode_sensor_alignment(dataset_id: str, episode_id: str):
+def episode_sensor_alignment(
+    dataset_id: str,
+    episode_id: str,
+    media_file_id: str | None = Query(default=None),
+):
     try:
         manifest, episode = get_episode(dataset_id, episode_id)
-        return load_sensor_alignment(manifest, episode_id) or scan_episode_sensor_alignment(manifest, episode)
+        return get_valid_sensor_alignment(
+            manifest,
+            episode,
+            reference_media_file_id=media_file_id,
+        )
     except KeyError:
         raise HTTPException(404, "Episode 不存在")
     except (OSError, ValueError) as exc:
@@ -924,7 +944,7 @@ def behavior_annotation(
 
 @app.get("/api/jobs/{job_id}")
 def job(job_id: str):
-    for manager in (jobs, behavior_jobs, batch_analysis_jobs, qwen_trim_jobs, sensor_alignment_jobs, curation_jobs, action_mapping_jobs):
+    for manager in (dataset_import_jobs, jobs, behavior_jobs, batch_analysis_jobs, qwen_trim_jobs, sensor_alignment_jobs, curation_jobs, action_mapping_jobs):
         try:
             return manager.get(job_id)
         except KeyError:
@@ -934,7 +954,7 @@ def job(job_id: str):
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str):
-    for manager in (jobs, behavior_jobs, batch_analysis_jobs, qwen_trim_jobs, sensor_alignment_jobs, curation_jobs, action_mapping_jobs):
+    for manager in (dataset_import_jobs, jobs, behavior_jobs, batch_analysis_jobs, qwen_trim_jobs, sensor_alignment_jobs, curation_jobs, action_mapping_jobs):
         try:
             manager.get(job_id)
         except KeyError:

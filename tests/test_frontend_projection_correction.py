@@ -76,6 +76,10 @@ class FrontendProjectionCorrectionTests(unittest.TestCase):
         self.assertIn('使用本次所选手部模型生成新修订', self.app)
         self.assertIn('["vlm_behavior", "projection_correction"].includes(state.analysisOperation)', self.app)
 
+    def test_full_scope_explains_egodex_default_and_nexus_isolation(self) -> None:
+        self.assertIn('MediaPipe 手部归正 65% → 平滑', self.app)
+        self.assertIn('Nexus 原生流程（不启用 MediaPipe 归正）', self.app)
+
 
 if __name__ == "__main__":
     unittest.main()

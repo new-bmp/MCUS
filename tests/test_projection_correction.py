@@ -15,6 +15,7 @@ from app.joint_overlay import _CANDIDATE_CACHE, _candidate_sources
 from app.lerobot_export import side_hand_joint_names
 from app.projection_correction import (
     HAND_BONES,
+    FULL_PROJECTION_SOURCE_OVERRIDES,
     PALM_BASE_INDICES,
     PROJECTION_CORRECTION_SCHEMA,
     VISUAL_PALM_BASE_INDICES,
@@ -38,6 +39,7 @@ from app.projection_correction import (
     applied_projection_source,
     preferred_projection_media,
     preferred_projection_review_media,
+    projection_source_from_document,
 )
 from app.schemas import BatchAnalysisRequest, HandPoseModelConfig
 
@@ -639,6 +641,46 @@ class ProjectionCorrectionTests(unittest.TestCase):
         self.assertEqual(4, media["frame_count"])
         self.assertEqual([0.0, 0.5, 1.0, 2.0], media["source_frame_positions"])
         self.assertTrue(media["projection_retimed"])
+
+    def test_full_run_projection_override_is_active_without_global_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            metadata_path = root / "ep.projection.alice"
+            hdf5_path = root / "ep.projection.hdf5"
+            video_path = root / "ep.projection.mp4"
+            metadata_path.write_text("{}", encoding="utf-8")
+            hdf5_path.write_bytes(b"hdf5")
+            video_path.write_bytes(b"video")
+            document = {
+                "schema": PROJECTION_CORRECTION_SCHEMA,
+                "artifact_path": str(metadata_path),
+                "corrected_hdf5": str(hdf5_path),
+                "retimed_video": str(video_path),
+                "full_run_id": "run-1",
+                "source_transform": {"relative_path": "ep.hdf5"},
+                "source_video": {"file_id": "rgb", "fps": 30.0},
+                "retiming": {
+                    "inserted_frame_count": 1,
+                    "output_frame_count": 4,
+                    "source_frame_positions": [0.0, 0.5, 1.0, 2.0],
+                },
+                "summary": {"frame_count": 4, "adjustment_rate": 0.65},
+            }
+            source = projection_source_from_document(document)
+            self.assertIsNotNone(source)
+            manifest = {FULL_PROJECTION_SOURCE_OVERRIDES: {"ep": source}}
+
+            with patch("app.projection_correction.applied_projection_source", side_effect=AssertionError("global apply must not be consulted")):
+                media, selected_document = preferred_projection_media(
+                    manifest,
+                    {"id": "ep", "fps": 30.0},
+                    {"file_id": "rgb", "path": "source.mp4", "frame_count": 3, "fps": 30.0},
+                )
+
+            self.assertIs(selected_document, document)
+            self.assertEqual(str(video_path.resolve()), media["path"])
+            self.assertEqual(4, media["frame_count"])
+            self.assertEqual("run-1", source["full_run_id"])
 
     def test_pending_retimed_video_is_available_for_review_without_becoming_applied_media(self) -> None:
         metadata = {

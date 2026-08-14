@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -413,7 +414,17 @@ class JointOverlayTopologyTests(unittest.TestCase):
             }
             episode = {"id": "episode", "fps": 30.0, "frame_count": 1}
 
-            with patch("app.joint_overlay.change_is_applied", return_value=False):
+            alignment = {
+                "valid": True,
+                "mode": "paired_frame_index",
+                "alignment_multiplier": 1.0,
+                "sensor_hz": 30.0,
+                "physical_hz": 30.0,
+            }
+            with (
+                patch("app.joint_overlay.change_is_applied", return_value=False),
+                patch("app.joint_overlay.map_video_frame_to_sensor", return_value=(0, alignment)),
+            ):
                 status = joint_overlay_status(manifest, episode)
                 geometry = joint_overlay_geometry(manifest, episode, 0, 100, 80)
 
@@ -424,6 +435,25 @@ class JointOverlayTopologyTests(unittest.TestCase):
         self.assertEqual(40, len(geometry["edges"]))
         self.assertAlmostEqual(50.0, geometry["points"][0]["x"], places=3)
         self.assertAlmostEqual(40.0, geometry["points"][0]["y"], places=3)
+
+    def test_overlay_returns_missing_geometry_when_t0_has_no_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "pose.h5"
+            source.touch()
+            manifest = {"id": "unmapped", "root_path": temporary}
+            episode = {"id": "episode", "fps": 30.0}
+            candidate = {"path": source.name, "field": "skeleton", "source": "hdf5"}
+            with (
+                patch("app.joint_overlay.joint_overlay_status", return_value={"available": True, "source_path": source.name, "source_kind": "hdf5"}),
+                patch("app.joint_overlay._overlay_candidates", return_value=[candidate]),
+                patch("app.joint_overlay.map_video_frame_to_sensor", side_effect=KeyError(source.name)),
+            ):
+                geometry = joint_overlay_geometry(manifest, episode, 0, 100, 80)
+
+        self.assertFalse(geometry["alignment_valid"])
+        self.assertEqual("unmapped", geometry["alignment_mode"])
+        self.assertIsNone(geometry["sensor_index"])
+        self.assertEqual([], geometry["points"])
 
 
 if __name__ == "__main__":

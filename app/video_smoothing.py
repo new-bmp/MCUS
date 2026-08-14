@@ -16,8 +16,11 @@ from .full_run import full_run_stage_dir
 from .storage import change_is_applied, dataset_artifact_dir, record_change, require_media_eligibility, slugify
 
 
-VIDEO_SMOOTHING_SCHEMA = "alice/video-smoothing/v2"
+VIDEO_SMOOTHING_SCHEMA = "alice/video-smoothing/v3"
 DEFAULT_ANALYSIS_MAX_SIDE = 640
+DEFAULT_FLOW_MAX_SIDE = 480
+DEFAULT_HIGH_RATE_TARGET_FPS = 30.0
+HIGH_RATE_MINIMUM_MARGIN_FPS = 0.25
 _ENCODER_PROBE_CACHE: dict[tuple[str, str], bool] = {}
 _ENCODER_PROBE_LOCK = threading.Lock()
 _ENCODER_GPU_LOCK = threading.Lock()
@@ -57,11 +60,24 @@ def preferred_smoothed_media(dataset_id: str, episode: dict, media: dict) -> tup
     if document.get("source_video", {}).get("file_id") != media.get("file_id"):
         return media, None
     summary = document.get("summary") or {}
+    source_positions = document.get("source_frame_positions") or []
+    frame_audit_path = (document.get("frame_audit") or {}).get("artifact_path")
+    smoothing_mode = str(summary.get("smoothing_mode") or "native_fps")
     return {
         **media,
         "path": str(output_path),
         "frame_count": int(summary.get("frame_count") or media.get("frame_count") or 0),
         "fps": float(summary.get("fps") or media.get("fps") or 30.0),
+        "duration": float(summary.get("duration_seconds") or media.get("duration") or 0.0),
+        "source_frame_count": int(summary.get("source_frame_count") or media.get("frame_count") or 0),
+        "source_fps": float(summary.get("source_fps") or media.get("fps") or 0.0),
+        "source_frame_positions": source_positions,
+        "smoothing_mode": smoothing_mode,
+        "video_smoothing_mode": smoothing_mode,
+        "smoothing_artifact_path": str(manifest_path),
+        "smoothing_frame_audit_path": frame_audit_path,
+        "pixel_transform_available": bool((document.get("geometry_contract") or {}).get("pixel_transform_available")),
+        "pixel_transform_artifact": frame_audit_path,
     }, document
 
 
@@ -69,28 +85,36 @@ def _as_array(value: Any) -> np.ndarray:
     return value.get() if isinstance(value, cv2.UMat) else np.asarray(value)
 
 
-def _estimate_motion(previous_gray: Any, current_gray: Any) -> tuple[float, float, float, bool]:
+def _estimate_motion_detail(previous_gray: Any, current_gray: Any) -> tuple[float, float, float, bool, float]:
     points = cv2.goodFeaturesToTrack(previous_gray, maxCorners=240, qualityLevel=0.01, minDistance=18, blockSize=3)
     if points is None:
-        return 0.0, 0.0, 0.0, False
+        return 0.0, 0.0, 0.0, False, 0.0
     point_values = _as_array(points)
     if len(point_values) < 8:
-        return 0.0, 0.0, 0.0, False
+        return 0.0, 0.0, 0.0, False, 0.0
     moved, status, _ = cv2.calcOpticalFlowPyrLK(previous_gray, current_gray, points, None)
     if moved is None or status is None:
-        return 0.0, 0.0, 0.0, False
+        return 0.0, 0.0, 0.0, False, 0.0
     valid = _as_array(status).reshape(-1).astype(bool)
     source = point_values.reshape(-1, 2)[valid]
     target = _as_array(moved).reshape(-1, 2)[valid]
     if len(source) < 8:
-        return 0.0, 0.0, 0.0, False
-    matrix, _ = cv2.estimateAffinePartial2D(source, target, method=cv2.RANSAC, ransacReprojThreshold=3.0)
+        return 0.0, 0.0, 0.0, False, 0.0
+    matrix, inliers = cv2.estimateAffinePartial2D(source, target, method=cv2.RANSAC, ransacReprojThreshold=3.0)
     if matrix is None:
-        return 0.0, 0.0, 0.0, False
+        return 0.0, 0.0, 0.0, False, 0.0
     dx = float(matrix[0, 2])
     dy = float(matrix[1, 2])
     angle = float(np.arctan2(matrix[1, 0], matrix[0, 0]))
-    return dx, dy, angle, True
+    inlier_ratio = float(np.asarray(inliers).reshape(-1).mean()) if inliers is not None and len(inliers) else 0.0
+    tracked_strength = min(1.0, len(source) / 48.0)
+    confidence = max(0.0, min(1.0, inlier_ratio * tracked_strength))
+    return dx, dy, angle, True, confidence
+
+
+def _estimate_motion(previous_gray: Any, current_gray: Any) -> tuple[float, float, float, bool]:
+    dx, dy, angle, valid, _confidence = _estimate_motion_detail(previous_gray, current_gray)
+    return dx, dy, angle, valid
 
 
 def _enhance(frame: Any, strength: float) -> Any:
@@ -111,6 +135,212 @@ def _analysis_dimensions(width: int, height: int, max_side: int) -> tuple[int, i
     analysis_width = max(2, int(round(width * scale)))
     analysis_height = max(2, int(round(height * scale)))
     return analysis_width, analysis_height, min(analysis_width / width, analysis_height / height)
+
+
+def _zero_phase_smooth(values: np.ndarray, smoothing: float) -> np.ndarray:
+    source = np.asarray(values, dtype=np.float64)
+    if source.ndim != 2 or source.shape[0] <= 1:
+        return source.copy()
+    weight = max(0.0, min(0.9999, float(smoothing)))
+    forward = source.copy()
+    backward = source.copy()
+    for index in range(1, len(source)):
+        forward[index] = weight * forward[index - 1] + (1.0 - weight) * source[index]
+    for index in range(len(source) - 2, -1, -1):
+        backward[index] = weight * backward[index + 1] + (1.0 - weight) * source[index]
+    return (forward + backward) * 0.5
+
+
+def _stabilization_matrices(
+    motion: np.ndarray,
+    width: int,
+    height: int,
+    smoothing: float,
+    border_zoom: float,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    transforms = np.asarray(motion, dtype=np.float64)
+    trajectory = np.cumsum(transforms, axis=0)
+    target = _zero_phase_smooth(trajectory, smoothing)
+    correction = target - trajectory
+    translation_limit_x = max(2.0, width * 0.12)
+    translation_limit_y = max(2.0, height * 0.12)
+    rotation_limit = np.deg2rad(12.0)
+    unclipped = correction.copy()
+    correction[:, 0] = np.clip(correction[:, 0], -translation_limit_x, translation_limit_x)
+    correction[:, 1] = np.clip(correction[:, 1], -translation_limit_y, translation_limit_y)
+    correction[:, 2] = np.clip(correction[:, 2], -rotation_limit, rotation_limit)
+    clipped = int(np.count_nonzero(np.any(np.abs(correction - unclipped) > 1e-9, axis=1)))
+    zoom = cv2.getRotationMatrix2D((width / 2.0, height / 2.0), 0.0, border_zoom)
+    zoom_h = np.vstack((zoom, np.asarray([0.0, 0.0, 1.0], dtype=np.float64)))
+    matrices = np.empty((len(correction), 2, 3), dtype=np.float32)
+    for index, (dx, dy, angle) in enumerate(correction):
+        matrix = cv2.getRotationMatrix2D((width / 2.0, height / 2.0), np.degrees(angle), 1.0)
+        matrix[0, 2] += dx
+        matrix[1, 2] += dy
+        homogeneous = np.vstack((matrix, np.asarray([0.0, 0.0, 1.0], dtype=np.float64)))
+        matrices[index] = (zoom_h @ homogeneous)[:2].astype(np.float32)
+    return matrices, correction, clipped
+
+
+def target_stabilization_matrices(media: dict, frame_count: int | None = None) -> np.ndarray | None:
+    """Load the per-output-frame source-pixel to stabilized-pixel transforms."""
+
+    explicit = media.get("target_stabilization_matrices")
+    if explicit is not None:
+        matrices = np.asarray(explicit, dtype=np.float64)
+    else:
+        audit_value = media.get("smoothing_frame_audit_path") or media.get("frame_audit_path") or media.get("pixel_transform_artifact")
+        audit_path = Path(str(audit_value or "")).expanduser()
+        if not audit_path.is_file():
+            return None
+        try:
+            with np.load(audit_path, allow_pickle=False) as audit:
+                if "target_stabilization_matrices" in audit.files:
+                    matrices = np.asarray(audit["target_stabilization_matrices"], dtype=np.float64)
+                else:
+                    source = np.asarray(audit["source_stabilization_matrices"], dtype=np.float64)
+                    left = np.asarray(audit["target_left_frames"], dtype=np.int64).reshape(-1)
+                    right = np.asarray(audit["target_right_frames"], dtype=np.int64).reshape(-1)
+                    alpha = np.asarray(audit["interpolation_alpha"], dtype=np.float64).reshape(-1)
+                    matrices = source[left] * (1.0 - alpha[:, None, None]) + source[right] * alpha[:, None, None]
+        except (OSError, KeyError, ValueError):
+            return None
+    if matrices.ndim != 3 or tuple(matrices.shape[1:]) not in {(2, 3), (3, 3)}:
+        return None
+    if frame_count is not None and int(frame_count) != len(matrices):
+        return None
+    if tuple(matrices.shape[1:]) == (2, 3):
+        homogeneous = np.repeat(np.eye(3, dtype=np.float64)[None], len(matrices), axis=0)
+        homogeneous[:, :2] = matrices
+        matrices = homogeneous
+    return matrices if np.isfinite(matrices).all() else None
+
+
+def _normalized_source_timestamps(raw_seconds: list[float], frame_count: int, fps: float) -> tuple[np.ndarray, str]:
+    fallback = np.arange(frame_count, dtype=np.float64) / max(0.01, float(fps))
+    if len(raw_seconds) != frame_count or frame_count < 2:
+        return fallback, "decoded_frame_index/fps"
+    values = np.asarray(raw_seconds, dtype=np.float64)
+    values -= values[0] if np.isfinite(values[0]) else 0.0
+    differences = np.diff(values)
+    positive = differences[np.isfinite(differences) & (differences > 1e-6)]
+    expected = 1.0 / max(0.01, float(fps))
+    if (
+        np.isfinite(values).all()
+        and positive.size >= max(1, int(round((frame_count - 1) * 0.9)))
+        and 0.25 * expected <= float(np.median(positive)) <= 4.0 * expected
+    ):
+        return values, "opencv_pos_msec"
+    return fallback, "decoded_frame_index/fps"
+
+
+def _target_timeline(source_times: np.ndarray, source_fps: float, target_fps: float) -> tuple[np.ndarray, np.ndarray]:
+    times = np.asarray(source_times, dtype=np.float64).reshape(-1)
+    if times.size == 0:
+        return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+    period = float(np.median(np.diff(times))) if times.size > 1 else 1.0 / max(0.01, source_fps)
+    if not np.isfinite(period) or period <= 0.0:
+        period = 1.0 / max(0.01, source_fps)
+    duration = max(period, float(times[-1]) + period)
+    output_count = max(1, int(np.ceil(duration * target_fps - 1e-9)))
+    target_times = np.arange(output_count, dtype=np.float64) / max(0.01, target_fps)
+    target_times = target_times[target_times < duration - 1e-9]
+    if target_times.size == 0:
+        target_times = np.asarray([0.0], dtype=np.float64)
+    source_positions = np.interp(target_times, times, np.arange(times.size, dtype=np.float64))
+    return target_times, np.clip(source_positions, 0.0, max(0.0, times.size - 1.0))
+
+
+def _flow_dimensions(width: int, height: int, max_side: int = DEFAULT_FLOW_MAX_SIDE) -> tuple[int, int, float, float]:
+    flow_width, flow_height, _ = _analysis_dimensions(width, height, max_side)
+    return flow_width, flow_height, width / flow_width, height / flow_height
+
+
+def _dense_flow(previous: np.ndarray, current: np.ndarray, max_side: int = DEFAULT_FLOW_MAX_SIDE) -> tuple[np.ndarray, np.ndarray, float]:
+    height, width = previous.shape[:2]
+    flow_width, flow_height, scale_x, scale_y = _flow_dimensions(width, height, max_side)
+    previous_small = cv2.resize(previous, (flow_width, flow_height), interpolation=cv2.INTER_AREA)
+    current_small = cv2.resize(current, (flow_width, flow_height), interpolation=cv2.INTER_AREA)
+    previous_gray = cv2.cvtColor(previous_small, cv2.COLOR_BGR2GRAY)
+    current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
+    forward = cv2.calcOpticalFlowFarneback(previous_gray, current_gray, None, 0.5, 3, 15, 3, 5, 1.1, 0)
+    backward = cv2.calcOpticalFlowFarneback(current_gray, previous_gray, None, 0.5, 3, 15, 3, 5, 1.1, 0)
+    grid_x, grid_y = np.meshgrid(
+        np.arange(flow_width, dtype=np.float32),
+        np.arange(flow_height, dtype=np.float32),
+    )
+    sampled_backward = cv2.remap(
+        backward,
+        grid_x + forward[..., 0],
+        grid_y + forward[..., 1],
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT,
+    )
+    consistency = np.linalg.norm(forward + sampled_backward, axis=2)
+    finite = consistency[np.isfinite(consistency)]
+    median_error = float(np.median(finite)) if finite.size else float("inf")
+    confidence = float(np.exp(-median_error / 1.5)) if np.isfinite(median_error) else 0.0
+    if flow_width != width or flow_height != height:
+        forward = cv2.resize(forward, (width, height), interpolation=cv2.INTER_LINEAR)
+        backward = cv2.resize(backward, (width, height), interpolation=cv2.INTER_LINEAR)
+        forward[..., 0] *= scale_x
+        forward[..., 1] *= scale_y
+        backward[..., 0] *= scale_x
+        backward[..., 1] *= scale_y
+    return forward.astype(np.float32), backward.astype(np.float32), max(0.0, min(1.0, confidence))
+
+
+def _motion_compensated_frame(
+    previous: np.ndarray,
+    current: np.ndarray,
+    alpha: float,
+    *,
+    minimum_confidence: float = 0.35,
+) -> tuple[np.ndarray, float, str | None]:
+    blend = max(0.0, min(1.0, float(alpha)))
+    if blend <= 1e-6:
+        return previous, 1.0, None
+    if blend >= 1.0 - 1e-6:
+        return current, 1.0, None
+    if previous.shape[0] * previous.shape[1] > 3_200_000:
+        fallback = previous if blend < 0.5 else current
+        return fallback, 0.0, "flow_resolution_limit"
+    try:
+        forward, backward, confidence = _dense_flow(previous, current)
+    except cv2.error as exc:
+        fallback = previous if blend < 0.5 else current
+        return fallback, 0.0, f"dense_flow_error:{str(exc)[:120]}"
+    if confidence < minimum_confidence:
+        fallback = previous if blend < 0.5 else current
+        return fallback, confidence, "low_flow_confidence"
+    height, width = previous.shape[:2]
+    grid_x, grid_y = np.meshgrid(
+        np.arange(width, dtype=np.float32),
+        np.arange(height, dtype=np.float32),
+    )
+    previous_warped = cv2.remap(
+        previous,
+        grid_x - forward[..., 0] * blend,
+        grid_y - forward[..., 1] * blend,
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT,
+    )
+    current_warped = cv2.remap(
+        current,
+        grid_x - backward[..., 0] * (1.0 - blend),
+        grid_y - backward[..., 1] * (1.0 - blend),
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT,
+    )
+    output = cv2.addWeighted(previous_warped, 1.0 - blend, current_warped, blend, 0.0)
+    return output, confidence, None
+
+
+def _write_motion_audit(path: Path, **arrays: np.ndarray) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("wb") as output:
+        np.savez_compressed(output, **arrays)
+    temporary.replace(path)
 
 
 def _opencl_backend() -> tuple[str, str]:
@@ -347,7 +577,7 @@ def _create_frame_writer(path: Path, fps: float, width: int, height: int, gpu_de
     return _OpenCVFrameWriter(path, fps, width, height)
 
 
-def smooth_video(
+def _smooth_video_native(
     dataset_id: str,
     episode: dict,
     media: dict,
@@ -356,6 +586,8 @@ def smooth_video(
     sharpen_strength: float = 0.32,
     border_zoom: float = 1.025,
     run_id: str | None = None,
+    requested_mode: str = "native",
+    fallback_reason: str | None = None,
 ) -> dict:
     require_media_eligibility(media, "video_smoothing")
     source_path = Path(str(media.get("path") or ""))
@@ -505,6 +737,12 @@ def smooth_video(
     summary = {
         "frame_count": processed,
         "fps": round(fps, 4),
+        "source_frame_count": frame_count,
+        "source_fps": round(fps, 4),
+        "duration_seconds": round(processed / max(0.01, fps), 6),
+        "smoothing_mode": "native_fps",
+        "requested_mode": requested_mode,
+        "mode_fallback_reason": fallback_reason,
         "width": width,
         "height": height,
         "failed_motion_estimates": failed_estimates,
@@ -535,6 +773,8 @@ def smooth_video(
         "method": "proxy_optical_flow_stabilization_plus_fast_sharpen",
         "limitations": "Stabilization and sharpening can reduce shake and perceived blur, but cannot reconstruct detail lost during exposure.",
         "config": {
+            "mode": "native_fps",
+            "requested_mode": requested_mode,
             "trajectory_smoothing": smoothing,
             "sharpen_strength": sharpen_strength,
             "border_zoom": border_zoom,
@@ -557,3 +797,392 @@ def smooth_video(
     document["change"] = {"id": change["id"], "status": change["status"], "revision": change["revision"]}
     progress(99, "平滑视频与更改记录已写入 .alicePD")
     return document
+
+
+def _smooth_video_eis_30(
+    dataset_id: str,
+    episode: dict,
+    media: dict,
+    progress,
+    *,
+    smoothing: float,
+    sharpen_strength: float,
+    border_zoom: float,
+    target_fps: float,
+    motion_compensation: bool,
+    run_id: str | None,
+) -> dict:
+    require_media_eligibility(media, "video_smoothing")
+    source_path = Path(str(media.get("path") or ""))
+    if not source_path.is_file():
+        raise ValueError(f"视频不存在: {media.get('relative_path') or source_path}")
+    output_path, manifest_path = _artifact_paths(
+        dataset_id,
+        episode["id"],
+        str(media.get("stream_name") or source_path.name),
+        run_id,
+    )
+    audit_path = manifest_path.with_name(manifest_path.stem + ".frames.npz")
+    temporary_video = output_path.with_name(output_path.stem + ".part.mp4")
+    capture = cv2.VideoCapture(str(source_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"无法解码视频: {media.get('relative_path') or source_path.name}")
+    source_fps = float(capture.get(cv2.CAP_PROP_FPS) or media.get("fps") or 0.0)
+    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or media.get("width") or 0)
+    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or media.get("height") or 0)
+    declared_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or media.get("source_frame_count") or media.get("frame_count") or 0)
+    target_fps = max(1.0, min(60.0, float(target_fps)))
+    if width <= 0 or height <= 0 or declared_count <= 0 or source_fps <= 0.01:
+        capture.release()
+        raise RuntimeError("视频元数据无效，无法执行高帧率 EIS")
+    if source_fps <= target_fps + HIGH_RATE_MINIMUM_MARGIN_FPS:
+        capture.release()
+        return _smooth_video_native(
+            dataset_id,
+            episode,
+            media,
+            progress,
+            smoothing=smoothing,
+            sharpen_strength=sharpen_strength,
+            border_zoom=border_zoom,
+            run_id=run_id,
+            requested_mode="eis_30",
+            fallback_reason=f"source_fps_not_above_target:{source_fps:.6f}<={target_fps:.6f}",
+        )
+
+    try:
+        analysis_max_side = int(os.environ.get("ALICE_VIDEO_ANALYSIS_MAX_SIDE", DEFAULT_ANALYSIS_MAX_SIDE))
+    except ValueError:
+        analysis_max_side = DEFAULT_ANALYSIS_MAX_SIDE
+    analysis_width, analysis_height, analysis_scale = _analysis_dimensions(width, height, analysis_max_side)
+    motion_rows: list[tuple[float, float, float]] = []
+    motion_valid: list[bool] = []
+    motion_confidence: list[float] = []
+    raw_timestamps: list[float] = []
+    previous_gray: np.ndarray | None = None
+    decoded_count = 0
+    progress(2, f"高帧率 EIS 第一遍：分析 {source_fps:.3f} FPS 相机轨迹")
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            raw_timestamps.append(float(capture.get(cv2.CAP_PROP_POS_MSEC) or 0.0) / 1000.0)
+            motion_frame = frame
+            if analysis_width != width or analysis_height != height:
+                motion_frame = cv2.resize(frame, (analysis_width, analysis_height), interpolation=cv2.INTER_AREA)
+            current_gray = cv2.cvtColor(motion_frame, cv2.COLOR_BGR2GRAY)
+            if previous_gray is None:
+                motion_rows.append((0.0, 0.0, 0.0))
+                motion_valid.append(True)
+                motion_confidence.append(1.0)
+            else:
+                dx, dy, angle, valid, confidence = _estimate_motion_detail(previous_gray, current_gray)
+                if analysis_scale < 1.0:
+                    dx /= analysis_scale
+                    dy /= analysis_scale
+                motion_rows.append((dx if valid else 0.0, dy if valid else 0.0, angle if valid else 0.0))
+                motion_valid.append(bool(valid))
+                motion_confidence.append(float(confidence if valid else 0.0))
+            previous_gray = current_gray
+            decoded_count += 1
+            if decoded_count == 1 or decoded_count % 20 == 0 or decoded_count == declared_count:
+                progress(3 + 32 * decoded_count / max(1, declared_count), f"高帧率轨迹分析 {decoded_count}/{declared_count}")
+    finally:
+        capture.release()
+    if decoded_count <= 0:
+        raise RuntimeError("高帧率 EIS 没有解码到任何源帧")
+
+    source_times, timestamp_source = _normalized_source_timestamps(raw_timestamps, decoded_count, source_fps)
+    target_times, source_positions = _target_timeline(source_times, source_fps, target_fps)
+    if target_times.size <= 0 or source_positions.size != target_times.size:
+        raise RuntimeError("无法建立 30 FPS 目标时间轴")
+    snapped = np.rint(source_positions)
+    source_positions = np.where(np.abs(source_positions - snapped) <= 1e-7, snapped, source_positions)
+    target_left = np.floor(source_positions).astype(np.int64)
+    target_right = np.ceil(source_positions).astype(np.int64)
+    target_right = np.clip(target_right, 0, decoded_count - 1)
+    target_left = np.clip(target_left, 0, decoded_count - 1)
+    target_alpha = source_positions - target_left
+    motion = np.asarray(motion_rows, dtype=np.float64)
+    matrices, corrections, clipped_corrections = _stabilization_matrices(
+        motion,
+        width,
+        height,
+        smoothing,
+        border_zoom,
+    )
+    target_matrices = (
+        matrices[target_left].astype(np.float64) * (1.0 - target_alpha[:, None, None])
+        + matrices[target_right].astype(np.float64) * target_alpha[:, None, None]
+    ).astype(np.float32)
+
+    cuda_processor, cuda_fallback_error = _create_cuda_frame_processor(width, height, sharpen_strength)
+    if cuda_processor is not None:
+        processing_backend, processing_device = "cuda-frame", cuda_processor.device_name
+    else:
+        processing_backend, processing_device = "cpu", "CPU"
+    temporary_video.unlink(missing_ok=True)
+    writer = _create_frame_writer(
+        temporary_video,
+        target_fps,
+        width,
+        height,
+        cuda_processor.gpu_device if cuda_processor is not None else None,
+    )
+    writer_name = writer.name
+    writer_gpu = getattr(writer, "gpu_device", None)
+    writer_hardware_accelerated = writer.hardware_accelerated
+    flow_confidence = np.ones(len(target_times), dtype=np.float32)
+    synthetic_mask = np.zeros(len(target_times), dtype=np.bool_)
+    fallback_code = np.zeros(len(target_times), dtype=np.int16)
+    fallback_reasons = {0: "none", 1: "motion_compensation_disabled", 2: "low_flow_confidence", 3: "dense_flow_error", 4: "missing_bracketing_frame", 5: "flow_resolution_limit"}
+    target_index = 0
+    source_index = 0
+    previous_stabilized: np.ndarray | None = None
+    previous_index = -1
+    processing_failed = True
+    capture = cv2.VideoCapture(str(source_path))
+    if not capture.isOpened():
+        writer.abort()
+        temporary_video.unlink(missing_ok=True)
+        raise RuntimeError("高帧率 EIS 第二遍无法重新打开源视频")
+
+    def stabilize(frame: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+        nonlocal cuda_processor, cuda_fallback_error, processing_backend, processing_device
+        if cuda_processor is not None:
+            try:
+                return cuda_processor.process(frame, matrix)
+            except RuntimeError as exc:
+                cuda_fallback_error = str(exc)[:240]
+                cuda_processor = None
+                processing_backend = "cpu-after-cuda-fallback"
+                processing_device = "CPU"
+        warped = cv2.warpAffine(
+            frame,
+            matrix,
+            (width, height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REFLECT,
+        )
+        return _as_array(_enhance(warped, sharpen_strength))
+
+    progress(36, f"高帧率 EIS 第二遍：生成 {len(target_times)} 帧 @{target_fps:g} FPS")
+    try:
+        while source_index < decoded_count:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            current_stabilized = stabilize(frame, matrices[source_index])
+            while target_index < len(target_times) and target_right[target_index] <= source_index:
+                left = int(target_left[target_index])
+                right = int(target_right[target_index])
+                alpha = float(target_alpha[target_index])
+                if left == right == source_index:
+                    output_frame = current_stabilized
+                elif previous_stabilized is not None and previous_index == left and source_index == right:
+                    synthetic_mask[target_index] = True
+                    if motion_compensation:
+                        output_frame, confidence, fallback = _motion_compensated_frame(previous_stabilized, current_stabilized, alpha)
+                        flow_confidence[target_index] = confidence
+                        if fallback:
+                            fallback_code[target_index] = 2 if fallback == "low_flow_confidence" else 5 if fallback == "flow_resolution_limit" else 3
+                    else:
+                        output_frame = previous_stabilized if alpha < 0.5 else current_stabilized
+                        flow_confidence[target_index] = 0.0
+                        fallback_code[target_index] = 1
+                else:
+                    output_frame = current_stabilized
+                    flow_confidence[target_index] = 0.0
+                    fallback_code[target_index] = 4
+                writer.write(output_frame)
+                target_index += 1
+                if target_index == 1 or target_index % 10 == 0 or target_index == len(target_times):
+                    progress(38 + 55 * target_index / max(1, len(target_times)), f"EIS 运动补偿降采样 {target_index}/{len(target_times)}")
+            previous_stabilized = current_stabilized
+            previous_index = source_index
+            source_index += 1
+        if previous_stabilized is not None:
+            while target_index < len(target_times):
+                writer.write(previous_stabilized)
+                flow_confidence[target_index] = 0.0
+                fallback_code[target_index] = 4
+                target_index += 1
+        writer.close()
+        processing_failed = False
+    finally:
+        capture.release()
+        if processing_failed:
+            writer.abort()
+            temporary_video.unlink(missing_ok=True)
+    if target_index != len(target_times) or not temporary_video.is_file():
+        temporary_video.unlink(missing_ok=True)
+        raise RuntimeError(f"EIS 30 FPS 输出帧数不完整：{target_index}/{len(target_times)}")
+    temporary_video.replace(output_path)
+
+    _write_motion_audit(
+        audit_path,
+        source_timestamps=source_times.astype(np.float64),
+        target_timestamps=target_times.astype(np.float64),
+        source_frame_positions=source_positions.astype(np.float64),
+        target_left_frames=target_left.astype(np.int64),
+        target_right_frames=target_right.astype(np.int64),
+        interpolation_alpha=target_alpha.astype(np.float32),
+        synthetic_mask=synthetic_mask,
+        flow_confidence=flow_confidence,
+        fallback_code=fallback_code,
+        source_motion=motion.astype(np.float32),
+        source_motion_valid=np.asarray(motion_valid, dtype=np.bool_),
+        source_motion_confidence=np.asarray(motion_confidence, dtype=np.float32),
+        source_stabilization_matrices=matrices.astype(np.float32),
+        target_stabilization_matrices=target_matrices,
+        source_stabilization_correction=corrections.astype(np.float32),
+    )
+    fallback_counts = {
+        fallback_reasons[int(code)]: int(np.count_nonzero(fallback_code == code))
+        for code in np.unique(fallback_code)
+        if int(code) != 0
+    }
+    summary = {
+        "frame_count": int(len(target_times)),
+        "fps": round(target_fps, 4),
+        "source_frame_count": int(decoded_count),
+        "source_fps": round(source_fps, 6),
+        "duration_seconds": round(len(target_times) / target_fps, 6),
+        "smoothing_mode": "eis_motion_compensated_30",
+        "requested_mode": "eis_30",
+        "width": width,
+        "height": height,
+        "failed_motion_estimates": int(np.count_nonzero(~np.asarray(motion_valid, dtype=bool))),
+        "mean_camera_motion_px": round(float(np.linalg.norm(motion[:, :2], axis=1).mean()), 4),
+        "mean_stabilization_correction_px": round(float(np.linalg.norm(corrections[:, :2], axis=1).mean()), 4),
+        "clipped_stabilization_frame_count": clipped_corrections,
+        "synthetic_frame_count": int(synthetic_mask.sum()),
+        "flow_fallback_frame_count": int(np.count_nonzero(fallback_code)),
+        "mean_flow_confidence": round(float(flow_confidence[synthetic_mask].mean()) if synthetic_mask.any() else 1.0, 6),
+        "timestamp_source": timestamp_source,
+        "processing_backend": processing_backend,
+        "processing_device": processing_device,
+        "encoder": writer_name,
+        "encoder_gpu": writer_gpu,
+        "cuda_fallback_error": cuda_fallback_error,
+        "hardware_accelerated": bool(processing_backend == "cuda-frame" or writer_hardware_accelerated),
+        "motion_analysis_width": analysis_width,
+        "motion_analysis_height": analysis_height,
+    }
+    document = {
+        "schema": VIDEO_SMOOTHING_SCHEMA,
+        "dataset_id": dataset_id,
+        "episode_id": episode["id"],
+        "full_run_id": run_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_policy": "Source video remains read-only; EIS output and audit stay in .alicePD.",
+        "source_video": {
+            "file_id": media.get("file_id"),
+            "stream_name": media.get("stream_name"),
+            "relative_path": media.get("relative_path"),
+            "frame_count": decoded_count,
+            "fps": round(source_fps, 6),
+        },
+        "output_video": str(output_path),
+        "method": "two_pass_zero_phase_eis_plus_bidirectional_flow_resample",
+        "limitations": "The 30 FPS video is derived. Low-confidence optical flow falls back to a real stabilized source frame.",
+        "config": {
+            "mode": "eis_30",
+            "target_fps": target_fps,
+            "motion_compensation": bool(motion_compensation),
+            "minimum_flow_confidence": 0.35,
+            "trajectory_smoothing": smoothing,
+            "sharpen_strength": sharpen_strength,
+            "border_zoom": border_zoom,
+            "motion_analysis_max_side": analysis_max_side,
+            "flow_analysis_max_side": DEFAULT_FLOW_MAX_SIDE,
+            "audio_preserved": False,
+        },
+        "source_frame_positions": [round(float(value), 9) for value in source_positions],
+        "retiming": {
+            "mode": "source_pts_to_uniform_target_fps",
+            "source_frame_count": decoded_count,
+            "source_fps": round(source_fps, 6),
+            "output_frame_count": int(len(target_times)),
+            "target_fps": round(target_fps, 6),
+            "timestamp_source": timestamp_source,
+            "synthetic_frame_count": int(synthetic_mask.sum()),
+            "fallback_counts": fallback_counts,
+        },
+        "frame_audit": {
+            "artifact_path": str(audit_path),
+            "format": "npz",
+            "arrays": [
+                "source_timestamps", "target_timestamps", "source_frame_positions",
+                "target_left_frames", "target_right_frames", "interpolation_alpha",
+                "synthetic_mask", "flow_confidence", "fallback_code", "source_motion",
+                "source_motion_valid", "source_motion_confidence",
+                "source_stabilization_matrices", "target_stabilization_matrices",
+                "source_stabilization_correction",
+            ],
+            "fallback_codebook": {str(key): value for key, value in fallback_reasons.items()},
+        },
+        "geometry_contract": {
+            "pixel_transform_available": True,
+            "source_stabilization_matrices": "frame_audit.source_stabilization_matrices",
+            "target_stabilization_matrices": "frame_audit.target_stabilization_matrices",
+            "target_transform_rule": "interpolate left/right source stabilization matrices using interpolation_alpha",
+            "default_full_export_enabled": True,
+        },
+        "summary": summary,
+    }
+    _write_atomic(manifest_path, document)
+    change = record_change(
+        dataset_id,
+        "video_smoothing",
+        episode["id"],
+        f"High-rate EIS 30 FPS: {episode['name']} / {media.get('stream_name') or source_path.name}",
+        [manifest_path, output_path, audit_path],
+        {**summary, "stream_name": media.get("stream_name")},
+        [str(media.get("relative_path") or "")],
+    )
+    document["artifact_path"] = str(manifest_path)
+    document["change"] = {"id": change["id"], "status": change["status"], "revision": change["revision"]}
+    progress(99, f"高帧率 EIS 已输出 {len(target_times)} 帧 @{target_fps:g} FPS")
+    return document
+
+
+def smooth_video(
+    dataset_id: str,
+    episode: dict,
+    media: dict,
+    progress,
+    smoothing: float = 0.9,
+    sharpen_strength: float = 0.32,
+    border_zoom: float = 1.025,
+    run_id: str | None = None,
+    mode: str = "native",
+    target_fps: float = DEFAULT_HIGH_RATE_TARGET_FPS,
+    motion_compensation: bool = True,
+) -> dict:
+    selected_mode = str(mode or "native").strip().casefold()
+    if selected_mode in {"eis_30", "high_rate_eis", "flow_resampled_30"}:
+        return _smooth_video_eis_30(
+            dataset_id,
+            episode,
+            media,
+            progress,
+            smoothing=smoothing,
+            sharpen_strength=sharpen_strength,
+            border_zoom=border_zoom,
+            target_fps=target_fps,
+            motion_compensation=motion_compensation,
+            run_id=run_id,
+        )
+    return _smooth_video_native(
+        dataset_id,
+        episode,
+        media,
+        progress,
+        smoothing=smoothing,
+        sharpen_strength=sharpen_strength,
+        border_zoom=border_zoom,
+        run_id=run_id,
+        requested_mode=selected_mode,
+    )

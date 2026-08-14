@@ -59,7 +59,7 @@ class AnalysisRequest(BaseModel):
 
 
 class BehaviorAnnotationRequest(BaseModel):
-    sample_count: int = Field(default=36, ge=6, le=64)
+    sample_count: int = Field(default=56, ge=6, le=64)
     media_file_id: str | None = Field(default=None, min_length=1, max_length=160)
     force: bool = False
 
@@ -73,15 +73,18 @@ class CurationJobRequest(BaseModel):
     directional_agreement_threshold: float = Field(default=0.65, ge=0.5, le=0.85)
     max_lag_seconds: float = Field(default=0.5, ge=0.1, le=3.0)
     outlier_alpha: float = Field(default=0.1, ge=0.0, le=2.0)
-    video_sample_fps: float = Field(default=4.0, ge=0.5, le=8.0)
+    video_sample_fps: float = Field(default=15.0, ge=15.0, le=60.0)
     black_level_threshold: float = Field(default=8.0, ge=0.0, le=40.0)
     blur_laplacian_threshold: float = Field(default=35.0, ge=5.0, le=300.0)
     static_difference_threshold: float = Field(default=1.5, ge=0.1, le=12.0)
     static_duration_seconds: float = Field(default=2.0, ge=0.5, le=20.0)
     quality_gap_merge_seconds: float = Field(default=0.3, ge=0.0, le=2.0)
-    vlm_sample_count: int = Field(default=36, ge=6, le=64)
+    vlm_sample_count: int = Field(default=56, ge=6, le=64)
     force_vlm: bool = False
     full_pipeline: bool = False
+    smoothing_mode: Literal["native", "eis_30"] = "eis_30"
+    smoothing_target_fps: float = Field(default=30.0, ge=1.0, le=60.0)
+    smoothing_motion_compensation: bool = True
     full_output_format: Literal["lerobot", "hdf5_mp4", "subtask_json", "episode_lerobot_json"] = "lerobot"
     full_action_profile_id: str | None = Field(default=None, min_length=1, max_length=80)
     full_action_source_hand: Literal["left", "right"] = "right"
@@ -102,7 +105,7 @@ class BatchAnalysisRequest(BaseModel):
     operation: Literal["video_smoothing", "vlm_behavior", "pose_recovery", "projection_correction", "no_action_trim"]
     episode_ids: list[str] = Field(default_factory=list, min_length=1)
     media_file_ids: dict[str, str] = Field(default_factory=dict)
-    sample_count: int = Field(default=36, ge=6, le=64)
+    sample_count: int = Field(default=56, ge=6, le=64)
     sample_fps: float = Field(default=4.0, ge=0.25, le=30.0)
     adjustment_rate: float = Field(default=0.58, ge=0.0, le=1.0)
     adjustment_mode: Literal["uniform", "dynamic"] = "uniform"
@@ -118,6 +121,9 @@ class BatchAnalysisRequest(BaseModel):
     proximity_threshold: float = Field(default=0.04, ge=0.005, le=0.25)
     max_gap_seconds: float = Field(default=0.5, ge=0.0, le=3.0)
     min_valid_seconds: float = Field(default=0.3, ge=0.0, le=3.0)
+    smoothing_mode: Literal["native", "eis_30"] = "native"
+    smoothing_target_fps: float = Field(default=30.0, ge=1.0, le=60.0)
+    smoothing_motion_compensation: bool = True
     force: bool = False
 
     @model_validator(mode="after")

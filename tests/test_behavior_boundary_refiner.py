@@ -77,8 +77,8 @@ class BehaviorBoundaryRefinerTests(unittest.TestCase):
     def test_loader_reuses_curation_joint_bundle(self) -> None:
         joint = np.arange(24, dtype=np.float64).reshape(8, 3)
         with patch("app.curation_pipeline._load_signal_bundle", return_value={"joint": joint}) as load, patch(
-            "app.sensor_alignment.scan_episode_sensor_alignment", return_value={"streams": []}
-        ) as scan:
+            "app.sensor_alignment.get_valid_sensor_alignment", return_value={"streams": []}
+        ) as get_alignment:
             result = load_episode_joint_pose(
                 {"root_path": "fixture"},
                 {"id": "ep", "frame_count": 8},
@@ -87,10 +87,9 @@ class BehaviorBoundaryRefinerTests(unittest.TestCase):
             )
 
         np.testing.assert_array_equal(joint, result)
-        scan.assert_called_once_with(
+        get_alignment.assert_called_once_with(
             {"root_path": "fixture"},
             {"id": "ep", "frame_count": 8},
-            force=False,
             reference_media_file_id="wrist-left",
         )
         self.assertEqual(8, load.call_args.kwargs["frame_count"])

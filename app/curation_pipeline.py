@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-from copy import deepcopy
 import hashlib
 import json
 import math
@@ -25,6 +24,7 @@ from scipy.spatial.transform import Rotation, Slerp
 
 from .action_mapping import generate_episode_action, load_episode_action_mapping, validate_episode_action_mapping
 from .behavior_annotator import annotate_episode_behavior, load_behavior_annotation, media_fingerprint_matches, snapshot_behavior_annotation_for_run
+from .dataset_modes import dataset_mode
 from .full_export import EPISODE_LEROBOT_JSON_OUTPUT_FORMAT, SUBTASK_JSON_OUTPUT_FORMAT, _find_transform_source, export_episode, write_dataset_index
 from .full_run import (
     artifact_record,
@@ -36,23 +36,41 @@ from .full_run import (
     write_full_timeline_lock,
     write_stamped_artifact,
 )
-from .hand_visibility import inspect_full_hand_visibility
+from .hand_visibility import external_hand_projection_calibration, inspect_full_hand_visibility
 from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
+from .nexus_mano import mano21_points_from_nexus_value
+from .openxr_mano import mano21_points_from_openxr_value
+from .projection_correction import (
+    FULL_PROJECTION_SOURCE_OVERRIDES,
+    PROJECTION_RUNTIME_LOCK,
+    preferred_projection_media,
+    projection_source_from_document,
+    run_projection_correction,
+)
 from .schema_profiler import infer_local_signal_fields, probe_local_signal_fields
-from .schemas import ActionMappingRequest, BehaviorAnnotationRequest, CurationJobRequest
+from .schemas import ActionMappingRequest, BehaviorAnnotationRequest, CurationJobRequest, HandPoseModelConfig
 from .s1_repair import S1_REPAIR_SCHEMA, load_s1_repair
-from .sensor_alignment import scan_episode_sensor_alignment, validate_episode_time_sync
+from .sensor_alignment import (
+    find_sensor_alignment_stream,
+    retime_sensor_alignment,
+    scan_episode_sensor_alignment,
+    validate_episode_time_sync,
+)
 from .storage import dataset_artifact_dir, episode_media, get_manifest, record_change, slugify, storage_slug
 from .video_smoothing import smooth_video
 
 
 CURATION_SCHEMA = "alice/paper-curation/v1"
-CURATION_PIPELINE_VERSION = 15
+CURATION_PIPELINE_VERSION = 19
+FULL_EGODEX_PROJECTION_ADJUSTMENT_RATE = 0.65
+FULL_EGODEX_PROJECTION_SAMPLE_FPS = 15.0
 QUALITY_MARK_GAP_SECONDS = 0.3
 ROT6D_ABSOLUTE_JUMP_DEGREES = 45.0
 NEXUS_TACTILE_SPIKE_MAX_FRAMES = 2
 NEXUS_TACTILE_MIN_RELATIVE_EXCURSION = 0.6
+S2_LOCAL_WINDOW_SECONDS = 0.5
+S2_LOCAL_MINIMUM_SPAN_SECONDS = 0.15
 MAX_SIGNAL_ROWS = 120_000
 # Two native 20-node hands require 120 XYZ dimensions.  Keep bounded headroom
 # for wrists/actions without silently dropping the second hand.
@@ -422,6 +440,21 @@ def _signal_candidates(manifest: dict, episode: dict) -> list[dict]:
                 ),
                 "source": "local_schema",
             })
+    for candidate in candidates:
+        relative = str(candidate.get("relative_path") or "").replace("\\", "/").casefold()
+        field_leaf = str(candidate.get("field") or "").replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        if (
+            "dexweaveg1" in relative
+            and field_leaf == "skeleton"
+            and int(candidate.get("node_count") or 20) == 20
+        ):
+            candidate["extraction"] = "nexus_dexweaveg1_20_to_mano21"
+            candidate["embodiment_id"] = "dexweaveg1"
+            candidate["dimension_names"] = [
+                f"mano21_{node:02d}.{axis}"
+                for node in range(21)
+                for axis in ("x", "y", "z")
+            ]
     aggregate_prefixes = {
         (item["relative_path"].casefold(), item["field"][:-1].casefold())
         for item in candidates
@@ -479,9 +512,9 @@ def _signal_candidates(manifest: dict, episode: dict) -> list[dict]:
     # cleaning stages read its video-aligned 3D transforms.  The original
     # relative path remains the binding/source-signature identity so existing
     # repair and audit contracts continue to protect the immutable source.
-    from .projection_correction import applied_projection_source
+    from .projection_correction import active_projection_source
 
-    applied = applied_projection_source(manifest, episode)
+    applied = active_projection_source(manifest, episode)
     if applied is not None:
         source_relative = str(applied.get("source_relative_path") or "").replace("\\", "/").casefold()
         if source_relative:
@@ -489,7 +522,11 @@ def _signal_candidates(manifest: dict, episode: dict) -> list[dict]:
                 if candidate.get("kind") == "joint" and str(candidate.get("relative_path") or "").replace("\\", "/").casefold() == source_relative:
                     candidate["absolute_path"] = str(applied["path"])
                     candidate["derived_artifact_path"] = str(applied["path"])
-                    candidate["source"] = "applied_projection_correction"
+                    candidate["source"] = (
+                        "full_run_projection_correction"
+                        if applied.get("activation_scope") == "full_run"
+                        else "applied_projection_correction"
+                    )
                     candidate["application_id"] = applied.get("application_id")
     deduplicated: dict[tuple[str, str, str], dict] = {}
     for candidate in candidates:
@@ -508,47 +545,26 @@ def _signal_candidates(manifest: dict, episode: dict) -> list[dict]:
 
 
 def _nexus_mode_enabled(manifest: dict) -> bool:
-    format_map = manifest.get("format_map") or {}
-    strategy = format_map.get("processing_strategy") or manifest.get("processing_strategy") or {}
-    return (
-        str(manifest.get("format_family") or format_map.get("format_family") or "") == "nexus_multimodal"
-        or str(strategy.get("id") or "") == "nexus_sensor_fusion_v1"
-    )
+    return dataset_mode(manifest)["family"] == "nexus_multimodal"
 
 
 def _hand_visibility_capability(manifest: dict) -> tuple[bool, str | None]:
-    """Apply the family-specific camera contract for projection-based C3."""
-    format_map = manifest.get("format_map") or {}
-    capabilities = format_map.get("capabilities") or {}
-    family = str(manifest.get("format_family") or format_map.get("format_family") or "").casefold()
-    # EgoDex stores the camera pose and intrinsics in the episode HDF5.  It
-    # does not require the separate, applied-extrinsics contract used by
-    # Nexus.  This also overrides stale pre-v15 EgoDex format maps.
-    if family == "egodex":
+    """Apply the dataset-mode-specific camera contract for C3."""
+    mode = dataset_mode(manifest)
+    family = str(mode["family"])
+    if mode["conflict"]:
+        return False, "数据集格式声明互相冲突，C3 已安全停用"
+    if mode["hand_visibility_backend"] == "egodex_embedded_camera_v1":
         return True, None
-    calibration = manifest.get("camera_calibration") or format_map.get("camera_calibration") or {}
-    if family == "nexus_multimodal":
-        if (
-            capabilities.get("can_hand_visibility") is True
-            or calibration.get("hand_projection_ready") is True
-            or calibration.get("source_extrinsics_applied") is True
-        ):
-            return True, None
-        if calibration.get("source_extrinsics_applied") is not True:
-            return False, "Nexus 整手投影需要已应用的相机外参"
-    if capabilities.get("can_hand_visibility") is not False:
+    if family in {"nexus_multimodal", "openxr"}:
+        calibration, reason = external_hand_projection_calibration(manifest)
+        if calibration is None:
+            label = "Nexus" if family == "nexus_multimodal" else "OpenXR"
+            return False, f"{label} 缺少严格有效的手部空间到 RGB 标定：{reason}"
         return True, None
-    issues = format_map.get("issues") or []
-    reason = next(
-        (
-            str(item.get("message") or "")
-            for item in issues
-            if isinstance(item, dict) and item.get("code") == "camera_extrinsics_missing"
-        ),
-        "格式预检未启用整手可见性：缺少可用于投影的相机外参",
-    )
-    return False, reason
-
+    if family in {"lerobot", "alice_full"}:
+        return False, "当前格式未声明可验证的 MANO21 到 RGB 投影契约"
+    return False, "未识别数据集的关节坐标系与相机关系，C3 已安全停用"
 
 def _normalized_hand_sides(value: object) -> list[str]:
     if isinstance(value, (list, tuple, set)):
@@ -810,6 +826,102 @@ def _pressure_source_validity(path: Path, *, include_features: bool = False) -> 
         }
 
 
+def load_nexus_tactile_evidence(
+    manifest: dict,
+    episode: dict,
+    alignment: dict,
+    frame_count: int,
+) -> dict:
+    """Load video-aligned Nexus pressure features for post-VLM contact checks."""
+
+    total = max(0, int(frame_count))
+    empty = np.zeros(total, dtype=bool)
+    if not _nexus_mode_enabled(manifest):
+        return {
+            "enabled": False,
+            "contact": empty,
+            "valid_mask": empty,
+            "side_contact": {},
+            "side_valid_mask": {},
+            "side_features": {},
+            "bindings": [],
+            "errors": [],
+        }
+    root = Path(manifest["root_path"]).expanduser().resolve()
+    side_contact: dict[str, np.ndarray] = {}
+    side_valid: dict[str, np.ndarray] = {}
+    side_features: dict[str, np.ndarray] = {}
+    bindings: list[dict] = []
+    errors: list[str] = []
+    for record in _nexus_pressure_records(manifest, episode):
+        side = str(record.get("side") or "unknown")
+        relative = str(record.get("relative_path") or "")
+        path = (root / relative).resolve()
+        try:
+            path.relative_to(root)
+            source = _pressure_source_validity(path, include_features=True)
+            source_count = int(source.get("source_count") or 0)
+            features = source.get("features")
+            if source_count <= 0 or features is None:
+                raise ValueError("pressure/tactile feature rows are empty")
+            aligned, _, aligned_valid = _resample_to_video(
+                {
+                    "values": features,
+                    "row_indices": np.arange(source_count, dtype=np.int64),
+                    "source_count": source_count,
+                    "valid_rows": source["valid_rows"],
+                },
+                total,
+                _alignment_stream(
+                    alignment,
+                    relative,
+                    field=str(source.get("field") or "") or None,
+                    source_count=source_count,
+                ),
+            )
+            aligned = np.asarray(aligned, dtype=np.float64)
+            valid = np.asarray(aligned_valid, dtype=bool)
+            contact = (
+                valid
+                & np.isfinite(aligned[:, 0])
+                & np.isfinite(aligned[:, 2])
+                & (aligned[:, 0] > 0.0)
+                & (aligned[:, 2] > 0.0)
+            )
+            side_features[side] = aligned
+            side_valid[side] = valid
+            side_contact[side] = contact
+            bindings.append({
+                "side": side,
+                "status": "complete",
+                "relative_path": relative,
+                "field": source.get("field"),
+                "source_rows": source_count,
+                "feature_names": list(source.get("feature_names") or []),
+                "contact_frame_count": int(contact.sum()),
+            })
+        except Exception as exc:
+            errors.append(f"{side}: {str(exc)[:160]}")
+            bindings.append({
+                "side": side,
+                "status": "unreadable_stream",
+                "relative_path": relative,
+                "error": str(exc)[:180],
+            })
+    contact = np.logical_or.reduce(list(side_contact.values())) if side_contact else empty.copy()
+    valid_mask = np.logical_or.reduce(list(side_valid.values())) if side_valid else empty.copy()
+    return {
+        "enabled": bool(side_contact),
+        "contact": contact,
+        "valid_mask": valid_mask,
+        "side_contact": side_contact,
+        "side_valid_mask": side_valid,
+        "side_features": side_features,
+        "bindings": bindings,
+        "errors": errors,
+    }
+
+
 def inspect_nexus_pressure_integrity(manifest: dict, episode: dict, alignment: dict, frame_count: int) -> dict:
     empty_mask = np.zeros(frame_count, dtype=bool)
     side_masks = {side: np.zeros(frame_count, dtype=bool) for side in NEXUS_PRESSURE_EXPECTED_SIDES}
@@ -851,7 +963,12 @@ def inspect_nexus_pressure_integrity(manifest: dict, episode: dict, alignment: d
                 _, _, aligned_valid = _resample_to_video(
                     series,
                     frame_count,
-                    _alignment_stream(alignment, relative),
+                    _alignment_stream(
+                        alignment,
+                        relative,
+                        field=str(source.get("field") or "") or None,
+                        source_count=source_count,
+                    ),
                 )
             side_masks[side] = ~aligned_valid
             bindings.append({
@@ -1019,7 +1136,12 @@ def inspect_nexus_tactile_sudden_changes(
                     "valid_rows": source["valid_rows"],
                 },
                 frame_count,
-                _alignment_stream(alignment, relative),
+                _alignment_stream(
+                    alignment,
+                    relative,
+                    field=str(source.get("field") or "") or None,
+                    source_count=source_count,
+                ),
             )
             detected = detect_tactile_sudden_changes(aligned, sigma, aligned_valid)
             side_masks[side] = np.asarray(detected["mask"], dtype=bool)
@@ -1148,7 +1270,40 @@ def _read_hdf5(path: Path, field: str, descriptor: dict | None = None) -> dict:
         count = int(dataset.shape[0])
         rows = np.arange(count, dtype=np.int64) if count <= MAX_SIGNAL_ROWS else np.linspace(0, count - 1, MAX_SIGNAL_ROWS, dtype=np.int64)
         raw_values = np.asarray(dataset[rows] if count > MAX_SIGNAL_ROWS else dataset[:])
-        if str((descriptor or {}).get("extraction") or "") == "skeleton_xyz":
+        extraction = str((descriptor or {}).get("extraction") or "")
+        if extraction == "nexus_dexweaveg1_20_to_mano21":
+            wrist_field = f"{field.rsplit('/', 1)[0]}/wrist_quat" if "/" in field else "wrist_quat"
+            wrist_dataset = handle.get(wrist_field)
+            wrist_quaternion = None
+            if wrist_dataset is not None and wrist_dataset.shape and int(wrist_dataset.shape[0]) == count:
+                wrist_quaternion = np.asarray(wrist_dataset[rows] if count > MAX_SIGNAL_ROWS else wrist_dataset[:])
+            points, joint_valid, _ = mano21_points_from_nexus_value(
+                raw_values,
+                wrist_quaternion=wrist_quaternion,
+            )
+            if points.ndim != 3 or points.shape[-2:] != (21, 3):
+                raise ValueError("Nexus hand skeleton must resolve to T x 21 x 3")
+            values = np.asarray(points.reshape(points.shape[0], -1), dtype=np.float64)
+        elif extraction == "openxr_hand_26_to_mano21":
+            parent = field.rsplit("/", 1)[0] if "/" in field else ""
+            source_validity = None
+            for leaf in ("location_flags", "flags", "validity", "valid", "tracked"):
+                validity_field = f"{parent}/{leaf}" if parent else leaf
+                candidate = handle.get(validity_field)
+                if candidate is None or not candidate.shape or int(candidate.shape[0]) != count:
+                    continue
+                source_validity = np.asarray(candidate[rows] if count > MAX_SIGNAL_ROWS else candidate[:])
+                if leaf in {"validity", "valid", "tracked"}:
+                    source_validity = source_validity.astype(bool)
+                break
+            points, joint_valid = mano21_points_from_openxr_value(
+                raw_values,
+                validity=source_validity,
+            )
+            if points.ndim != 3 or points.shape[-2:] != (21, 3):
+                raise ValueError("OpenXR hand stream must resolve to T x 21 x 3")
+            values = np.asarray(points.reshape(points.shape[0], -1), dtype=np.float64)
+        elif extraction == "skeleton_xyz":
             if raw_values.ndim != 3 or raw_values.shape[-1] < 3:
                 raise ValueError("hand skeleton must have shape T x nodes x >=3")
             values = np.asarray(raw_values[..., :3].reshape(raw_values.shape[0], -1), dtype=np.float64)
@@ -1158,6 +1313,8 @@ def _read_hdf5(path: Path, field: str, descriptor: dict | None = None) -> dict:
         parent = field.rsplit("/", 1)[0] if "/" in field else ""
         partial_field = f"{parent}/partial" if parent else "partial"
         valid_rows = np.ones(rows.size, dtype=bool)
+        if extraction in {"openxr_hand_26_to_mano21", "nexus_dexweaveg1_20_to_mano21"}:
+            valid_rows &= np.any(np.asarray(joint_valid, dtype=bool), axis=-1)
         if partial_field in handle:
             partial = handle[partial_field]
             if partial.shape and int(partial.shape[0]) == count:
@@ -1250,11 +1407,18 @@ def _read_numeric_series(path: Path, field: str, descriptor: dict | None = None)
     raise ValueError(f"unsupported numeric source: {suffix}")
 
 
-def _alignment_stream(alignment: dict, relative_path: str) -> dict | None:
-    wanted = relative_path.replace("\\", "/").casefold()
-    return next(
-        (item for item in alignment.get("streams", []) if str(item.get("relative_path") or "").replace("\\", "/").casefold() == wanted),
-        None,
+def _alignment_stream(
+    alignment: dict,
+    relative_path: str,
+    *,
+    field: str | None = None,
+    source_count: int | None = None,
+) -> dict | None:
+    return find_sensor_alignment_stream(
+        alignment,
+        relative_path,
+        field=field,
+        source_count=source_count,
     )
 
 
@@ -1262,6 +1426,12 @@ def _resample_to_video(series: dict, frame_count: int, alignment_stream: dict | 
     values = np.asarray(series["values"], dtype=np.float64)
     row_indices = np.asarray(series["row_indices"], dtype=np.int64)
     source_count = int(series.get("source_count") or values.shape[0])
+    if alignment_stream is None:
+        return (
+            np.full((frame_count, values.shape[1]), np.nan, dtype=np.float64),
+            np.full(frame_count, -1, dtype=np.int64),
+            np.zeros(frame_count, dtype=bool),
+        )
     fractional_lookup = (alignment_stream or {}).get("frame_to_sensor_position")
     if isinstance(fractional_lookup, list):
         targets = np.full(frame_count, np.nan, dtype=np.float64)
@@ -1301,12 +1471,20 @@ def _resample_to_video(series: dict, frame_count: int, alignment_stream: dict | 
     if isinstance(lookup, list):
         count = min(frame_count, len(lookup))
         targets[:count] = np.asarray(lookup[:count], dtype=np.int64)
-    elif (alignment_stream or {}).get("mode") in {"prealigned_master_clock", "paired_frame_index"}:
+    elif alignment_stream.get("mode") in {
+        "prealigned_master_clock",
+        "paired_frame_index",
+        "applied_projection_video_aligned",
+    }:
         targets = np.arange(frame_count, dtype=np.int64)
-    elif alignment_stream and alignment_stream.get("index_multiplier") is not None:
+    elif alignment_stream.get("index_multiplier") is not None:
         targets = np.rint(np.arange(frame_count) * float(alignment_stream["index_multiplier"])).astype(np.int64)
     else:
-        targets = np.rint(np.linspace(0, max(0, source_count - 1), frame_count)).astype(np.int64)
+        return (
+            np.full((frame_count, values.shape[1]), np.nan, dtype=np.float64),
+            np.full(frame_count, -1, dtype=np.int64),
+            np.zeros(frame_count, dtype=bool),
+        )
     valid = (targets >= 0) & (targets < source_count)
     positions = np.searchsorted(row_indices, np.clip(targets, 0, max(0, source_count - 1)), side="left")
     positions = np.clip(positions, 0, max(0, row_indices.size - 1))
@@ -1348,10 +1526,42 @@ def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_co
             elif not path.is_file():
                 raise FileNotFoundError(path)
             series = _read_numeric_series(path, candidate["field"], candidate)
+            if absolute_path:
+                alignment_stream = {
+                    "relative_path": candidate["relative_path"],
+                    "field": candidate["field"],
+                    "data_count": int(series["source_count"]),
+                    "mode": "applied_projection_video_aligned",
+                    "index_multiplier": 1.0,
+                }
+                alignment_retiming = alignment.get("retiming") or {}
+                retimed_positions = np.asarray(
+                    (alignment_retiming.get("source_frame_positions") or []),
+                    dtype=np.float64,
+                ).reshape(-1)
+                projection_video_identity = bool(
+                    candidate.get("source") in {"applied_projection_correction", "full_run_projection_correction"}
+                    and target_frame_count == int(series["source_count"])
+                    and str(alignment_retiming.get("mode") or "") == "derived_video_timeline"
+                )
+                if not projection_video_identity and (
+                    retimed_positions.shape == (target_frame_count,)
+                    and np.isfinite(retimed_positions).all()
+                    and np.all(retimed_positions >= 0.0)
+                    and np.all(retimed_positions <= int(series["source_count"]) - 1)
+                ):
+                    alignment_stream["frame_to_sensor_position"] = retimed_positions.tolist()
+            else:
+                alignment_stream = _alignment_stream(
+                    alignment,
+                    candidate["relative_path"],
+                    field=candidate["field"],
+                    source_count=int(series["source_count"]),
+                )
             aligned, source_row_indices, source_valid = _resample_to_video(
                 series,
                 target_frame_count,
-                {} if absolute_path else _alignment_stream(alignment, candidate["relative_path"]),
+                alignment_stream,
             )
         except Exception as exc:
             warnings.append(f"{candidate['relative_path']} / {candidate['field']}: {str(exc)[:180]}")
@@ -1361,7 +1571,7 @@ def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_co
         if not aligned.shape[1]:
             continue
         raw_projection_aligned: np.ndarray | None = None
-        if candidate["kind"] == "joint" and candidate.get("source") == "applied_projection_correction":
+        if candidate["kind"] == "joint" and candidate.get("source") in {"applied_projection_correction", "full_run_projection_correction"}:
             try:
                 raw_path = (root / candidate["relative_path"]).resolve()
                 raw_path.relative_to(root)
@@ -1369,7 +1579,12 @@ def _load_signal_bundle(manifest: dict, episode: dict, alignment: dict, frame_co
                 raw_projection_aligned, _, _ = _resample_to_video(
                     raw_series,
                     target_frame_count,
-                    _alignment_stream(alignment, candidate["relative_path"]),
+                    _alignment_stream(
+                        alignment,
+                        candidate["relative_path"],
+                        field=candidate["field"],
+                        source_count=int(raw_series["source_count"]),
+                    ),
                 )
                 raw_projection_aligned = raw_projection_aligned[:, : aligned.shape[1]]
                 if raw_projection_aligned.shape != aligned.shape:
@@ -1805,6 +2020,13 @@ def _writable_repair_target(binding: dict, local_column: int) -> tuple[str, int]
     if suffix not in {".h5", ".hdf5", ".h5df"}:
         return None
     field = str(binding.get("field") or "").strip("/")
+    if binding.get("extraction") in {
+        "openxr_hand_26_to_mano21",
+        "nexus_dexweaveg1_20_to_mano21",
+    }:
+        # These adapters reorder/drop source nodes and synthesize MANO0, so
+        # canonical columns do not have a safe one-cell source writeback.
+        return None
     if field.endswith("/*") and binding.get("extraction") == "matrix_translation_xyz":
         members = [str(item).strip("/") for item in binding.get("members") or []]
         member_index, axis = divmod(local_column, 3)
@@ -1902,7 +2124,12 @@ def apply_s1_repair_to_bundle(bundle: dict, repair: dict | None) -> None:
         bundle[kind] = output
 
 
-def repair_s1_bundle(bundle: dict, sigma: float, max_gap_frames: int) -> dict:
+def repair_s1_bundle(
+    bundle: dict,
+    sigma: float,
+    max_gap_frames: int,
+    blocked_repair_frames: np.ndarray | None = None,
+) -> dict:
     parts = [item for item in (bundle.get("joint"), bundle.get("action")) if item is not None]
     original = np.concatenate(parts, axis=1)
     generic_before = detect_sudden_changes(original, sigma)
@@ -1936,6 +2163,11 @@ def repair_s1_bundle(bundle: dict, sigma: float, max_gap_frames: int) -> dict:
         candidate[:, combined_indices] = rot_candidate["values"]
         candidate_cells[:, combined_indices] = rot_candidate["cell_mask"]
     candidate, candidate_cells = _restrict_repairs_to_writable_sources(original, candidate, candidate_cells, bundle)
+    if blocked_repair_frames is not None:
+        blocked = np.asarray(blocked_repair_frames, dtype=bool)
+        if blocked.shape != (original.shape[0],):
+            raise ValueError("blocked S1 repair mask length does not match the signal timeline")
+        candidate_cells[blocked] = False
     joint_width = int(bundle["joint"].shape[1]) if bundle.get("joint") is not None else 0
 
     def inspect(values: np.ndarray) -> tuple[dict, dict, np.ndarray]:
@@ -1990,6 +2222,126 @@ def _aligned_pair(state: np.ndarray, action: np.ndarray, lag: int) -> tuple[np.n
     return state, action
 
 
+def _canonical_dimension_name(value: object) -> str:
+    tokens = [
+        token
+        for token in re.split(r"[^a-z0-9一-鿿]+", str(value or "").casefold())
+        if token
+    ]
+    ignored = {
+        "observation", "observations", "obs", "state", "states", "joint", "joints",
+        "action", "actions", "command", "commands", "cmd", "target", "targets",
+        "desired", "position", "positions", "value", "values",
+    }
+    normalized = [token for token in tokens if token not in ignored]
+    return "/".join(normalized)
+
+
+def _bundle_dimension_names(bundle: dict, kind: str, width: int) -> list[str]:
+    output = [""] * max(0, int(width))
+    for binding in bundle.get("bindings") or []:
+        if str(binding.get("kind") or "") != kind:
+            continue
+        start = max(0, int(binding.get("column_start") or 0))
+        end = min(len(output), int(binding.get("column_end") or start))
+        names = [str(item) for item in binding.get("dimension_names") or []]
+        if end > start and len(names) == end - start:
+            output[start:end] = names
+    return output
+
+
+def _semantic_dimension_pairs(
+    state_width: int,
+    action_width: int,
+    state_names: list[str] | None,
+    action_names: list[str] | None,
+    *,
+    require_semantic_mapping: bool,
+) -> list[tuple[int, int, str]]:
+    if state_names is not None and action_names is not None:
+        state_map: dict[str, list[int]] = {}
+        action_map: dict[str, list[int]] = {}
+        for index, value in enumerate(state_names[:state_width]):
+            name = _canonical_dimension_name(value)
+            if name:
+                state_map.setdefault(name, []).append(index)
+        for index, value in enumerate(action_names[:action_width]):
+            name = _canonical_dimension_name(value)
+            if name:
+                action_map.setdefault(name, []).append(index)
+        pairs = [
+            (state_map[name][0], action_map[name][0], name)
+            for name in sorted(state_map.keys() & action_map.keys())
+            if len(state_map[name]) == 1 and len(action_map[name]) == 1
+        ]
+        if pairs:
+            return pairs
+    if require_semantic_mapping:
+        raise ValueError("State/Action 缺少可唯一匹配的 dimension_names，S2 不执行位置猜测")
+    dimensions = min(state_width, action_width)
+    return [(index, index, f"column/{index}") for index in range(dimensions)]
+
+
+def _retain_minimum_mask_runs(mask: np.ndarray, minimum_frames: int) -> np.ndarray:
+    output = np.zeros(np.asarray(mask, dtype=bool).shape, dtype=bool)
+    for start, end in _mask_ranges(np.asarray(mask, dtype=bool)):
+        if end - start + 1 >= max(1, int(minimum_frames)):
+            output[start:end + 1] = True
+    return output
+
+
+def _local_state_action_masks(
+    state: np.ndarray,
+    action: np.ndarray,
+    lag_frames: int,
+    fps: float,
+    threshold: float,
+    review_floor: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    frame_count = int(state.shape[0])
+    invalid = np.zeros(frame_count, dtype=bool)
+    review = np.zeros(frame_count, dtype=bool)
+    local_scores = np.full(frame_count, np.nan, dtype=np.float64)
+    aligned_state, aligned_action = _aligned_pair(state, action, lag_frames)
+    if aligned_state.shape[0] < 4:
+        return invalid, review, local_scores, {"window_frames": 0, "evaluated_frame_count": 0}
+    if lag_frames > 0:
+        aligned_frames = np.arange(lag_frames, frame_count, dtype=np.int64)
+    elif lag_frames < 0:
+        aligned_frames = np.arange(0, frame_count + lag_frames, dtype=np.int64)
+    else:
+        aligned_frames = np.arange(frame_count, dtype=np.int64)
+    state_diff = np.diff(aligned_state, axis=0)
+    action_diff = np.diff(aligned_action, axis=0)
+    stacked = np.concatenate((np.abs(state_diff), np.abs(action_diff)), axis=0)
+    deadband = np.maximum(1e-5, np.nanpercentile(stacked, 25, axis=0) * 0.1)
+    active = (np.abs(state_diff) > deadband) | (np.abs(action_diff) > deadband)
+    agreement = np.sign(state_diff) == np.sign(action_diff)
+    diff_frames = aligned_frames[1:]
+    window_frames = max(5, int(math.ceil(S2_LOCAL_WINDOW_SECONDS * max(0.01, fps))))
+    half_window = window_frames // 2
+    minimum_comparisons = max(5, int(math.ceil(S2_LOCAL_MINIMUM_SPAN_SECONDS * max(0.01, fps))))
+    for position, frame in enumerate(diff_frames):
+        left = max(0, position - half_window)
+        right = min(len(diff_frames), position + half_window + 1)
+        selected = active[left:right]
+        if int(selected.sum()) < minimum_comparisons:
+            continue
+        local_scores[frame] = float(np.mean(agreement[left:right][selected]))
+    evaluated = np.isfinite(local_scores)
+    raw_invalid = evaluated & (local_scores < review_floor)
+    raw_review = evaluated & (local_scores >= review_floor) & (local_scores < threshold)
+    minimum_run = max(2, int(math.ceil(S2_LOCAL_MINIMUM_SPAN_SECONDS * max(0.01, fps))))
+    invalid = _retain_minimum_mask_runs(raw_invalid, minimum_run)
+    review = _retain_minimum_mask_runs(raw_review | raw_invalid, minimum_run) & ~invalid
+    return invalid, review, local_scores, {
+        "window_frames": window_frames,
+        "minimum_comparisons": minimum_comparisons,
+        "minimum_run_frames": minimum_run,
+        "evaluated_frame_count": int(evaluated.sum()),
+    }
+
+
 def estimate_state_action_alignment(
     state: np.ndarray,
     action: np.ndarray,
@@ -1997,12 +2349,23 @@ def estimate_state_action_alignment(
     max_lag_seconds: float,
     da_threshold: float,
     action_representation: str,
+    state_dimension_names: list[str] | None = None,
+    action_dimension_names: list[str] | None = None,
+    *,
+    require_semantic_mapping: bool = False,
 ) -> dict:
-    dimensions = min(state.shape[1], action.shape[1])
+    pairs = _semantic_dimension_pairs(
+        int(state.shape[1]),
+        int(action.shape[1]),
+        state_dimension_names,
+        action_dimension_names,
+        require_semantic_mapping=require_semantic_mapping,
+    )
+    dimensions = len(pairs)
     if dimensions <= 0 or state.shape[0] < 12:
         raise ValueError("state/action shared dimensions are unavailable")
-    state_values = _smooth(state[:, :dimensions])
-    action_values = _smooth(action[:, :dimensions])
+    state_values = _smooth(state[:, [item[0] for item in pairs]])
+    action_values = _smooth(action[:, [item[1] for item in pairs]])
     if action_representation == "delta":
         action_values = np.cumsum(action_values, axis=0)
     elif action_representation == "velocity":
@@ -2014,12 +2377,17 @@ def estimate_state_action_alignment(
     for dimension in range(dimensions):
         s = state_values[:, dimension]
         a = action_values[:, dimension]
-        s = (s - np.mean(s)) / max(np.std(s), 1e-9)
-        a = (a - np.mean(a)) / max(np.std(a), 1e-9)
+        # Estimate lag from motion rather than absolute position.  A local
+        # offset or one bad segment must not shift the alignment of the whole
+        # Episode.
+        s_motion = np.diff(s, prepend=s[:1])
+        a_motion = np.diff(a, prepend=a[:1])
+        s_normalized = (s_motion - np.mean(s_motion)) / max(np.std(s_motion), 1e-9)
+        a_normalized = (a_motion - np.mean(a_motion)) / max(np.std(a_motion), 1e-9)
         best_lag = 0
         best_correlation = -math.inf
         for lag in range(-max_lag, max_lag + 1):
-            aligned_state, aligned_action = _aligned_pair(s, a, lag)
+            aligned_state, aligned_action = _aligned_pair(s_normalized, a_normalized, lag)
             if aligned_state.size < 8:
                 continue
             correlation = float(np.mean(aligned_state * aligned_action))
@@ -2034,13 +2402,30 @@ def estimate_state_action_alignment(
         if active.sum() < 5:
             continue
         agreement = float(np.mean(np.sign(state_diff[active]) == np.sign(action_diff[active])))
-        metrics.append({"dimension": dimension, "lag_frames": best_lag, "correlation": round(best_correlation, 6), "directional_agreement": round(agreement, 6)})
+        metrics.append({
+            "dimension": dimension,
+            "semantic_name": pairs[dimension][2],
+            "state_dimension": pairs[dimension][0],
+            "action_dimension": pairs[dimension][1],
+            "lag_frames": best_lag,
+            "correlation": round(best_correlation, 6),
+            "directional_agreement": round(agreement, 6),
+        })
     if not metrics:
         raise ValueError("state/action trajectories have insufficient variation")
     lag_frames = int(round(float(np.median([item["lag_frames"] for item in metrics]))))
     agreement = float(np.median([item["directional_agreement"] for item in metrics]))
     review_floor = min(da_threshold, 0.6)
-    verdict = "pass" if agreement >= da_threshold else "review" if agreement >= review_floor else "reject_candidate"
+    global_verdict = "pass" if agreement >= da_threshold else "review" if agreement >= review_floor else "reject_candidate"
+    invalid_mask, review_mask, local_agreement, local_metrics = _local_state_action_masks(
+        state_values,
+        action_values,
+        lag_frames,
+        fps,
+        da_threshold,
+        review_floor,
+    )
+    verdict = "reject_candidate" if invalid_mask.any() else "review" if review_mask.any() else "pass"
     return {
         "lag_frames": lag_frames,
         "lag_seconds": round(lag_frames / max(fps, 0.01), 6),
@@ -2048,10 +2433,23 @@ def estimate_state_action_alignment(
         "threshold": da_threshold,
         "passed": verdict == "pass",
         "verdict": verdict,
+        "global_verdict": global_verdict,
         "shared_dimensions": dimensions,
+        "semantic_mapping": [
+            {"state_dimension": state_index, "action_dimension": action_index, "name": name}
+            for state_index, action_index, name in pairs
+        ],
         "action_representation": action_representation,
         "action_integrated": action_representation in {"delta", "velocity"},
         "dimensions": metrics[:32],
+        "invalid_mask": invalid_mask,
+        "review_mask": review_mask,
+        "local_directional_agreement": local_agreement,
+        "local_metrics": local_metrics,
+        "invalid_frame_count": int(invalid_mask.sum()),
+        "review_frame_count": int(review_mask.sum()),
+        "invalid_ranges": [{"start_frame": start, "end_frame": end} for start, end in _mask_ranges(invalid_mask)],
+        "review_ranges": [{"start_frame": start, "end_frame": end} for start, end in _mask_ranges(review_mask)],
     }
 
 
@@ -2117,7 +2515,10 @@ def merge_dense_quality_marks(mask: np.ndarray, fps: float, gap_seconds: float =
 def inspect_video_quality(media: dict, action: np.ndarray | None, request: CurationJobRequest, progress: Callable[[float, str], None]) -> dict:
     frame_count = int(media.get("frame_count") or 0)
     fps = max(0.01, float(media.get("fps") or 30.0))
-    step = max(1, int(round(fps / request.video_sample_fps)))
+    requested_sample_fps = max(15.0, float(request.video_sample_fps))
+    target_sample_fps = min(fps, requested_sample_fps)
+    step = max(1, int(math.floor(fps / max(0.01, target_sample_fps) + 1e-9)))
+    effective_sample_fps = min(fps, fps / step)
     indices = list(range(0, frame_count, step))
     if indices and indices[-1] != frame_count - 1:
         indices.append(frame_count - 1)
@@ -2162,7 +2563,7 @@ def inspect_video_quality(media: dict, action: np.ndarray | None, request: Curat
     blur_mask = raw_blur & (np.convolve(raw_blur.astype(np.int8), np.ones(3, dtype=np.int8), mode="same") >= 2)
     low_motion = difference_array < request.static_difference_threshold
     static_mask = np.zeros(len(indices), dtype=bool)
-    minimum_static_samples = max(2, int(math.ceil(request.static_duration_seconds * request.video_sample_fps)))
+    minimum_static_samples = max(2, int(math.ceil(request.static_duration_seconds * effective_sample_fps)))
     for start, end in _runs(low_motion):
         if end - start + 1 >= minimum_static_samples:
             static_mask[start:end + 1] = True
@@ -2213,6 +2614,9 @@ def inspect_video_quality(media: dict, action: np.ndarray | None, request: Curat
         "findings": findings[:MAX_REPORT_FINDINGS],
         "metrics": {
             "sample_count": len(indices),
+            "requested_sample_fps": round(requested_sample_fps, 6),
+            "effective_sample_fps": round(effective_sample_fps, 6),
+            "sample_step_frames": int(step),
             "black_sample_count": int(black_mask.sum()),
             "blur_sample_count": int(blur_mask.sum()),
             "static_sample_count": int(static_confirmed.sum()),
@@ -2234,50 +2638,7 @@ def _curation_time_sync(manifest: dict, episode: dict, media: dict) -> dict:
         force=False,
         reference_media_file_id=str(media.get("file_id") or "") or None,
     )
-    source_positions = np.asarray(media.get("source_frame_positions") or [], dtype=np.float64).reshape(-1)
-    target_count = int(media.get("frame_count") or 0)
-    if source_positions.size == target_count and target_count > 0 and np.isfinite(source_positions).all():
-        alignment = deepcopy(alignment)
-        for stream in alignment.get("streams") or []:
-            lookup = stream.get("frame_to_sensor_index")
-            if isinstance(lookup, list) and lookup:
-                original = np.asarray(lookup, dtype=np.float64)
-                valid_original = original >= 0.0
-                sensor_positions = np.full(target_count, -1.0, dtype=np.float64)
-                left = np.floor(source_positions).astype(np.int64)
-                right = np.ceil(source_positions).astype(np.int64)
-                in_range = (left >= 0) & (right < original.size)
-                valid = in_range & valid_original[np.clip(left, 0, original.size - 1)] & valid_original[np.clip(right, 0, original.size - 1)]
-                alpha = source_positions - left
-                sensor_positions[valid] = (
-                    original[left[valid]] * (1.0 - alpha[valid])
-                    + original[right[valid]] * alpha[valid]
-                )
-            else:
-                multiplier = float(stream.get("index_multiplier") or 1.0)
-                sensor_positions = source_positions * multiplier
-                data_count = int(stream.get("data_count") or 0)
-                if data_count > 0:
-                    sensor_positions[(sensor_positions < 0.0) | (sensor_positions > data_count - 1)] = -1.0
-            stream["frame_to_sensor_position"] = [round(float(value), 9) for value in sensor_positions]
-            stream["frame_to_sensor_index"] = [int(round(value)) if value >= 0.0 else -1 for value in sensor_positions]
-            stream["retimed_from_source_video"] = True
-        alignment["reference_video"] = {
-            **(alignment.get("reference_video") or {}),
-            "file_id": media.get("file_id"),
-            "stream_name": media.get("stream_name"),
-            "relative_path": media.get("relative_path"),
-            "fps": media.get("fps") or episode.get("fps") or 30.0,
-            "frame_count": target_count,
-            "duration": target_count / max(0.01, float(media.get("fps") or episode.get("fps") or 30.0)),
-            "retimed_from_source_video": True,
-        }
-        alignment["retiming"] = {
-            "mode": "projection_s1_intermediate_frames",
-            "source_frame_count": int(round(float(source_positions[-1]))) + 1 if source_positions.size else 0,
-            "output_frame_count": target_count,
-            "inserted_frame_count": int(np.count_nonzero(np.abs(source_positions - np.rint(source_positions)) > 1e-9)),
-        }
+    alignment = retime_sensor_alignment(alignment, media)
     alignment.setdefault("reference_video", {
         "file_id": media.get("file_id"),
         "stream_name": media.get("stream_name"),
@@ -2301,6 +2662,19 @@ def _mask_findings(mask: np.ndarray, stage_id: str, severity: str, reason: str, 
         "reason": reason,
         "confidence": confidence,
     } for start, end in _runs(mask)]
+
+
+def _retime_boolean_mask(mask: np.ndarray, source_positions: list[float]) -> np.ndarray:
+    source = np.asarray(mask, dtype=bool).reshape(-1)
+    positions = np.asarray(source_positions, dtype=np.float64).reshape(-1)
+    if not source.size or not positions.size or not np.isfinite(positions).all():
+        return source
+    left = np.floor(positions).astype(np.int64)
+    right = np.ceil(positions).astype(np.int64)
+    valid = (left >= 0) & (right < source.size)
+    output = np.ones(len(positions), dtype=bool)
+    output[valid] = source[left[valid]] | source[right[valid]]
+    return output
 
 
 def _combined_segments(frame_count: int, fps: float, invalid: np.ndarray, review: np.ndarray, findings: list[dict]) -> list[dict]:
@@ -2346,9 +2720,10 @@ def _state_masks_from_segments(frame_count: int, segments: list[dict]) -> tuple[
 
 
 def resolve_post_vlm_review(precheck_review: np.ndarray, c1: dict, c2: dict) -> np.ndarray:
-    evaluated = {"completed", "warning"}
-    both_checks_ran = c1.get("status") in evaluated and c2.get("status") in evaluated
-    review = np.zeros_like(precheck_review) if both_checks_ran else precheck_review.copy()
+    # C1/C2 may add review evidence, but they do not evaluate or clear S3/C3
+    # quality findings.  A review state can only be removed by a dedicated
+    # resolver for the stage that created it.
+    review = precheck_review.copy()
     for result in (c1, c2):
         mask = result.get("review_mask")
         if mask is not None:
@@ -2430,11 +2805,76 @@ def _motion_evidence(bundle: dict, frame_count: int) -> np.ndarray | None:
     return np.maximum.reduce(scores) if scores else None
 
 
+def _gripper_transition_evidence(bundle: dict, frame_count: int, eligible: np.ndarray) -> dict:
+    scores: list[np.ndarray] = []
+    source_kinds: list[str] = []
+    for kind in ("joint", "action"):
+        matrix = bundle.get(kind)
+        if matrix is None or not np.asarray(matrix).size:
+            continue
+        values = np.asarray(matrix, dtype=np.float64)
+        columns = sorted({
+            int(index)
+            for index in ((bundle.get("gripper_columns") or {}).get(kind) or set())
+            if 0 <= int(index) < values.shape[1]
+        })
+        if not columns or values.shape[0] != frame_count:
+            continue
+        values = _smooth(values[:, columns])
+        if kind == "action" and bundle.get("action_representation") in {"delta", "velocity"}:
+            scale = np.nanpercentile(np.abs(values), 90, axis=0)
+            scale = np.maximum(scale, 1e-9)
+            score = np.sqrt(np.nanmean(np.square(values / scale), axis=1))
+        else:
+            span = np.nanpercentile(values, 95, axis=0) - np.nanpercentile(values, 5, axis=0)
+            span = np.maximum(np.abs(span), 1e-9)
+            delta = np.diff(values, axis=0, prepend=values[:1])
+            score = np.sqrt(np.nanmean(np.square(delta / span), axis=1))
+        scores.append(np.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0))
+        source_kinds.append(kind)
+    if not scores:
+        return {
+            "available": False,
+            "score": None,
+            "transition_mask": np.zeros(frame_count, dtype=bool),
+            "threshold": None,
+            "source_kinds": [],
+        }
+    score = np.maximum.reduce(scores)
+    candidates = score[np.asarray(eligible, dtype=bool) & np.isfinite(score)]
+    positive = candidates[candidates > 1e-9]
+    threshold = max(1e-4, float(np.percentile(positive, 25)) * 0.5) if positive.size else 1e-4
+    return {
+        "available": True,
+        "score": score,
+        "transition_mask": score > threshold,
+        "threshold": threshold,
+        "source_kinds": source_kinds,
+    }
+
+
+def _contact_action_template(segment: dict) -> str | None:
+    skill_text = str(segment.get("skill") or "").strip()
+    skill = re.sub(r"[^a-z0-9]+", "", skill_text.casefold())
+    if skill in {"grasp", "pinch", "clip", "suction", "catch", "takeover"}:
+        return "grasp"
+    if skill == "hold":
+        return "hold"
+    if skill == "release":
+        return "release"
+    if skill_text:
+        return None
+    phase = str(segment.get("phase_label") or segment.get("label") or "unknown").strip().casefold()
+    phase = phase.replace("-", "_").replace(" ", "_")
+    return phase if phase in {"grasp", "release"} else None
+
+
 def inspect_behavior_state_consistency(
     behavior: dict | None,
     bundle: dict,
     preliminary_valid: np.ndarray,
     fps: float,
+    tactile_evidence: dict | None = None,
 ) -> dict:
     frame_count = int(preliminary_valid.size)
     if not behavior:
@@ -2446,62 +2886,214 @@ def inspect_behavior_state_consistency(
             "metrics": {},
         }
     motion = _motion_evidence(bundle, frame_count)
-    if motion is None:
+    gripper = _gripper_transition_evidence(bundle, frame_count, preliminary_valid)
+    tactile = tactile_evidence or {}
+    tactile_contact = np.asarray(tactile.get("contact", np.zeros(frame_count, dtype=bool)), dtype=bool).reshape(-1)
+    tactile_valid = np.asarray(tactile.get("valid_mask", np.zeros(frame_count, dtype=bool)), dtype=bool).reshape(-1)
+    if tactile_contact.shape != (frame_count,) or tactile_valid.shape != (frame_count,):
+        tactile_contact = np.zeros(frame_count, dtype=bool)
+        tactile_valid = np.zeros(frame_count, dtype=bool)
+    tactile_available = bool(tactile_valid.any())
+    if motion is None and not tactile_available:
         return {
             "status": "skipped",
-            "message": "C2 缺少可对齐的 State/Action 数值流",
+            "message": "C2 缺少可对齐的 State/Action 与触觉证据",
             "review_mask": np.zeros(frame_count, dtype=bool),
             "findings": [],
-            "metrics": {"behavior_segment_count": len(behavior.get("segments") or [])},
+            "metrics": {
+                "behavior_segment_count": len(behavior.get("segments") or []),
+                "gripper_evidence_available": bool(gripper["available"]),
+                "tactile_evidence_available": False,
+                "tactile_contact_frame_count": 0,
+            },
         }
-    candidates = motion[preliminary_valid & np.isfinite(motion)]
-    positive = candidates[candidates > 1e-9]
-    motion_threshold = max(1e-4, float(np.percentile(positive, 25)) * 0.5) if positive.size else 1e-4
+    if motion is not None:
+        candidates = motion[preliminary_valid & np.isfinite(motion)]
+        positive = candidates[candidates > 1e-9]
+        motion_threshold = max(1e-4, float(np.percentile(positive, 25)) * 0.5) if positive.size else 1e-4
+    else:
+        motion_threshold = None
+    tactile_onset = np.zeros(frame_count, dtype=bool)
+    tactile_offset = np.zeros(frame_count, dtype=bool)
+    if frame_count > 1:
+        valid_pairs = tactile_valid[1:] & tactile_valid[:-1]
+        tactile_onset[1:] = valid_pairs & tactile_contact[1:] & ~tactile_contact[:-1]
+        tactile_offset[1:] = valid_pairs & ~tactile_contact[1:] & tactile_contact[:-1]
     inactive_phases = {"idle", "observe", "reach", "withdraw", "unknown", "precheck_invalid"}
     minimum_frames = max(2, int(math.ceil(0.4 * fps)))
     review_mask = np.zeros(frame_count, dtype=bool)
     findings: list[dict] = []
     checked = 0
+    mismatch_segments = 0
+    contact_segments = 0
+    supported_contact_segments = 0
+    mismatch_contact_segments = 0
+    insufficient_evidence_segments = 0
     ratios: list[float] = []
+    evidence_audit: list[dict] = []
     for segment in behavior.get("segments") or []:
         if frame_count <= 0:
             break
         phase = str(segment.get("phase_label") or segment.get("label") or "unknown").strip().casefold().replace("-", "_").replace(" ", "_")
-        if phase in inactive_phases:
+        template = _contact_action_template(segment)
+        if template is None and phase in inactive_phases:
             continue
         start = max(0, min(frame_count - 1, int(segment.get("start_frame") or 0)))
         end = max(start, min(frame_count - 1, int(segment.get("end_frame") or start)))
         mask = preliminary_valid[start:end + 1]
-        if int(mask.sum()) < minimum_frames:
+        eligible_count = int(mask.sum())
+        if eligible_count <= 0 or (template is None and eligible_count < minimum_frames):
             continue
         checked += 1
-        active_ratio = float(np.mean(motion[start:end + 1][mask] > motion_threshold))
-        ratios.append(active_ratio)
-        if active_ratio >= 0.08:
-            continue
-        segment_mask = np.zeros(frame_count, dtype=bool)
-        segment_mask[start:end + 1] = preliminary_valid[start:end + 1]
-        review_mask |= segment_mask
-        findings.extend(_mask_findings(
-            segment_mask,
-            "c2",
-            "review",
-            f"C2 VLM 阶段 {phase} 缺少同步 State/Action 运动证据",
-            fps,
-            0.72,
-        ))
+        active_ratio = None
+        if motion is not None and motion_threshold is not None:
+            active_ratio = float(np.mean(motion[start:end + 1][mask] > motion_threshold))
+            ratios.append(active_ratio)
+        audit = {
+            "start_frame": start,
+            "end_frame": end,
+            "phase_label": phase,
+            "skill": segment.get("skill"),
+            "template": template or "motion",
+            "eligible_frame_count": eligible_count,
+            "active_motion_ratio": round(active_ratio, 6) if active_ratio is not None else None,
+        }
+        mismatch_reason: str | None = None
+        outcome = "supported"
+        if template is not None:
+            contact_segments += 1
+            tactile_slice_valid = tactile_valid[start:end + 1] & mask
+            tactile_valid_count = int(tactile_slice_valid.sum())
+            tactile_coverage = tactile_valid_count / max(1, eligible_count)
+            minimum_tactile_count = min(eligible_count, max(1, int(math.ceil(eligible_count * 0.25))))
+            segment_tactile_available = tactile_valid_count >= minimum_tactile_count
+            contact_ratio = (
+                float(np.mean(tactile_contact[start:end + 1][tactile_slice_valid]))
+                if tactile_valid_count else None
+            )
+            onset_count = int((tactile_onset[start:end + 1] & mask).sum())
+            offset_count = int((tactile_offset[start:end + 1] & mask).sum())
+            gripper_transition_count = 0
+            gripper_peak = None
+            if gripper["available"]:
+                gripper_transition_count = int((gripper["transition_mask"][start:end + 1] & mask).sum())
+                eligible_scores = gripper["score"][start:end + 1][mask]
+                gripper_peak = float(np.max(eligible_scores)) if eligible_scores.size else 0.0
+            audit.update({
+                "tactile_valid_frame_count": tactile_valid_count,
+                "tactile_coverage": round(tactile_coverage, 6),
+                "tactile_contact_ratio": round(contact_ratio, 6) if contact_ratio is not None else None,
+                "tactile_onset_count": onset_count,
+                "tactile_offset_count": offset_count,
+                "gripper_transition_frame_count": gripper_transition_count,
+                "gripper_transition_peak": round(gripper_peak, 8) if gripper_peak is not None else None,
+            })
+            if template == "grasp":
+                if segment_tactile_available:
+                    tactile_indices = np.flatnonzero(tactile_slice_valid)
+                    end_contact = bool(tactile_contact[start + int(tactile_indices[-1])]) if tactile_indices.size else False
+                    if onset_count > 0 or end_contact:
+                        supported_contact_segments += 1
+                        audit["support"] = "tactile_contact_established"
+                    else:
+                        mismatch_reason = "C2 Grasp 缺少触觉接触建立或片段末接触证据"
+                elif gripper["available"]:
+                    if gripper_transition_count > 0:
+                        supported_contact_segments += 1
+                        audit["support"] = "gripper_state_transition"
+                    else:
+                        mismatch_reason = "C2 Grasp 缺少夹爪状态变化证据"
+                elif active_ratio is not None:
+                    outcome = "insufficient_evidence"
+                    audit["support"] = "legacy_motion_fallback" if active_ratio >= 0.08 else None
+                    if active_ratio < 0.08:
+                        mismatch_reason = "C2 Grasp 缺少夹爪/触觉证据，且同步 State/Action 运动不足"
+                else:
+                    outcome = "insufficient_evidence"
+            elif template == "hold":
+                if segment_tactile_available:
+                    if contact_ratio is not None and contact_ratio >= 0.6:
+                        supported_contact_segments += 1
+                        audit["support"] = "sustained_tactile_contact"
+                    else:
+                        mismatch_reason = "C2 Hold 的有效触觉帧接触比例低于 60%"
+                else:
+                    outcome = "insufficient_evidence"
+                    audit["support"] = "static_gripper_is_not_hold_proof" if gripper["available"] else None
+            elif template == "release":
+                if segment_tactile_available:
+                    tactile_indices = np.flatnonzero(tactile_slice_valid)
+                    first_contact = bool(tactile_contact[start + int(tactile_indices[0])]) if tactile_indices.size else False
+                    end_contact = bool(tactile_contact[start + int(tactile_indices[-1])]) if tactile_indices.size else False
+                    if offset_count > 0 or (first_contact and not end_contact):
+                        supported_contact_segments += 1
+                        audit["support"] = "tactile_contact_released"
+                    else:
+                        mismatch_reason = "C2 Release 缺少触觉接触消失证据"
+                elif gripper["available"]:
+                    if gripper_transition_count > 0:
+                        supported_contact_segments += 1
+                        audit["support"] = "gripper_state_transition"
+                    else:
+                        mismatch_reason = "C2 Release 缺少夹爪状态变化证据"
+                elif active_ratio is not None:
+                    outcome = "insufficient_evidence"
+                    audit["support"] = "legacy_motion_fallback" if active_ratio >= 0.08 else None
+                    if active_ratio < 0.08:
+                        mismatch_reason = "C2 Release 缺少夹爪/触觉证据，且同步 State/Action 运动不足"
+                else:
+                    outcome = "insufficient_evidence"
+        else:
+            if active_ratio is None:
+                outcome = "insufficient_evidence"
+            elif active_ratio < 0.08:
+                mismatch_reason = f"C2 VLM 阶段 {phase} 缺少同步 State/Action 运动证据"
+        if mismatch_reason is not None:
+            outcome = "mismatch"
+            mismatch_segments += 1
+            if template is not None:
+                mismatch_contact_segments += 1
+            segment_mask = np.zeros(frame_count, dtype=bool)
+            segment_mask[start:end + 1] = preliminary_valid[start:end + 1]
+            review_mask |= segment_mask
+            findings.extend(_mask_findings(segment_mask, "c2", "review", mismatch_reason, fps, 0.72))
+        elif outcome == "insufficient_evidence":
+            insufficient_evidence_segments += 1
+        audit["outcome"] = outcome
+        evidence_audit.append(audit)
     metrics = {
         "behavior_segment_count": len(behavior.get("segments") or []),
         "checked_active_segment_count": checked,
-        "mismatch_segment_count": len(findings),
+        "mismatch_segment_count": mismatch_segments,
         "mismatch_frame_count": int(review_mask.sum()),
-        "motion_threshold": round(motion_threshold, 8),
+        "motion_threshold": round(motion_threshold, 8) if motion_threshold is not None else None,
         "mean_active_motion_ratio": round(float(np.mean(ratios)) if ratios else 0.0, 6),
         "signal_sources": [kind for kind in ("joint", "action") if bundle.get(kind) is not None],
+        "contact_segment_count": contact_segments,
+        "supported_contact_segment_count": supported_contact_segments,
+        "mismatch_contact_segment_count": mismatch_contact_segments,
+        "insufficient_evidence_segment_count": insufficient_evidence_segments,
+        "gripper_evidence_available": bool(gripper["available"]),
+        "gripper_evidence_sources": list(gripper["source_kinds"]),
+        "gripper_transition_threshold": round(float(gripper["threshold"]), 8) if gripper["threshold"] is not None else None,
+        "tactile_evidence_available": tactile_available,
+        "tactile_contact_frame_count": int((tactile_contact & tactile_valid).sum()),
+        "tactile_bindings": list(tactile.get("bindings") or []),
+        "tactile_errors": list(tactile.get("errors") or []),
+        "evidence_audit": evidence_audit,
     }
+    has_warning = bool(findings) or insufficient_evidence_segments > 0
+    if findings:
+        message = f"发现 {mismatch_segments} 个视频-State 不一致片段"
+        if insufficient_evidence_segments:
+            message += f"；另有 {insufficient_evidence_segments} 个片段缺少动作特定证据"
+    elif insufficient_evidence_segments:
+        message = f"已复核 {checked} 个有效操作片段；{insufficient_evidence_segments} 个片段证据不足，未自动判为不一致"
+    else:
+        message = f"已复核 {checked} 个有效操作片段"
     return {
-        "status": "warning" if findings else "completed",
-        "message": f"发现 {len(findings)} 个视频-State 不一致片段" if findings else f"已复核 {checked} 个有效操作片段",
+        "status": "warning" if has_warning else "completed",
+        "message": message,
         "review_mask": review_mask,
         "findings": findings,
         "metrics": metrics,
@@ -2572,9 +3164,37 @@ def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | No
         if item["kind"] == "action" and str(item.get("representation") or "unknown") != "unknown"
     }
     action_semantics_known = len(action_representations) == 1
+    joint_dimension_names = [
+        str(name)
+        for item in candidates
+        if item["kind"] == "joint"
+        for name in item.get("dimension_names") or []
+    ]
+    action_dimension_names = [
+        str(name)
+        for item in candidates
+        if item["kind"] == "action"
+        for name in item.get("dimension_names") or []
+    ]
+    semantic_pairs_ready = bool(
+        {
+            _canonical_dimension_name(name)
+            for name in joint_dimension_names
+            if _canonical_dimension_name(name)
+        }
+        & {
+            _canonical_dimension_name(name)
+            for name in action_dimension_names
+            if _canonical_dimension_name(name)
+        }
+    )
     generated_action = load_episode_action_mapping(dataset_id, episode_id, manifest=manifest)
     generated_action_ready = bool(generated_action and generated_action.get("artifact_path"))
-    s2_ready = generated_action_ready or ({"joint", "action"} <= kinds and action_semantics_known)
+    s2_ready = generated_action_ready or (
+        {"joint", "action"} <= kinds
+        and action_semantics_known
+        and semantic_pairs_ready
+    )
     try:
         _find_transform_source(manifest, episode)
         action_source_ready = True
@@ -2616,7 +3236,11 @@ def curation_preflight(dataset_id: str, episode_id: str, media_file_id: str | No
         _stage(
             "s2",
             "ready" if s2_ready else "pending" if action_source_ready else "skipped",
-            "将校验已生成 Action 的源轨迹、预测帧和数值一致性" if generated_action_ready else "可运行" if s2_ready else "需要先生成 Action，或提供语义明确的 State/Joint 与 Action",
+            "将校验已生成 Action 的源轨迹、预测帧和数值一致性"
+            if generated_action_ready
+            else "可运行"
+            if s2_ready
+            else "需要先生成 Action，或提供表示类型和 dimension_names 均明确且可匹配的 State/Joint 与 Action",
         ),
         _stage("s3", "ready" if kinds else "skipped", "可运行" if kinds else "没有已识别的数值流"),
         _stage("s4", "skipped", "当前版本未实现 FK 一致性计算；即使检测到 URDF/Pinocchio 也不会宣称可运行"),
@@ -2680,6 +3304,11 @@ def run_episode_curation(
     generated_source_relative = str((generated_action_report or {}).get("source", {}).get("relative_path") or "").replace("\\", "/")
     if generated_source_relative:
         candidate_paths.add(generated_source_relative)
+    calibration_source_relative = str(
+        (((manifest.get("camera_calibration") or {}).get("hand_projection") or {}).get("source_relative_path") or "")
+    ).replace("\\", "/")
+    if calibration_source_relative and (root / calibration_source_relative).is_file():
+        candidate_paths.add(calibration_source_relative)
     try:
         _, visibility_source_relative, _ = _find_transform_source(manifest, episode)
         candidate_paths.add(visibility_source_relative.replace("\\", "/"))
@@ -2696,6 +3325,10 @@ def run_episode_curation(
     alignment = _curation_time_sync(manifest, episode, media)
     progress(9, "读取 Joint / Action 数值流")
     bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=frame_count)
+    c3_signal_bundle = {
+        **bundle,
+        "joint": None if bundle.get("joint") is None else np.asarray(bundle["joint"], dtype=np.float64).copy(),
+    }
     joint = bundle["joint"]
     action = bundle["action"]
     alignment_streams = list(alignment.get("streams") or [])
@@ -2779,11 +3412,22 @@ def run_episode_curation(
         progress(18, "S1 Joint/Action、rot6d 与 Nexus 触觉突变检查")
         if signal_parts:
             combined = np.concatenate(signal_parts, axis=1)
-            s1_before = detect_sudden_changes(combined, request.sudden_change_sigma)
+            s1_candidate_before = detect_sudden_changes(combined, request.sudden_change_sigma)
+            s1_before, projection_introduced_before, _ = _guard_projection_introduced_s1(
+                s1_candidate_before,
+                bundle.get("projection_raw_joint"),
+                action,
+                request.sudden_change_sigma,
+            )
             rot6d_before = inspect_rot6d_jumps(bundle, request.sudden_change_sigma)
             signal_before_mask = s1_before["mask"] | rot6d_before["mask"]
             if request.repair_s1_spikes and signal_before_mask.any():
-                repair = repair_s1_bundle(bundle, request.sudden_change_sigma, request.s1_max_repair_frames)
+                repair = repair_s1_bundle(
+                    bundle,
+                    request.sudden_change_sigma,
+                    request.s1_max_repair_frames,
+                    blocked_repair_frames=projection_introduced_before,
+                )
                 combined = repair["values"]
                 joint_width = int(joint.shape[1]) if joint is not None else 0
                 if joint is not None:
@@ -2823,8 +3467,25 @@ def run_episode_curation(
             else:
                 s1 = s1_before
                 rot6d = rot6d_before
+            s1, projection_introduced_after, _ = _guard_projection_introduced_s1(
+                s1,
+                bundle.get("projection_raw_joint"),
+                action,
+                request.sudden_change_sigma,
+            )
+            s1, sustained_motion_review = _downgrade_sustained_motion_s1(s1, fps)
+            s1_review_mask = projection_introduced_after | sustained_motion_review
         else:
             signal_before_mask = np.zeros(frame_count, dtype=bool)
+            projection_introduced_before = np.zeros(frame_count, dtype=bool)
+            projection_introduced_after = np.zeros(frame_count, dtype=bool)
+            sustained_motion_review = np.zeros(frame_count, dtype=bool)
+            s1_review_mask = np.zeros(frame_count, dtype=bool)
+            s1_candidate_before = {
+                "mask": np.zeros(frame_count, dtype=bool),
+                "score": np.zeros(frame_count, dtype=np.float64),
+                "event_count": 0,
+            }
             s1 = {
                 "mask": np.zeros(frame_count, dtype=bool),
                 "score": np.zeros(frame_count, dtype=np.float64),
@@ -2841,8 +3502,25 @@ def run_episode_curation(
         s1_mask = s1["mask"] | rot6d["mask"] | tactile_mask
         s1_reject_mask = s1_mask | source_invalid
         invalid |= s1_reject_mask
+        review |= s1_review_mask & ~invalid
         motion_score = np.maximum(motion_score, np.maximum(np.maximum(s1["score"], rot6d["score"]), tactile_score))
         findings.extend(_mask_findings(s1["mask"], "s1", "reject", "S1 突变/加速度/Jerk 异常", fps, 0.88))
+        findings.extend(_mask_findings(
+            projection_introduced_after,
+            "s1",
+            "review",
+            "S1 已应用投影归正引入新突变；原始轨迹未命中硬性异常",
+            fps,
+            0.76,
+        ))
+        findings.extend(_mask_findings(
+            sustained_motion_review,
+            "s1",
+            "review",
+            "S1 重复突变点跨越持续运动区间，降为待复核",
+            fps,
+            0.7,
+        ))
         findings.extend(_mask_findings(rot6d["mask"], "s1", "reject", "S1 endpose rot6d 相对旋转突变或 6D 基向量无效", fps, 0.94))
         for side in NEXUS_PRESSURE_EXPECTED_SIDES:
             findings.extend(_mask_findings(
@@ -2854,14 +3532,21 @@ def run_episode_curation(
                 0.92,
             ))
         findings.extend(_mask_findings(source_invalid, "s1", "reject", "S1 同步映射越界或源数据 partial/无效", fps, 0.97))
-        stage_status = "warning" if tactile_s1["status"] == "warning" and not s1_reject_mask.any() else "completed"
-        stages.append(_stage("s1", stage_status, f"检测到 {int(s1_reject_mask.sum())} 个异常帧；其中触觉突变 {int(tactile_mask.sum())} 帧", {
+        stage_status = "warning" if s1_review_mask.any() or (tactile_s1["status"] == "warning" and not s1_reject_mask.any()) else "completed"
+        stages.append(_stage(
+            "s1",
+            stage_status,
+            f"检测到 {int(s1_reject_mask.sum())} 个坏帧、{int(s1_review_mask.sum())} 个待复核帧；其中触觉突变 {int(tactile_mask.sum())} 帧",
+            {
             "flagged_frame_count_before_repair": int(before_mask.sum()),
             "flagged_frame_count": int(s1_reject_mask.sum()),
             "source_invalid_frame_count": int(source_invalid.sum()),
+            "generic_candidate_frame_count_before_guard": int(np.asarray(s1_candidate_before["mask"], dtype=bool).sum()),
             "generic_jump_frame_count": s1["event_count"],
             "projection_correction_active": bool(bundle.get("projection_correction_active")),
-            "projection_s1_policy": "strict_original_detector_after_synchronized_intermediate_frame_insertion",
+            "projection_s1_policy": "derived_correction_may_not_create_hard_reject",
+            "projection_introduced_review_frame_count": int(projection_introduced_after.sum()),
+            "sustained_motion_review_frame_count": int(sustained_motion_review.sum()),
             "rot6d_jump_frame_count": rot6d["event_count"],
             "rot6d_group_count": rot6d["group_count"],
             "rot6d_groups": rot6d["groups"],
@@ -2869,8 +3554,9 @@ def run_episode_curation(
             "tactile": tactile_s1["metrics"],
             "tactile_bindings": tactile_s1["bindings"],
             "sigma": request.sudden_change_sigma,
-            **s1_repair_summary,
-        }))
+                **s1_repair_summary,
+            },
+        ))
     else:
         stages.append(_stage("s1", "skipped", "没有可读取的 Joint/Action 或 Nexus 触觉数值流"))
 
@@ -2901,15 +3587,48 @@ def run_episode_curation(
             stages.append(_stage("s2", "warning", f"发现 {int(s2_invalid.sum())} 个 Action 不一致帧", s2_metrics))
     elif joint is not None and action is not None:
         try:
-            s2 = estimate_state_action_alignment(joint, action, fps, request.max_lag_seconds, request.directional_agreement_threshold, bundle["action_representation"])
-            if s2["verdict"] == "reject_candidate":
-                invalid[:] = True
-                findings.extend(_mask_findings(np.ones(frame_count, dtype=bool), "s2", "reject", f"S2 State-Action 方向一致率 {s2['directional_agreement']:.3f} 低于 {request.directional_agreement_threshold:.3f}", fps, 0.94))
-            elif s2["verdict"] == "review":
-                review[:] = True
-                findings.extend(_mask_findings(np.ones(frame_count, dtype=bool), "s2", "review", f"S2 State-Action 方向一致率 {s2['directional_agreement']:.3f} 位于复核区间", fps, 0.72))
-            stage_message = "趋势一致" if s2["verdict"] == "pass" else "建议人工复核" if s2["verdict"] == "review" else "建议排除整个 Episode"
-            stages.append(_stage("s2", "completed" if s2["verdict"] == "pass" else "warning", stage_message, s2))
+            s2 = estimate_state_action_alignment(
+                joint,
+                action,
+                fps,
+                request.max_lag_seconds,
+                request.directional_agreement_threshold,
+                bundle["action_representation"],
+                _bundle_dimension_names(bundle, "joint", int(joint.shape[1])),
+                _bundle_dimension_names(bundle, "action", int(action.shape[1])),
+                require_semantic_mapping=True,
+            )
+            s2_invalid = np.asarray(s2["invalid_mask"], dtype=bool)
+            s2_review = np.asarray(s2["review_mask"], dtype=bool) & ~s2_invalid
+            invalid |= s2_invalid
+            review |= s2_review & ~invalid
+            findings.extend(_mask_findings(
+                s2_invalid,
+                "s2",
+                "reject",
+                f"S2 局部 State-Action 方向一致率低于 {min(request.directional_agreement_threshold, 0.6):.3f}",
+                fps,
+                0.94,
+            ))
+            findings.extend(_mask_findings(
+                s2_review,
+                "s2",
+                "review",
+                f"S2 局部 State-Action 方向一致率低于 {request.directional_agreement_threshold:.3f}",
+                fps,
+                0.72,
+            ))
+            stage_message = (
+                "语义维度与局部趋势一致"
+                if s2["verdict"] == "pass"
+                else f"检测到 {int(s2_invalid.sum())} 个坏帧、{int(s2_review.sum())} 个待复核帧"
+            )
+            s2_metrics = {
+                key: value
+                for key, value in s2.items()
+                if key not in {"invalid_mask", "review_mask", "local_directional_agreement"}
+            }
+            stages.append(_stage("s2", "completed" if s2["verdict"] == "pass" else "warning", stage_message, s2_metrics))
         except ValueError as exc:
             stages.append(_stage("s2", "skipped", str(exc)))
     else:
@@ -2959,7 +3678,13 @@ def run_episode_curation(
             "整手可见性未执行：未发现明确的 Action/元数据手侧，不能默认要求左右手",
         )
     else:
-        hand_visibility = inspect_full_hand_visibility(manifest, episode, media, required_hand_sides)
+        hand_visibility = inspect_full_hand_visibility(
+            manifest,
+            episode,
+            media,
+            required_hand_sides,
+            signal_bundle=c3_signal_bundle,
+        )
     hand_invalid = np.asarray(hand_visibility["invalid_mask"], dtype=bool)
     hand_review = np.asarray(hand_visibility.get("review_mask", np.zeros(frame_count, dtype=bool)), dtype=bool)
     if hand_visibility.get("available") and hand_invalid.shape == (frame_count,):
@@ -3015,8 +3740,15 @@ def run_episode_curation(
     behavior = load_behavior_annotation(dataset_id, str(episode["id"])) if behavior_checks is not False else None
     if behavior_checks is True and behavior:
         stages.append(_stage("c1", "reused", "已复用有效片段 VLM 行为标注", {"task_label": behavior.get("task_label"), "confidence": behavior.get("confidence"), "segment_count": len(behavior.get("segments") or [])}))
-        progress(88, "C2 基于 VLM 与 State/Action 检查有效片段")
-        c2 = inspect_behavior_state_consistency(behavior, bundle, preliminary_valid, fps)
+        progress(88, "C2 基于 VLM、夹爪与触觉证据检查有效片段")
+        tactile_evidence = load_nexus_tactile_evidence(manifest, episode, alignment, frame_count)
+        c2 = inspect_behavior_state_consistency(
+            behavior,
+            bundle,
+            preliminary_valid,
+            fps,
+            tactile_evidence=tactile_evidence,
+        )
         review |= c2["review_mask"] & ~invalid
         findings.extend(c2["findings"])
         stages.append(_stage("c2", c2["status"], c2["message"], c2["metrics"]))
@@ -3109,6 +3841,13 @@ def run_episode_curation(
             "relative_path": media.get("relative_path"),
             "fps": fps,
             "frame_count": frame_count,
+            "source_frame_count": int(media.get("source_frame_count") or 0),
+            "source_fps": float(media.get("source_fps") or 0.0),
+            "source_frame_positions": list(media.get("source_frame_positions") or []),
+            "smoothing_mode": media.get("smoothing_mode"),
+            "smoothing_artifact_path": media.get("smoothing_artifact_path"),
+            "smoothing_frame_audit_path": media.get("smoothing_frame_audit_path"),
+            "pixel_transform_available": bool(media.get("pixel_transform_available")),
         },
         "source_signatures": signatures,
         "sensor_alignment": {
@@ -3131,8 +3870,11 @@ def run_episode_curation(
         },
         "s3_reference": {
             "scope": str((s3_reference or {}).get("scope") or "episode_limited"),
+            "reference_policy": str((s3_reference or {}).get("reference_policy") or "episode_limited"),
             "cohort_id": (s3_reference or {}).get("cohort_id"),
             "episode_count": int((s3_reference or {}).get("episode_count") or 1),
+            "cohort_episode_count": int((s3_reference or {}).get("cohort_episode_count") or 1),
+            "reference_episode_ids": list((s3_reference or {}).get("reference_episode_ids") or []),
         },
         "stream_bindings": [
             {key: value for key, value in binding.items() if not key.startswith("_")}
@@ -3202,12 +3944,22 @@ def finalize_episode_curation(
         "fps": source_video.get("fps") or fps,
         "frame_count": source_video.get("frame_count") or frame_count,
         "duration": source_video.get("duration"),
+        "source_frame_count": source_video.get("source_frame_count"),
+        "source_frame_positions": source_video.get("source_frame_positions") or [],
+        "smoothing_mode": source_video.get("smoothing_mode"),
     })
     bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=frame_count)
     apply_s1_repair_to_bundle(bundle, load_s1_repair(report))
-    progress(45, "C2 基于有效片段 VLM 与 State/Action 做一致性检查")
+    tactile_evidence = load_nexus_tactile_evidence(manifest, episode, alignment, frame_count)
+    progress(45, "C2 基于有效片段 VLM、夹爪与触觉证据做一致性检查")
     c1 = inspect_instruction_consistency(behavior, episode, preliminary_eligible, fps)
-    c2 = inspect_behavior_state_consistency(behavior, bundle, preliminary_eligible, fps)
+    c2 = inspect_behavior_state_consistency(
+        behavior,
+        bundle,
+        preliminary_eligible,
+        fps,
+        tactile_evidence=tactile_evidence,
+    )
     review = resolve_post_vlm_review(precheck_review, c1, c2) & ~invalid
     findings = [item for item in report.get("findings") or [] if str(item.get("stage") or "") not in {"c1", "c2"}]
     findings.extend(c1["findings"])
@@ -3348,28 +4100,34 @@ def _build_s3_references(
     for key, entries in groups.items():
         if len(entries) < 2:
             continue
-        capped: list[np.ndarray] = []
-        for entry in entries:
-            matrix = entry["matrix"]
-            if matrix.shape[0] > 20_000:
-                indices = np.linspace(0, matrix.shape[0] - 1, 20_000, dtype=np.int64)
-                matrix = matrix[indices]
-            capped.append(matrix)
-        reference = np.concatenate(capped, axis=0)
         cohort_id = "cohort-" + hashlib.sha1(repr(key).encode("utf-8")).hexdigest()[:10]
-        cohort_signatures = {
-            str(signature.get("relative_path") or ""): signature
-            for entry in entries
-            for signature in entry["source_signatures"]
-        }
-        for entry in entries:
-            episode_id = entry["episode_id"]
+        for target in entries:
+            reference_entries = [entry for entry in entries if entry["episode_id"] != target["episode_id"]]
+            if not reference_entries:
+                continue
+            capped: list[np.ndarray] = []
+            for reference_entry in reference_entries:
+                matrix = reference_entry["matrix"]
+                if matrix.shape[0] > 20_000:
+                    indices = np.linspace(0, matrix.shape[0] - 1, 20_000, dtype=np.int64)
+                    matrix = matrix[indices]
+                capped.append(matrix)
+            reference = np.concatenate(capped, axis=0)
+            reference_signatures = {
+                str(signature.get("relative_path") or ""): signature
+                for reference_entry in reference_entries
+                for signature in reference_entry["source_signatures"]
+            }
+            episode_id = target["episode_id"]
             references[episode_id] = {
                 "matrix": reference,
                 "scope": "cohort",
+                "reference_policy": "leave_one_episode_out",
                 "cohort_id": cohort_id,
-                "episode_count": len(entries),
-                "source_signatures": list(cohort_signatures.values()),
+                "episode_count": len(reference_entries),
+                "cohort_episode_count": len(entries),
+                "reference_episode_ids": [entry["episode_id"] for entry in reference_entries],
+                "source_signatures": list(reference_signatures.values()),
             }
     return references
 
@@ -3390,6 +4148,25 @@ def _full_action_config(request: CurationJobRequest | None) -> dict | None:
         "coordinate_frame": requested.coordinate_frame,
         "horizon_frames": requested.horizon_frames,
         "source": "full_pipeline_request",
+    }
+
+
+def _full_projection_config(manifest: dict, request: CurationJobRequest | None) -> dict:
+    mode = dataset_mode(manifest)
+    enabled = bool(
+        request
+        and request.full_pipeline
+        and mode["projection_correction_backend"] == "egodex_mano_prior_v1"
+    )
+    return {
+        "enabled": enabled,
+        "backend": "mediapipe" if enabled else None,
+        "adjustment_rate": FULL_EGODEX_PROJECTION_ADJUSTMENT_RATE if enabled else None,
+        "adjustment_mode": "uniform" if enabled else None,
+        "sample_fps": FULL_EGODEX_PROJECTION_SAMPLE_FPS if enabled else None,
+        "wrist_point_source": "egodex" if enabled else None,
+        "dataset_family": mode["family"],
+        "nexus_isolation": mode["family"] == "nexus_multimodal",
     }
 
 
@@ -3539,19 +4316,18 @@ class CurationJobManager(CancellableJobMixin):
         try:
             manifest = get_manifest(dataset_id)
             episodes = {str(item["id"]): item for item in manifest.get("episodes", [])}
-            from .projection_correction import preferred_projection_media
-
             projection_documents: dict[str, dict | None] = {}
+            projection_failures: dict[str, str] = {}
             media_by_episode = dict(media_by_episode)
-            for episode_id in episode_ids:
-                media_by_episode[episode_id], projection_documents[episode_id] = preferred_projection_media(
-                    manifest,
-                    episodes[episode_id],
-                    media_by_episode[episode_id],
-                )
             operation = "full_pipeline" if request.full_pipeline else "paper_curation"
+            mode = dataset_mode(manifest)
+            projection_config = _full_projection_config(manifest, request)
+            automatic_egodex_projection = bool(projection_config["enabled"])
+            pipeline_offset = 20.0 if automatic_egodex_projection else 0.0
             if run_id:
-                start_full_run(dataset_id, run_id, episode_ids, request.model_dump())
+                request_payload = request.model_dump()
+                request_payload["full_projection_correction"] = projection_config
+                start_full_run(dataset_id, run_id, episode_ids, request_payload)
             output_root = Path(str(manifest["root_path"])).expanduser().resolve() / "output" / run_id if run_id else None
             output_setup_error = None
             if output_root is not None:
@@ -3561,10 +4337,94 @@ class CurationJobManager(CancellableJobMixin):
                     output_setup_error = str(exc)
             full_action = _full_action_config(request) if request.full_pipeline else None
             self._start_unless_cancelled(job_id, status="running", progress=1, message=f"{'Full' if request.full_pipeline else '后台清洗'}流程已启动 · 0/{total}")
+            if automatic_egodex_projection:
+                manifest[FULL_PROJECTION_SOURCE_OVERRIDES] = {}
+                try:
+                    with PROJECTION_RUNTIME_LOCK:
+                        pose_status = registry.status().get("hand_pose") or {}
+                        if not (registry.has_hand_pose and str(pose_status.get("backend") or "").casefold() == "mediapipe"):
+                            self._update(
+                                job_id,
+                                progress=1.5,
+                                current_stage="projection",
+                                message="EgoDex Full 正在加载 MediaPipe 手部归正",
+                            )
+                            registry.configure_hand_pose(HandPoseModelConfig(kind="mediapipe", device="cpu", confidence=0.35))
+                        for projection_position, episode_id in enumerate(episode_ids):
+                            self._raise_if_cancelled(job_id)
+                            projection_base = 2.0 + 18.0 * projection_position / max(1, total)
+                            projection_span = 18.0 / max(1, total)
+
+                            def projection_update(value: float, message: str, *, _episode_id: str = episode_id, _base: float = projection_base, _span: float = projection_span) -> None:
+                                self._raise_if_cancelled(job_id)
+                                self._update(
+                                    job_id,
+                                    progress=min(19.9, round(_base + _span * max(0.0, min(100.0, value)) / 100.0, 1)),
+                                    current_episode_id=_episode_id,
+                                    current_stage="projection",
+                                    message=f"{episodes[_episode_id].get('name') or _episode_id} · EgoDex MediaPipe 手部归正 65% · {message}",
+                                )
+
+                            try:
+                                projection_update(0.0, "T0 validating source video alignment")
+                                _curation_time_sync(
+                                    manifest,
+                                    episodes[episode_id],
+                                    media_by_episode[episode_id],
+                                )
+                                projection_document = run_projection_correction(
+                                    dataset_id,
+                                    manifest,
+                                    episodes[episode_id],
+                                    media_by_episode[episode_id],
+                                    registry,
+                                    projection_update,
+                                    sample_fps=float(projection_config["sample_fps"]),
+                                    adjustment_rate=float(projection_config["adjustment_rate"]),
+                                    adjustment_mode=str(projection_config["adjustment_mode"]),
+                                    wrist_point_source=str(projection_config["wrist_point_source"]),
+                                    artifact_root=full_run_stage_dir(dataset_id, run_id, episode_id, "projection"),
+                                    record_review_change=False,
+                                    full_run_id=run_id,
+                                )
+                                projection_source = projection_source_from_document(projection_document)
+                                if projection_source is None:
+                                    raise RuntimeError("Full run projection artifact failed validation")
+                                manifest[FULL_PROJECTION_SOURCE_OVERRIDES][episode_id] = projection_source
+                                projected_media, _ = preferred_projection_media(
+                                    manifest,
+                                    episodes[episode_id],
+                                    media_by_episode[episode_id],
+                                )
+                                media_by_episode[episode_id] = projected_media
+                                projection_documents[episode_id] = projection_document
+                            except JobCancelled:
+                                raise
+                            except Exception as exc:
+                                projection_failures[episode_id] = str(exc)
+                except JobCancelled:
+                    raise
+                except Exception as exc:
+                    for episode_id in episode_ids:
+                        projection_failures.setdefault(episode_id, str(exc))
+            else:
+                # Applied EgoDex corrections remain reusable for paper curation.
+                # Nexus never enters either the automatic or applied projection path.
+                for episode_id in episode_ids:
+                    if mode["family"] == "nexus_multimodal":
+                        projection_documents[episode_id] = None
+                        continue
+                    media_by_episode[episode_id], projection_documents[episode_id] = preferred_projection_media(
+                        manifest,
+                        episodes[episode_id],
+                        media_by_episode[episode_id],
+                    )
+
             if total > 1:
-                self._update(job_id, progress=2, current_stage="s3", message=f"正在建立同 embodiment 的跨 EP S3 分位参考 · {total} Episodes")
+                self._update(job_id, progress=max(2.0, pipeline_offset), current_stage="s3", message=f"正在建立同 embodiment 的跨 EP S3 分位参考 · {total} Episodes")
             self._raise_if_cancelled(job_id)
-            s3_references = _build_s3_references(manifest, episodes, media_by_episode, episode_ids)
+            s3_episode_ids = [episode_id for episode_id in episode_ids if episode_id not in projection_failures]
+            s3_references = _build_s3_references(manifest, episodes, media_by_episode, s3_episode_ids)
             for position, episode_id in enumerate(episode_ids):
                 self._raise_if_cancelled(job_id)
                 episode = episodes[episode_id]
@@ -3576,8 +4436,8 @@ class CurationJobManager(CancellableJobMixin):
                         status="running",
                         media_file_id=str(media_by_episode[episode_id].get("file_id") or "") or None,
                     )
-                base = position / max(1, total) * 100
-                span = 100 / max(1, total)
+                base = pipeline_offset + position / max(1, total) * (100.0 - pipeline_offset)
+                span = (100.0 - pipeline_offset) / max(1, total)
 
                 def update(value: float, message: str) -> None:
                     self._raise_if_cancelled(job_id)
@@ -3601,6 +4461,8 @@ class CurationJobManager(CancellableJobMixin):
                     )
 
                 try:
+                    if episode_id in projection_failures:
+                        raise RuntimeError(f"EgoDex Full MediaPipe projection correction failed: {projection_failures[episode_id]}")
                     selected_media = media_by_episode[episode_id]
                     update(0.5, "T0 正在建立统一时间轴")
                     _curation_time_sync(manifest, episode, selected_media)
@@ -3626,7 +4488,13 @@ class CurationJobManager(CancellableJobMixin):
                                     horizon_frames=int(full_action["horizon_frames"]),
                                     force=False,
                                 )
-                                action_report = generate_episode_action(dataset_id, manifest, episode, action_request)
+                                action_report = generate_episode_action(
+                                    dataset_id,
+                                    manifest,
+                                    episode,
+                                    action_request,
+                                    reference_media_file_id=str(selected_media.get("file_id") or "") or None,
+                                )
                                 self._raise_if_cancelled(job_id)
                                 validation = validate_episode_action_mapping(
                                     dataset_id,
@@ -3641,7 +4509,15 @@ class CurationJobManager(CancellableJobMixin):
 
                             with ThreadPoolExecutor(max_workers=2, thread_name_prefix="alice-full-early") as early_executor:
                                 smoothing_future = early_executor.submit(
-                                    smooth_video, dataset_id, episode, selected_media, smoothing_update, run_id=run_id,
+                                    smooth_video,
+                                    dataset_id,
+                                    episode,
+                                    selected_media,
+                                    smoothing_update,
+                                    run_id=run_id,
+                                    mode=request.smoothing_mode,
+                                    target_fps=request.smoothing_target_fps,
+                                    motion_compensation=request.smoothing_motion_compensation,
                                 )
                                 action_future = early_executor.submit(action_s2_work)
                                 smoothing_payload = smoothing_future.result()
@@ -3653,15 +4529,31 @@ class CurationJobManager(CancellableJobMixin):
                                     action_stage_error = str(exc)
                                     update(29.0, f"S2 可选 Action 生成失败，继续质量清洗：{action_stage_error}")
                         else:
-                            smoothing_payload = smooth_video(dataset_id, episode, selected_media, smoothing_update, run_id=run_id)
+                            smoothing_payload = smooth_video(
+                                dataset_id,
+                                episode,
+                                selected_media,
+                                smoothing_update,
+                                run_id=run_id,
+                                mode=request.smoothing_mode,
+                                target_fps=request.smoothing_target_fps,
+                                motion_compensation=request.smoothing_motion_compensation,
+                            )
                         smoothing_summary = smoothing_payload.get("summary") or {}
                         selected_frame_count = int(selected_media.get("frame_count") or 0)
                         smoothed_frame_count = int(smoothing_summary.get("frame_count") or 0)
-                        analysis_frame_count = (
+                        source_frame_positions = list(smoothing_payload.get("source_frame_positions") or [])
+                        retimed_output = bool(
+                            smoothed_frame_count > 0
+                            and len(source_frame_positions) == smoothed_frame_count
+                        )
+                        analysis_frame_count = smoothed_frame_count if retimed_output else (
                             min(selected_frame_count, smoothed_frame_count)
                             if selected_frame_count and smoothed_frame_count
                             else selected_frame_count or smoothed_frame_count
                         )
+                        frame_audit = smoothing_payload.get("frame_audit") or {}
+                        geometry_contract = smoothing_payload.get("geometry_contract") or {}
                         analysis_media = {
                             **selected_media,
                             "path": str(smoothing_payload["output_video"]),
@@ -3673,7 +4565,25 @@ class CurationJobManager(CancellableJobMixin):
                             "fps": float(smoothing_summary.get("fps") or selected_media.get("fps") or 30.0),
                             "width": int(smoothing_summary.get("width") or selected_media.get("width") or 0),
                             "height": int(smoothing_summary.get("height") or selected_media.get("height") or 0),
+                            "duration": analysis_frame_count / max(0.01, float(smoothing_summary.get("fps") or selected_media.get("fps") or 30.0)),
+                            "source_frame_count": int(smoothing_summary.get("source_frame_count") or selected_frame_count),
+                            "source_fps": float(smoothing_summary.get("source_fps") or selected_media.get("fps") or 0.0),
+                            "source_frame_positions": source_frame_positions if retimed_output else [],
+                            "smoothing_mode": smoothing_summary.get("smoothing_mode") or request.smoothing_mode,
+                            "smoothing_artifact_path": smoothing_payload.get("artifact_path"),
+                            "smoothing_frame_audit_path": frame_audit.get("artifact_path"),
+                            "pixel_transform_available": bool(geometry_contract.get("pixel_transform_available")),
                         }
+                        if action_stage_payload is not None and retimed_output:
+                            validation = dict((action_stage_payload.get("validation") or {}))
+                            action_invalid = validation.get("invalid_mask")
+                            validation["invalid_mask"] = _retime_boolean_mask(
+                                np.asarray(action_invalid if action_invalid is not None else [], dtype=bool),
+                                source_frame_positions,
+                            )
+                            validation["retimed_to_video_frame_count"] = analysis_frame_count
+                            validation["retiming_mode"] = analysis_media["smoothing_mode"]
+                            action_stage_payload = {**action_stage_payload, "validation": validation}
 
                     timeline_lock = None
                     timeline_id = None
@@ -3699,21 +4609,45 @@ class CurationJobManager(CancellableJobMixin):
                             "smoothing",
                         )
                         analysis_media = {**analysis_media, "full_run_id": run_id, "timeline_id": timeline_id}
+                        run_stage_artifacts = {
+                            "smoothing": artifact_record(
+                                dataset_id,
+                                run_id,
+                                smoothing_payload["artifact_path"],
+                                stage="smoothing",
+                                video=artifact_record(dataset_id, run_id, smoothing_payload["output_video"]),
+                            ),
+                        }
+                        projection_document = projection_documents.get(episode_id)
+                        if projection_document is not None and projection_document.get("activation_scope") == "full_run":
+                            projection_document = write_stamped_artifact(
+                                str(projection_document["artifact_path"]),
+                                projection_document,
+                                run_id,
+                                timeline_id,
+                                "projection",
+                            )
+                            projection_documents[episode_id] = projection_document
+                            projection_record = artifact_record(
+                                dataset_id,
+                                run_id,
+                                projection_document["artifact_path"],
+                                stage="projection",
+                                hdf5=artifact_record(dataset_id, run_id, projection_document["corrected_hdf5"]),
+                            )
+                            if projection_document.get("retimed_video"):
+                                projection_record["video"] = artifact_record(dataset_id, run_id, projection_document["retimed_video"])
+                            run_stage_artifacts["projection"] = projection_record
+                            override = (manifest.get(FULL_PROJECTION_SOURCE_OVERRIDES) or {}).get(episode_id)
+                            if isinstance(override, dict):
+                                override["metadata"] = projection_document
                         update_full_run_episode(
                             dataset_id,
                             run_id,
                             episode_id,
                             status="running",
                             timeline=timeline_lock,
-                            artifacts={
-                                "smoothing": artifact_record(
-                                    dataset_id,
-                                    run_id,
-                                    smoothing_payload["artifact_path"],
-                                    stage="smoothing",
-                                    video=artifact_record(dataset_id, run_id, smoothing_payload["output_video"]),
-                                ),
-                            },
+                            artifacts=run_stage_artifacts,
                         )
 
                     precheck_base = 30.0 if request.full_pipeline else 0.0
@@ -3767,6 +4701,7 @@ class CurationJobManager(CancellableJobMixin):
                             source_media_file_id=str(selected_media.get("file_id") or "") or None,
                             run_id=run_id,
                             timeline_id=timeline_id,
+                            sampling_evidence=preliminary.get("samples"),
                         )
                         vlm_status = "completed"
                     elif reusable_behavior:
@@ -3825,8 +4760,14 @@ class CurationJobManager(CancellableJobMixin):
                             self._raise_if_cancelled(job_id)
                             update(88 + max(0.0, min(100.0, value)) * 0.12, message)
 
+                        nexus_episode_package = (
+                            dataset_mode(manifest)["family"] == "nexus_multimodal"
+                            and request.full_output_format == EPISODE_LEROBOT_JSON_OUTPUT_FORMAT
+                            and bool(((manifest.get("format_map") or {}).get("capabilities") or {}).get("can_nexus_mano21_adapter"))
+                        )
                         export_supported = (
                             request.full_output_format == SUBTASK_JSON_OUTPUT_FORMAT
+                            or nexus_episode_package
                             or ((manifest.get("format_map") or {}).get("capabilities") or {}).get("can_full_export") is not False
                         )
                         if output_setup_error:
@@ -3836,6 +4777,12 @@ class CurationJobManager(CancellableJobMixin):
                                 "当前格式已完成 Full 的平滑、质量清洗与 VLM 标注，但不能安全导出固定 "
                                 "MANO/LeRobot（format_map.capabilities.can_full_export=false）"
                             )
+                        elif (
+                            full_action is not None
+                            and action_stage_payload is None
+                            and request.full_output_format != SUBTASK_JSON_OUTPUT_FORMAT
+                        ):
+                            export_error = f"已请求机器人 Action，但 Action/S2 生成失败，已阻止输出不完整训练数据：{action_stage_error or '未知错误'}"
                         else:
                             try:
                                 export_result = export_episode(
@@ -3849,6 +4796,7 @@ class CurationJobManager(CancellableJobMixin):
                                     output_format=request.full_output_format,
                                     run_id=run_id,
                                     timeline_id=timeline_id,
+                                    action_report=(action_stage_payload or {}).get("report"),
                                 ) if (
                                     behavior
                                     or request.full_output_format in {SUBTASK_JSON_OUTPUT_FORMAT, EPISODE_LEROBOT_JSON_OUTPUT_FORMAT}
@@ -3887,7 +4835,18 @@ class CurationJobManager(CancellableJobMixin):
                     if smoothing_payload is not None:
                         item["smoothing"] = {"output_video": smoothing_payload.get("output_video"), "summary": smoothing_payload.get("summary")}
                     if projection_documents.get(episode_id) is not None:
-                        retiming = (projection_documents[episode_id] or {}).get("retiming") or {}
+                        projection_document = projection_documents[episode_id] or {}
+                        retiming = projection_document.get("retiming") or {}
+                        projection_summary = projection_document.get("summary") or {}
+                        item["projection_correction"] = {
+                            "status": "completed",
+                            "backend": ((projection_document.get("model") or {}).get("backend") or "unknown"),
+                            "adjustment_rate": float(projection_summary.get("adjustment_rate") or 0.0),
+                            "adjustment_mode": projection_summary.get("adjustment_mode"),
+                            "activation_scope": projection_document.get("activation_scope"),
+                            "artifact_path": projection_document.get("artifact_path"),
+                            "corrected_hdf5": projection_document.get("corrected_hdf5"),
+                        }
                         item["projection_retiming"] = {
                             "inserted_frame_count": int(retiming.get("inserted_frame_count") or 0),
                             "source_frame_count": int(retiming.get("source_frame_count") or 0),
@@ -3975,7 +4934,11 @@ class CurationJobManager(CancellableJobMixin):
                     if run_id:
                         update_full_run_episode(dataset_id, run_id, episode_id, status="failed", error=str(exc))
                 self._raise_if_cancelled(job_id)
-                self._update(job_id, completed_count=position + 1, progress=round((position + 1) / max(1, total) * 100, 1))
+                self._update(
+                    job_id,
+                    completed_count=position + 1,
+                    progress=round(pipeline_offset + (position + 1) / max(1, total) * (100.0 - pipeline_offset), 1),
+                )
             self._raise_if_cancelled(job_id)
             index_path = None
             dataset_index_error = None
@@ -4012,6 +4975,7 @@ class CurationJobManager(CancellableJobMixin):
                 "vlm_reused_count": vlm_reused_count,
                 "vlm_skipped_count": vlm_skipped_count,
                 "action_config": full_action,
+                "projection_config": projection_config if request.full_pipeline else None,
                 "output_format": request.full_output_format if request.full_pipeline else None,
                 "output_root": str(output_root) if output_root is not None else None,
                 "dataset_index": str(index_path) if index_path is not None else None,

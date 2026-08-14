@@ -6,6 +6,7 @@ The generated documents are derived indices.  They live below ``.alicePD``
 and never modify files in the source dataset.
 """
 
+import csv
 import json
 import math
 import threading
@@ -13,6 +14,7 @@ import traceback
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -23,8 +25,11 @@ from .storage import dataset_sidecar_root, get_manifest, slugify, storage_slug
 from .job_control import CancellableJobMixin, JobCancelled
 
 
-SENSOR_ALIGNMENT_SCHEMA = "alice/sensor-alignment/v3"
-SENSOR_EXTENSIONS = {".h5", ".hdf5", ".h5df", ".json", ".jsonl", ".parquet"}
+SENSOR_ALIGNMENT_SCHEMA = "alice/sensor-alignment/v4"
+SENSOR_EXTENSIONS = {
+    ".h5", ".hdf5", ".h5df", ".json", ".jsonl", ".parquet",
+    ".npy", ".npz", ".csv", ".tsv",
+}
 RATE_KEYS = {
     "hz", "rate", "rate_hz", "fps", "frequency", "frequency_hz",
     "sample_rate", "sample_rate_hz", "sampling_rate", "sampling_rate_hz",
@@ -36,6 +41,7 @@ TIMESTAMP_NAMES = {
 }
 MAX_JSON_BYTES = 64 * 1024 * 1024
 MAX_TIMESTAMP_VALUES = 250_000
+MAX_TABLE_COLUMNS = 512
 SYNC_CAMERA_FIELDS = {
     "head": ("head_frame_idx", "head_frame_ts", "head_filled"),
     "wrist_left": ("wrist_left_frame_idx", "wrist_left_ts", "wrist_left_filled"),
@@ -276,6 +282,45 @@ def _timestamp_analysis(values: Any, name: str, target_hz: float | None = None) 
     return summary, seconds
 
 
+def _probe_numeric_fields(path: Path) -> list[dict]:
+    """Return bounded field identities and row counts for one structured file.
+
+    T0 keeps a file-level fallback stream for compatibility, but downstream
+    consumers can now bind to the exact field (or HDF5 field group) they read.
+    This prevents two arrays with different clocks in one container from
+    silently sharing a single representative row count.
+    """
+
+    try:
+        from .schema_profiler import probe_local_signal_fields
+
+        descriptors = list(probe_local_signal_fields(path))
+    except (ImportError, OSError, TypeError, ValueError):
+        descriptors = []
+    result = []
+    seen: set[str] = set()
+    for descriptor in descriptors:
+        field = str(descriptor.get("field") or "").replace("\\", "/")
+        shape = descriptor.get("source_shape") or descriptor.get("shape") or []
+        try:
+            count = int(shape[0]) if shape else 0
+        except (TypeError, ValueError):
+            count = 0
+        if not field or count <= 1 or field.casefold() in seen:
+            continue
+        seen.add(field.casefold())
+        result.append({
+            "field": field,
+            "data_count": count,
+            "kind": str(descriptor.get("kind") or "sensor"),
+            "role": str(descriptor.get("role") or ""),
+            "modality": str(descriptor.get("modality") or ""),
+            "members": [str(item).replace("\\", "/") for item in descriptor.get("members") or []],
+            "evidence": str(descriptor.get("evidence") or "local_schema"),
+        })
+    return result
+
+
 def _timestamp_priority(name: str) -> int:
     normalized = _normal_key(Path(name).name)
     if normalized in {"timestamps", "timestamp", "master_ts", "ts_wall"}:
@@ -302,6 +347,7 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
     data_counts: list[int] = []
     timestamp_entries: list[dict] = []
     partial_entries: list[dict] = []
+    raw_numeric_fields: list[dict] = []
     attributes: dict[str, Any] = {}
     master_clock = None
     with h5py.File(path, "r") as handle:
@@ -343,6 +389,14 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
                                 pass
                     else:
                         data_counts.append(int(obj.shape[0]))
+                        if base != "partial" and obj.dtype.kind in "biufc":
+                            raw_numeric_fields.append({
+                                "field": name.replace("\\", "/"),
+                                "data_count": int(obj.shape[0]),
+                                "kind": "sensor",
+                                "members": [],
+                                "evidence": "hdf5_numeric_dataset",
+                            })
                 for key, value in obj.attrs.items():
                     if _normal_key(key) in RATE_KEYS:
                         candidate = _rate_candidate(value, f"hdf5:{name}.attrs.{key}", direct=True)
@@ -353,6 +407,38 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
     timestamp_entries.sort(key=lambda item: _timestamp_priority(item["summary"]["field"]))
     data_count = _representative_count(data_counts) or _representative_count([item["summary"]["count"] for item in timestamp_entries])
     partial_entry = next((item for item in partial_entries if int(item["row_count"]) == data_count), None)
+    semantic_fields = _probe_numeric_fields(path)
+    covered_members = {
+        member.casefold()
+        for item in semantic_fields
+        for member in item.get("members") or []
+    }
+    covered_fields = {str(item.get("field") or "").casefold() for item in semantic_fields}
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    top_level: list[dict] = []
+    for item in raw_numeric_fields:
+        field = str(item["field"])
+        if field.casefold() in covered_members or field.casefold() in covered_fields:
+            continue
+        parent = field.rsplit("/", 1)[0] if "/" in field else ""
+        if parent:
+            grouped.setdefault((parent, int(item["data_count"])), []).append(item)
+        else:
+            top_level.append(item)
+    numeric_fields = list(semantic_fields)
+    numeric_fields.extend(top_level)
+    parent_counts = Counter(parent for parent, _ in grouped)
+    for (parent, count), members in grouped.items():
+        if parent_counts[parent] == 1 and len(members) > 1:
+            numeric_fields.append({
+                "field": f"{parent}/*",
+                "data_count": count,
+                "kind": "sensor",
+                "members": [str(item["field"]) for item in members],
+                "evidence": "hdf5_common_parent_and_row_count",
+            })
+        else:
+            numeric_fields.extend(members)
     return {
         "data_count": data_count,
         "rate_candidates": _dedupe_rate_candidates(rate_candidates),
@@ -360,6 +446,7 @@ def _probe_hdf5(path: Path, reference_fps: float) -> dict:
         "master_clock": master_clock,
         "attributes": attributes,
         "partial_validity": partial_entry,
+        "numeric_fields": numeric_fields,
     }
 
 
@@ -404,6 +491,7 @@ def _probe_parquet(path: Path, reference_fps: float) -> dict:
         "master_clock": None,
         "attributes": {},
         "columns": names,
+        "numeric_fields": _probe_numeric_fields(path),
     }
 
 
@@ -486,7 +574,14 @@ def _probe_json(path: Path, reference_fps: float) -> dict:
             summary, seconds = _timestamp_analysis(timestamps, timestamp_name, reference_fps)
             if summary and seconds is not None:
                 entries.append({"summary": summary, "seconds": seconds})
-        return {"data_count": count, "rate_candidates": _dedupe_rate_candidates(rate_candidates), "timestamps": entries, "master_clock": None, "attributes": {}}
+        return {
+            "data_count": count,
+            "rate_candidates": _dedupe_rate_candidates(rate_candidates),
+            "timestamps": entries,
+            "master_clock": None,
+            "attributes": {},
+            "numeric_fields": _probe_numeric_fields(path),
+        }
     if path.stat().st_size > MAX_JSON_BYTES:
         raise ValueError("JSON file is too large for timing inspection")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -505,6 +600,80 @@ def _probe_json(path: Path, reference_fps: float) -> dict:
         "master_clock": payload.get("master_clock") if isinstance(payload, dict) else None,
         "attributes": {},
         "payload": payload,
+        "numeric_fields": _probe_numeric_fields(path),
+    }
+
+
+def _probe_numpy(path: Path, reference_fps: float) -> dict:
+    del reference_fps
+    arrays: list[tuple[str, np.ndarray]] = []
+    if path.suffix.casefold() == ".npz":
+        with np.load(path, mmap_mode="r", allow_pickle=False) as archive:
+            for name in archive.files[:MAX_TABLE_COLUMNS]:
+                array = archive[name]
+                if array.ndim and int(array.shape[0]) > 1:
+                    arrays.append((str(name), array))
+    else:
+        array = np.load(path, mmap_mode="r", allow_pickle=False)
+        if array.ndim and int(array.shape[0]) > 1:
+            arrays.append(("$", array))
+    counts = [int(array.shape[0]) for _, array in arrays]
+    fields = _probe_numeric_fields(path)
+    if not fields:
+        fields = [{"field": name, "data_count": int(array.shape[0]), "kind": "sensor", "members": []} for name, array in arrays]
+    return {
+        "data_count": _representative_count(counts),
+        "rate_candidates": [],
+        "timestamps": [],
+        "master_clock": None,
+        "attributes": {},
+        "numeric_fields": fields,
+    }
+
+
+def _probe_table(path: Path, reference_fps: float) -> dict:
+    delimiter = "\t" if path.suffix.casefold() == ".tsv" else ","
+    count = 0
+    fields: list[str] = []
+    timestamp_values: dict[str, list[float]] = {}
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as source:
+        reader = csv.DictReader(source, delimiter=delimiter)
+        fields = [str(item) for item in (reader.fieldnames or [])[:MAX_TABLE_COLUMNS]]
+        timestamp_names = [
+            name for name in fields
+            if _normal_key(name) in TIMESTAMP_NAMES or "timestamp" in _normal_key(name) or _normal_key(name).endswith("_ts")
+        ]
+        timestamp_values = {name: [] for name in timestamp_names}
+        for row in reader:
+            count += 1
+            if count > MAX_TIMESTAMP_VALUES:
+                continue
+            for name in timestamp_names:
+                try:
+                    timestamp_values[name].append(float(row.get(name)))
+                except (TypeError, ValueError):
+                    timestamp_values[name].append(float("nan"))
+    entries = []
+    for name, values in timestamp_values.items():
+        summary, seconds = _timestamp_analysis(values, name, reference_fps)
+        if summary and seconds is not None:
+            entries.append({"summary": summary, "seconds": seconds})
+    entries.sort(key=lambda item: _timestamp_priority(item["summary"]["field"]))
+    numeric_fields = _probe_numeric_fields(path)
+    if not numeric_fields:
+        numeric_fields = [
+            {"field": name, "data_count": count, "kind": "sensor", "members": []}
+            for name in fields
+            if name not in timestamp_values
+        ]
+    return {
+        "data_count": count,
+        "rate_candidates": [],
+        "timestamps": entries,
+        "master_clock": None,
+        "attributes": {},
+        "columns": fields,
+        "numeric_fields": numeric_fields,
     }
 
 
@@ -516,6 +685,10 @@ def _probe_file(path: Path, reference_fps: float) -> dict:
         return _probe_parquet(path, reference_fps)
     if suffix in {".json", ".jsonl"}:
         return _probe_json(path, reference_fps)
+    if suffix in {".npy", ".npz"}:
+        return _probe_numpy(path, reference_fps)
+    if suffix in {".csv", ".tsv"}:
+        return _probe_table(path, reference_fps)
     raise ValueError(f"Unsupported sensor format: {suffix}")
 
 
@@ -940,6 +1113,8 @@ def _nearest_timestamp_lookup(reference_seconds: np.ndarray, sensor_seconds: np.
         return None, {"invalid_frame_count": int(reference_seconds.size), "reason": "insufficient_sensor_timestamps"}
     values = sensor_seconds[valid_sensor]
     valid_reference = reference_seconds[np.isfinite(reference_seconds)]
+    origin_offset_seconds = None
+    origin_alignment_mode = "preserved"
     if valid_reference.size:
         reference_origin = float(valid_reference[0])
         sensor_origin = float(values[0])
@@ -948,8 +1123,22 @@ def _nearest_timestamp_lookup(reference_seconds: np.ndarray, sensor_seconds: np.
         # and the other is a relative PTS/device timeline.
         reference_is_absolute = abs(reference_origin) >= 1_000_000.0
         sensor_is_absolute = abs(sensor_origin) >= 1_000_000.0
-        origins_normalized = reference_is_absolute != sensor_is_absolute
+        reference_duration = float(valid_reference[-1] - valid_reference[0]) if valid_reference.size >= 2 else 0.0
+        sensor_duration = float(values[-1] - values[0]) if values.size >= 2 else 0.0
+        durations_compatible = (
+            reference_duration > 0.0
+            and sensor_duration > 0.0
+            and abs(reference_duration - sensor_duration) <= max(0.1, 0.02 * max(reference_duration, sensor_duration))
+        )
+        origins_normalized = reference_is_absolute != sensor_is_absolute or (
+            not reference_is_absolute
+            and not sensor_is_absolute
+            and durations_compatible
+            and abs(reference_origin - sensor_origin) > max(0.05, 2.5 / stored_hz if stored_hz else 0.05)
+        )
         if origins_normalized:
+            origin_offset_seconds = sensor_origin - reference_origin
+            origin_alignment_mode = "mixed_clock_start_repair" if reference_is_absolute != sensor_is_absolute else "relative_clock_start_repair"
             reference_seconds = reference_seconds - reference_origin
             values = values - sensor_origin
     else:
@@ -969,6 +1158,7 @@ def _nearest_timestamp_lookup(reference_seconds: np.ndarray, sensor_seconds: np.
     mapping: list[int] = []
     invalid = 0
     long_gap_rejections = 0
+    accepted_distances: list[float] = []
     for timestamp in reference_seconds:
         if not math.isfinite(float(timestamp)):
             mapping.append(-1)
@@ -993,11 +1183,19 @@ def _nearest_timestamp_lookup(reference_seconds: np.ndarray, sensor_seconds: np.
             long_gap_rejections += int(in_long_gap)
         else:
             mapping.append(int(sorted_rows[nearest]))
+            accepted_distances.append(distance)
+    distance_array = np.asarray(accepted_distances, dtype=np.float64)
     return mapping, {
         "invalid_frame_count": invalid,
+        "valid_frame_count": len(mapping) - invalid,
+        "valid_coverage": round((len(mapping) - invalid) / max(1, len(mapping)), 9),
         "long_gap_rejection_count": long_gap_rejections,
-        "max_match_distance_seconds": round(max_distance, 9),
+        "allowed_max_match_distance_seconds": round(max_distance, 9),
+        "actual_max_match_error_seconds": round(float(distance_array.max()), 9) if distance_array.size else None,
+        "p95_match_error_seconds": round(float(np.percentile(distance_array, 95)), 9) if distance_array.size else None,
         "origins_normalized": origins_normalized,
+        "origin_alignment_mode": origin_alignment_mode,
+        "origin_offset_seconds": round(float(origin_offset_seconds), 9) if origin_offset_seconds is not None else None,
     }
 
 
@@ -1045,19 +1243,84 @@ def _preserve_partial_validity(
     return lookup, partial_video_frames, rejected
 
 
+def _mapping_quality(
+    mode: str,
+    lookup: list[int] | None,
+    video_count: int,
+    data_count: int,
+    multiplier: float,
+    timestamp_quality: dict | None,
+) -> dict:
+    if video_count <= 0:
+        return {"mapped_count": 0, "invalid_frame_count": 0, "valid_coverage": 0.0}
+    if isinstance(lookup, list):
+        values = np.asarray(lookup[:video_count], dtype=np.int64)
+        if values.size < video_count:
+            values = np.pad(values, (0, video_count - values.size), constant_values=-1)
+        valid = (values >= 0) & (values < max(0, data_count))
+    elif mode in {"prealigned_master_clock", "paired_frame_index"}:
+        values = np.arange(video_count, dtype=np.int64)
+        valid = values < max(0, data_count)
+    else:
+        values = np.rint(np.arange(video_count) * float(multiplier or 1.0)).astype(np.int64)
+        valid = (values >= 0) & (values < max(0, data_count))
+    mapped = int(valid.sum())
+    quality = dict(timestamp_quality or {})
+    quality.update({
+        "reference_frame_count": int(video_count),
+        "mapped_count": mapped,
+        "invalid_frame_count": int(video_count - mapped),
+        "valid_coverage": round(mapped / max(1, video_count), 9),
+    })
+    return quality
+
+
+def _field_clock_entries(probe: dict, field: str, data_count: int, members: list[str] | None = None) -> list[dict]:
+    normalized_field = str(field or "").replace("\\", "/").casefold()
+    normalized_members = {str(item).replace("\\", "/").casefold() for item in members or []}
+    entries = []
+    for entry in probe.get("timestamps") or []:
+        summary = entry.get("summary") or {}
+        timestamp_field = str(summary.get("field") or "").replace("\\", "/")
+        normalized_timestamp = timestamp_field.casefold()
+        timestamp_parent = normalized_timestamp.rsplit("/", 1)[0] if "/" in normalized_timestamp else ""
+        field_parent = normalized_field[:-2].rstrip("/") if normalized_field.endswith("/*") else normalized_field.rsplit("/", 1)[0] if "/" in normalized_field else ""
+        same_count = int(summary.get("count") or 0) == int(data_count)
+        same_parent = bool(field_parent and timestamp_parent == field_parent)
+        member_parent = any(member.rsplit("/", 1)[0] == timestamp_parent for member in normalized_members if "/" in member)
+        if same_count and (same_parent or member_parent):
+            entries.append(entry)
+    if entries:
+        return entries
+    matching_count = [
+        entry for entry in probe.get("timestamps") or []
+        if int((entry.get("summary") or {}).get("count") or 0) == int(data_count)
+    ]
+    if len(matching_count) == 1:
+        return matching_count
+    return []
+
+
 def _build_stream(
     relative_path: str,
     probe: dict,
     metadata_hints: list[dict],
     reference: dict,
     reference_seconds: np.ndarray | None,
+    field_descriptor: dict | None = None,
 ) -> dict | None:
-    data_count = int(probe.get("data_count") or 0)
+    descriptor = field_descriptor or {}
+    field = str(descriptor.get("field") or "").replace("\\", "/") or None
+    data_count = int(descriptor.get("data_count") or probe.get("data_count") or 0)
     if data_count <= 1:
         return None
     rate_candidates = _dedupe_rate_candidates([*(probe.get("rate_candidates") or []), *metadata_hints])
     physical_hz, rate_conflict = _select_physical_hz(rate_candidates)
-    timestamp_entries = list(probe.get("timestamps") or [])
+    timestamp_entries = (
+        _field_clock_entries(probe, field, data_count, list(descriptor.get("members") or []))
+        if field
+        else list(probe.get("timestamps") or [])
+    )
     aligned_entry = next((item for item in timestamp_entries if _timestamp_priority(item["summary"]["field"]) <= 2), None)
     sensor_entry = next((item for item in timestamp_entries if "sensor" in _normal_key(item["summary"]["field"])), None)
     mapping_entry = aligned_entry or sensor_entry
@@ -1078,13 +1341,10 @@ def _build_stream(
     if not timestamp_entries and not rate_candidates and not count_matches:
         return None
     master_clock = str(probe.get("master_clock") or "").strip() or None
-    if count_matches and (master_clock or timestamp_matches) and not timestamp_discontinuous:
+    repairs: list[dict] = []
+    if count_matches and master_clock and not timestamp_discontinuous:
         mode = "prealigned_master_clock"
         stored_hz = aligned_hz or video_fps
-        multiplier = 1.0
-    elif count_matches and aligned_entry is None:
-        mode = "paired_frame_index"
-        stored_hz = video_fps
         multiplier = 1.0
     else:
         stored_hz = aligned_hz or measured_sensor_hz or count_hz or physical_hz
@@ -1096,6 +1356,20 @@ def _build_stream(
         lookup, lookup_quality = _nearest_timestamp_lookup(reference_seconds, mapping_entry["seconds"], stored_hz)
         if lookup is not None:
             mode = "timestamp_nearest"
+            if lookup_quality.get("origins_normalized"):
+                repairs.append({
+                    "kind": str(lookup_quality.get("origin_alignment_mode") or "clock_start_repair"),
+                    "offset_seconds": lookup_quality.get("origin_offset_seconds"),
+                    "evidence": "compatible durations and sampling cadence",
+                })
+    if lookup is None and count_matches and aligned_entry is None:
+        mode = "paired_frame_index"
+        stored_hz = video_fps
+        multiplier = 1.0
+        repairs.append({
+            "kind": "paired_frame_index_repair",
+            "evidence": "row count matches reference frame count; no explicit timestamps",
+        })
     partial_entry = probe.get("partial_validity")
     lookup, partial_video_frames, partial_rejections = _preserve_partial_validity(
         lookup,
@@ -1104,6 +1378,14 @@ def _build_stream(
         video_count,
         data_count,
         float(multiplier or 1.0),
+    )
+    lookup_quality = _mapping_quality(
+        mode,
+        lookup,
+        video_count,
+        data_count,
+        float(multiplier or 1.0),
+        lookup_quality,
     )
     partial_summary = None
     if partial_entry:
@@ -1122,7 +1404,12 @@ def _build_stream(
     timestamp_summaries = [item["summary"] for item in timestamp_entries]
     return {
         "relative_path": relative_path.replace("\\", "/"),
-        "kind": "sensor",
+        "field": field,
+        "stream_key": f"{relative_path.replace('\\', '/')}::{field or '$'}",
+        "kind": str(descriptor.get("kind") or "sensor"),
+        "role": str(descriptor.get("role") or ""),
+        "modality": str(descriptor.get("modality") or ""),
+        "members": list(descriptor.get("members") or []),
         "data_count": data_count,
         "physical_hz": round(physical_hz, 9) if physical_hz else None,
         "stored_hz": round(stored_hz, 9) if stored_hz else None,
@@ -1139,6 +1426,8 @@ def _build_stream(
         "lookup_quality": lookup_quality,
         "partial_validity": partial_summary,
         "partial_video_frames": partial_video_frames,
+        "repairs": repairs,
+        "repair_applied": bool(repairs),
         "mapping_rule": (
             "explicit lookup; -1 marks timestamp gaps, out-of-range rows, or source partial rows"
             if lookup is not None and partial_summary is not None
@@ -1192,11 +1481,31 @@ def scan_episode_sensor_alignment(
             continue
         try:
             probe = _probe_file(path, float(reference["fps"]))
-            stream = _build_stream(relative, probe, metadata_hints.get(relative.replace("\\", "/"), []), reference, reference_seconds)
-            if stream:
-                stream["source_signature"] = _source_signature(path)
-                streams.append(stream)
-            else:
+            field_descriptors = list(probe.get("numeric_fields") or [])
+            built_streams = []
+            for descriptor in field_descriptors or [None]:
+                stream = _build_stream(
+                    relative,
+                    probe,
+                    metadata_hints.get(relative.replace("\\", "/"), []),
+                    reference,
+                    reference_seconds,
+                    field_descriptor=descriptor,
+                )
+                if stream:
+                    stream["source_signature"] = _source_signature(path)
+                    built_streams.append(stream)
+                elif descriptor is not None:
+                    skipped_files.append({
+                        "relative_path": relative,
+                        "field": descriptor.get("field"),
+                        "kind": descriptor.get("kind"),
+                        "data_count": int(descriptor.get("data_count") or 0),
+                        "reason": "no_time_series",
+                    })
+            if built_streams:
+                streams.extend(built_streams)
+            elif not field_descriptors:
                 skipped_files.append({"relative_path": relative, "reason": "no_time_series"})
         except Exception as exc:
             skipped_files.append({"relative_path": relative, "reason": "inspection_failed", "error": str(exc)[:240]})
@@ -1231,22 +1540,114 @@ def validate_episode_time_sync(manifest: dict, episode: dict, document: dict) ->
         for item in _episode_records(manifest, episode)
     }
     blocking = []
+    streams_by_path: dict[str, list[dict]] = {}
+    for stream in document.get("streams") or []:
+        relative = str(stream.get("relative_path") or "").replace("\\", "/").casefold()
+        streams_by_path.setdefault(relative, []).append(stream)
+    critical_records = [
+        record for record in records.values()
+        if str(record.get("canonical_kind") or record.get("kind") or "") in {"joint", "action", "sensor"}
+        and str(record.get("extension") or Path(str(record.get("relative_path") or "")).suffix).casefold() in SENSOR_EXTENSIONS
+    ]
+    critical_paths = {
+        str(record.get("relative_path") or "").replace("\\", "/").casefold()
+        for record in critical_records
+    }
     for item in document.get("skipped_files") or []:
         reason = str(item.get("reason") or "")
         if reason not in {"source_missing", "inspection_failed", "no_time_series"}:
             continue
         relative = str(item.get("relative_path") or "").replace("\\", "/")
-        record = records.get(relative.casefold()) or {}
-        if str(record.get("canonical_kind") or record.get("kind") or "") not in {"joint", "action", "sensor"}:
+        normalized = relative.casefold()
+        if normalized not in critical_paths:
             continue
-        blocking.append({"relative_path": relative, "reason": reason, "error": item.get("error")})
+        field = str(item.get("field") or "")
+        dynamic_descriptor = (
+            bool(field)
+            and int(item.get("data_count") or 0) > 4
+            and str(item.get("kind") or "sensor") in {"joint", "action", "sensor"}
+        )
+        file_unavailable = not field and not streams_by_path.get(normalized)
+        if dynamic_descriptor or file_unavailable:
+            blocking.append({
+                "relative_path": relative,
+                "field": field or None,
+                "reason": reason,
+                "error": item.get("error"),
+            })
+    repaired_stream_count = 0
+    warning_streams = []
+    validated_stream_keys: set[tuple[str, str]] = set()
+    for record in critical_records:
+        relative = str(record.get("relative_path") or "").replace("\\", "/")
+        candidates = streams_by_path.get(relative.casefold()) or []
+        if not candidates:
+            blocking.append({"relative_path": relative, "reason": "critical_stream_unmapped", "error": None})
+            continue
+        for stream in candidates:
+            if str(stream.get("kind") or "sensor") not in {"joint", "action", "sensor"}:
+                continue
+            validated_stream_keys.add((
+                relative.casefold(),
+                str(stream.get("stream_key") or stream.get("field") or "").casefold(),
+            ))
+            coverage = float((stream.get("lookup_quality") or {}).get("valid_coverage") or 0.0)
+            repaired_stream_count += int(bool(stream.get("repair_applied")))
+            if coverage <= 0.0:
+                blocking.append({
+                    "relative_path": relative,
+                    "field": stream.get("field"),
+                    "reason": "zero_valid_coverage",
+                    "error": None,
+                })
+            elif coverage < 0.98:
+                warning_streams.append({
+                    "relative_path": relative,
+                    "field": stream.get("field"),
+                    "reason": "partial_coverage_after_repair",
+                    "valid_coverage": round(coverage, 9),
+                })
+    # Older manifests may classify a structured file as ``other`` even though
+    # the field-level probe identifies real joint/sensor timelines inside it.
+    # T0 validates what it actually discovered so repair and coverage status do
+    # not disappear merely because the cached file label is stale.
+    for relative, candidates in streams_by_path.items():
+        for stream in candidates:
+            if str(stream.get("kind") or "sensor") not in {"joint", "action", "sensor"}:
+                continue
+            stream_key = (
+                relative,
+                str(stream.get("stream_key") or stream.get("field") or "").casefold(),
+            )
+            if stream_key in validated_stream_keys:
+                continue
+            coverage = float((stream.get("lookup_quality") or {}).get("valid_coverage") or 0.0)
+            repaired_stream_count += int(bool(stream.get("repair_applied")))
+            if coverage <= 0.0:
+                blocking.append({
+                    "relative_path": str(stream.get("relative_path") or relative),
+                    "field": stream.get("field"),
+                    "reason": "zero_valid_coverage",
+                    "error": None,
+                })
+            elif coverage < 0.98:
+                warning_streams.append({
+                    "relative_path": str(stream.get("relative_path") or relative),
+                    "field": stream.get("field"),
+                    "reason": "partial_coverage_after_repair",
+                    "valid_coverage": round(coverage, 9),
+                })
     if blocking:
         first = blocking[0]
         raise RuntimeError(f"T0 时间同步失败：关键数据流无法读取 {first['relative_path']}（{first['reason']}）")
 
     document["gate"] = {
         "status": "ready",
+        "quality_status": "ready_with_repairs" if repaired_stream_count or warning_streams else "ready",
         "blocking_stream_count": 0,
+        "warning_stream_count": len(warning_streams),
+        "warnings": warning_streams,
+        "repaired_stream_count": repaired_stream_count,
         "reference_media_file_id": reference.get("file_id"),
         "reference_fps": reference.get("fps"),
         "reference_frame_count": reference.get("frame_count"),
@@ -1268,6 +1669,241 @@ def ensure_episode_time_sync(
         reference_media_file_id=reference_media_file_id,
     )
     return validate_episode_time_sync(manifest, episode, document)
+
+
+def get_valid_sensor_alignment(
+    manifest: dict,
+    episode: dict,
+    reference_media_file_id: str | None = None,
+    *,
+    force: bool = False,
+) -> dict:
+    """Return a current, validated T0 document for one reference video."""
+
+    return ensure_episode_time_sync(
+        manifest,
+        episode,
+        force=force,
+        reference_media_file_id=reference_media_file_id,
+    )
+
+
+def find_sensor_alignment_stream(
+    document: dict,
+    relative_path: str,
+    *,
+    field: str | None = None,
+    source_count: int | None = None,
+) -> dict | None:
+    normalized_path = relative_path.replace("\\", "/").casefold()
+    candidates = [
+        item for item in document.get("streams") or []
+        if str(item.get("relative_path") or "").replace("\\", "/").casefold() == normalized_path
+    ]
+    if not candidates:
+        return None
+    if field is not None:
+        normalized_field = str(field).replace("\\", "/").casefold()
+        exact = [item for item in candidates if str(item.get("field") or "").replace("\\", "/").casefold() == normalized_field]
+        if exact:
+            candidates = exact
+        else:
+            grouped = [
+                item for item in candidates
+                if normalized_field in {
+                    str(member).replace("\\", "/").casefold()
+                    for member in item.get("members") or []
+                }
+            ]
+            if grouped:
+                candidates = grouped
+            else:
+                return None
+    if source_count is not None:
+        matching_count = [item for item in candidates if int(item.get("data_count") or 0) == int(source_count)]
+        if not matching_count:
+            return None
+        candidates = matching_count
+    if len(candidates) == 1:
+        return candidates[0]
+    candidates.sort(key=lambda item: (
+        str(item.get("kind") or "") == "joint",
+        float((item.get("lookup_quality") or {}).get("valid_coverage") or 0.0),
+        bool(item.get("field")),
+    ), reverse=True)
+    return candidates[0] if candidates else None
+
+
+def aligned_sensor_rows(
+    manifest: dict,
+    episode: dict,
+    relative_path: str,
+    source_count: int,
+    video_count: int,
+    *,
+    field: str | None = None,
+    reference_media_file_id: str | None = None,
+    alignment: dict | None = None,
+    require_complete: bool = True,
+) -> np.ndarray:
+    """Resolve video frames to source rows only through validated T0."""
+
+    document = alignment or get_valid_sensor_alignment(
+        manifest,
+        episode,
+        reference_media_file_id=reference_media_file_id,
+    )
+    stream = find_sensor_alignment_stream(
+        document,
+        relative_path,
+        field=field,
+        source_count=source_count,
+    )
+    if stream is None:
+        label = f"{relative_path}::{field}" if field else relative_path
+        raise RuntimeError(f"T0 has no validated mapping for source: {label}")
+    lookup = stream.get("frame_to_sensor_index")
+    if isinstance(lookup, list):
+        rows = np.full(video_count, -1, dtype=np.int64)
+        count = min(video_count, len(lookup))
+        if count:
+            rows[:count] = np.asarray(lookup[:count], dtype=np.int64)
+    elif stream.get("mode") in {"prealigned_master_clock", "paired_frame_index"}:
+        rows = np.arange(video_count, dtype=np.int64)
+    elif stream.get("index_multiplier") is not None:
+        rows = np.rint(np.arange(video_count) * float(stream["index_multiplier"])).astype(np.int64)
+    else:
+        raise RuntimeError(f"T0 mapping has no row rule: {relative_path}")
+    invalid = (rows < 0) | (rows >= int(source_count))
+    if require_complete and invalid.any():
+        raise RuntimeError(
+            f"T0 mapping remains incomplete after repair: {relative_path} "
+            f"({int(invalid.sum())}/{int(video_count)} frames unavailable)"
+        )
+    rows[invalid] = -1
+    return rows
+
+
+def retime_sensor_alignment(document: dict, media: dict) -> dict:
+    """Project a validated raw-video T0 document onto a derived video timeline."""
+
+    source_positions = np.asarray(media.get("source_frame_positions") or [], dtype=np.float64).reshape(-1)
+    target_count = int(media.get("frame_count") or 0)
+    if source_positions.size != target_count or target_count <= 0 or not np.isfinite(source_positions).all():
+        return document
+    output = deepcopy(document)
+    for stream in output.get("streams") or []:
+        lookup = stream.get("frame_to_sensor_position")
+        if not isinstance(lookup, list):
+            lookup = stream.get("frame_to_sensor_index")
+        if isinstance(lookup, list) and lookup:
+            original = np.asarray(lookup, dtype=np.float64)
+            original[original < 0.0] = np.nan
+            sensor_positions = np.full(target_count, -1.0, dtype=np.float64)
+            left = np.floor(source_positions).astype(np.int64)
+            right = np.ceil(source_positions).astype(np.int64)
+            in_range = (left >= 0) & (right < original.size)
+            valid = in_range.copy()
+            if valid.any():
+                valid_indices = np.flatnonzero(valid)
+                valid[valid_indices] &= np.isfinite(original[left[valid_indices]]) & np.isfinite(original[right[valid_indices]])
+            alpha = source_positions - left
+            sensor_positions[valid] = (
+                original[left[valid]] * (1.0 - alpha[valid])
+                + original[right[valid]] * alpha[valid]
+            )
+        else:
+            multiplier = float(stream.get("index_multiplier") or 1.0)
+            sensor_positions = source_positions * multiplier
+            data_count = int(stream.get("data_count") or 0)
+            if data_count > 0:
+                sensor_positions[(sensor_positions < 0.0) | (sensor_positions > data_count - 1)] = -1.0
+        stream["frame_to_sensor_position"] = [round(float(value), 9) for value in sensor_positions]
+        stream["frame_to_sensor_index"] = [int(round(value)) if value >= 0.0 else -1 for value in sensor_positions]
+        stream["retimed_from_source_video"] = True
+    output["reference_video"] = {
+        **(output.get("reference_video") or {}),
+        "file_id": media.get("file_id"),
+        "stream_name": media.get("stream_name"),
+        "relative_path": media.get("relative_path"),
+        "fps": media.get("fps") or (output.get("reference_video") or {}).get("fps") or 30.0,
+        "frame_count": target_count,
+        "duration": target_count / max(0.01, float(media.get("fps") or 30.0)),
+        "retimed_from_source_video": True,
+    }
+    fractional_count = int(np.count_nonzero(np.abs(source_positions - np.rint(source_positions)) > 1e-9))
+    output["retiming"] = {
+        "mode": str(media.get("smoothing_mode") or "derived_video_timeline"),
+        "source_frame_count": int(media.get("source_frame_count") or (round(float(source_positions[-1])) + 1)),
+        "output_frame_count": target_count,
+        "fractional_source_frame_count": fractional_count,
+        "source_frame_positions": [round(float(value), 9) for value in source_positions],
+    }
+    return output
+
+
+def aligned_sensor_positions(
+    manifest: dict,
+    episode: dict,
+    relative_path: str,
+    source_count: int,
+    video_count: int,
+    *,
+    source_frame_positions: list[float] | np.ndarray | None = None,
+    field: str | None = None,
+    reference_media_file_id: str | None = None,
+    alignment: dict | None = None,
+    require_complete: bool = True,
+) -> np.ndarray:
+    """Resolve derived video frames to fractional source rows through validated T0."""
+
+    document = alignment or get_valid_sensor_alignment(
+        manifest,
+        episode,
+        reference_media_file_id=reference_media_file_id,
+    )
+    if source_frame_positions is not None:
+        document = retime_sensor_alignment(document, {
+            "file_id": reference_media_file_id,
+            "frame_count": video_count,
+            "source_frame_positions": np.asarray(source_frame_positions, dtype=np.float64).reshape(-1).tolist(),
+        })
+    stream = find_sensor_alignment_stream(
+        document,
+        relative_path,
+        field=field,
+        source_count=source_count,
+    )
+    if stream is None:
+        label = f"{relative_path}::{field}" if field else relative_path
+        raise RuntimeError(f"T0 has no validated mapping for source: {label}")
+    lookup = stream.get("frame_to_sensor_position")
+    if isinstance(lookup, list):
+        positions = np.full(video_count, -1.0, dtype=np.float64)
+        count = min(video_count, len(lookup))
+        if count:
+            positions[:count] = np.asarray(lookup[:count], dtype=np.float64)
+    else:
+        rows = aligned_sensor_rows(
+            manifest,
+            episode,
+            relative_path,
+            source_count,
+            video_count,
+            field=field,
+            reference_media_file_id=reference_media_file_id,
+            alignment=document,
+            require_complete=require_complete,
+        )
+        positions = rows.astype(np.float64)
+    invalid = ~np.isfinite(positions) | (positions < 0.0) | (positions > int(source_count) - 1)
+    if require_complete and invalid.any():
+        raise RuntimeError(
+            f"T0 fractional mapping remains incomplete: {relative_path} "
+            f"({int(invalid.sum())}/{int(video_count)} frames unavailable)"
+        )
+    positions[invalid] = -1.0
+    return positions
 
 
 def load_sensor_alignment(
@@ -1296,17 +1932,15 @@ def map_video_frame_to_sensor(
     video_fps: float | None = None,
     alignment: dict | None = None,
     reference_media_file_id: str | None = None,
+    field: str | None = None,
 ) -> tuple[int | None, dict]:
     """Map a video frame to a sensor row, detecting the Episode on demand."""
-    document = alignment or load_sensor_alignment(manifest, str(episode["id"]), reference_media_file_id)
-    if document is None:
-        document = scan_episode_sensor_alignment(
-            manifest,
-            episode,
-            reference_media_file_id=reference_media_file_id,
-        )
-    normalized = relative_path.replace("\\", "/").casefold()
-    stream = next((item for item in document.get("streams", []) if str(item.get("relative_path") or "").replace("\\", "/").casefold() == normalized), None)
+    document = alignment or get_valid_sensor_alignment(
+        manifest,
+        episode,
+        reference_media_file_id=reference_media_file_id,
+    )
+    stream = find_sensor_alignment_stream(document, relative_path, field=field)
     if stream is None:
         raise KeyError(relative_path)
     requested = max(0, int(video_frame))
@@ -1437,6 +2071,8 @@ class SensorAlignmentJobManager(CancellableJobMixin):
         rate_multiplier_count = 0
         conflict_count = 0
         prealigned_count = 0
+        repaired_stream_count = 0
+        warning_stream_count = 0
         failures = []
         artifacts = []
         try:
@@ -1454,6 +2090,9 @@ class SensorAlignmentJobManager(CancellableJobMixin):
                     rate_multiplier_count += sum(item.get("mode") == "rate_multiplier" for item in streams)
                     conflict_count += sum(bool(item.get("rate_conflict")) for item in streams)
                     prealigned_count += sum(item.get("mode") in {"prealigned_master_clock", "paired_frame_index"} for item in streams)
+                    gate = document.get("gate") or {}
+                    repaired_stream_count += int(gate.get("repaired_stream_count") or 0)
+                    warning_stream_count += int(gate.get("warning_stream_count") or 0)
                     artifacts.append({
                         "episode_id": episode_id,
                         "stream_count": len(streams),
@@ -1461,6 +2100,9 @@ class SensorAlignmentJobManager(CancellableJobMixin):
                         "timestamp_aligned_count": sum(item.get("mode") == "timestamp_nearest" for item in streams),
                         "rate_multiplier_count": sum(item.get("mode") == "rate_multiplier" for item in streams),
                         "conflict_count": sum(bool(item.get("rate_conflict")) for item in streams),
+                        "quality_status": gate.get("quality_status") or "ready",
+                        "repaired_stream_count": int(gate.get("repaired_stream_count") or 0),
+                        "warning_stream_count": int(gate.get("warning_stream_count") or 0),
                         "artifact_path": document.get("artifact_path") or str(sensor_alignment_path(manifest, episode_id)),
                     })
                 except JobCancelled:
@@ -1477,6 +2119,8 @@ class SensorAlignmentJobManager(CancellableJobMixin):
                     timestamp_aligned_count=timestamp_aligned_count,
                     rate_multiplier_count=rate_multiplier_count,
                     conflict_count=conflict_count,
+                    repaired_stream_count=repaired_stream_count,
+                    warning_stream_count=warning_stream_count,
                     failure_count=len(failures),
                     progress=round(completed / max(total, 1) * 100, 1),
                     message=f"Detecting sensor Hz: {completed}/{total} Episodes",
@@ -1491,6 +2135,8 @@ class SensorAlignmentJobManager(CancellableJobMixin):
                 "rate_multiplier_count": rate_multiplier_count,
                 "conflict_count": conflict_count,
                 "prealigned_count": prealigned_count,
+                "repaired_stream_count": repaired_stream_count,
+                "warning_stream_count": warning_stream_count,
                 "failure_count": len(failures),
                 "items": artifacts,
                 "failures": failures,

@@ -68,8 +68,8 @@ class FrontendBehaviorTimelineContractTests(unittest.TestCase):
         self.assertIn("payload.source_video?.file_id", self.app)
 
     def test_vlm_sampling_defaults_are_high_rate_and_media_bound(self) -> None:
-        self.assertIn('sample_count: 36', self.app)
-        self.assertIn('vlm_sample_count: Math.round(trimNumber("curationVlmSamples", 36))', self.app)
+        self.assertIn('sample_count: 56', self.app)
+        self.assertIn('vlm_sample_count: Math.round(trimNumber("curationVlmSamples", 56))', self.app)
         self.assertIn('id="curationVlmSamples"', self.app)
         self.assertIn('?media_file_id=${encodeURIComponent(mediaFileId)}', self.app)
 

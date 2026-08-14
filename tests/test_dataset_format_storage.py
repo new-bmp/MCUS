@@ -302,6 +302,56 @@ class DatasetFormatStorageTests(unittest.TestCase):
             self.assertEqual(1, streams["wrist_left.mp4"]["trimmed_unindexed_frames"])
             self.assertEqual(1, streams["wrist_right.mp4"]["trimmed_unindexed_frames"])
 
+    def test_repeat_import_reuses_dataset_id_sidecar_and_created_at(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "images"
+            root.mkdir()
+            cv2.imwrite(str(root / "frame.png"), np.full((12, 16, 3), 100, dtype=np.uint8))
+            runtime = temporary_root / "runtime"
+
+            with patch.multiple(
+                storage_module,
+                RUNTIME=runtime,
+                MANIFESTS=runtime / "datasets",
+                ANNOTATIONS=runtime / "annotations",
+                CACHE=runtime / "cache",
+                EXPORTS=runtime / "exports",
+            ):
+                first = scan_dataset(root)
+                second = scan_dataset(root)
+
+            self.assertEqual(first["id"], second["id"])
+            self.assertEqual(first["sidecar_path"], second["sidecar_path"])
+            self.assertEqual(first["created_at"], second["created_at"])
+            self.assertIn("updated_at", second)
+
+    def test_episode_camera_images_merge_with_video_and_receive_episode_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "mixed"
+            episode_root = root / "ep_000006" / "camera"
+            self._write_video(episode_root / "head_rgb.mp4", 2, 16, 12, 10.0)
+            cv2.imwrite(str(episode_root / "preview.png"), np.full((12, 16, 3), 160, dtype=np.uint8))
+            runtime = temporary_root / "runtime"
+
+            with patch.multiple(
+                storage_module,
+                RUNTIME=runtime,
+                MANIFESTS=runtime / "datasets",
+                ANNOTATIONS=runtime / "annotations",
+                CACHE=runtime / "cache",
+                EXPORTS=runtime / "exports",
+            ):
+                manifest = scan_dataset(root)
+
+            self.assertEqual(1, manifest["episode_count"])
+            episode = manifest["episodes"][0]
+            records = {item["relative_path"]: item for item in manifest["files"]}
+            self.assertEqual(episode["id"], records["ep_000006/camera/head_rgb.mp4"]["episode_id"])
+            self.assertEqual(episode["id"], records["ep_000006/camera/preview.png"]["episode_id"])
+            self.assertEqual(2, len(episode["media_streams"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import threading
 import traceback
 import uuid
@@ -296,19 +297,36 @@ def build_action_arrays(
 def _load_episode_transforms(
     manifest: dict,
     episode: dict,
+    reference_media_file_id: str | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, Path, str, int]:
     source_path, source_relative, source_count = _find_transform_source(manifest, episode)
-    from .projection_correction import applied_projection_source
+    from .projection_correction import active_projection_source
 
-    applied = applied_projection_source(manifest, episode)
+    applied = active_projection_source(manifest, episode)
     projection_timeline = bool(applied and Path(applied["path"]).resolve() == source_path.resolve())
-    video_count = source_count if projection_timeline else int(episode.get("frame_count") or source_count)
+    selected_media = next(
+        (
+            item
+            for item in episode.get("media_streams") or []
+            if str(item.get("file_id") or "") == str(reference_media_file_id or "")
+        ),
+        None,
+    )
+    if selected_media is None and str(reference_media_file_id or "") == str(episode.get("primary_media_file_id") or ""):
+        selected_media = episode
+    video_count = source_count if projection_timeline else int(
+        (selected_media or {}).get("source_frame_count")
+        or (selected_media or {}).get("frame_count")
+        or episode.get("frame_count")
+        or source_count
+    )
     rows = np.arange(source_count, dtype=np.int64) if projection_timeline else _aligned_rows(
         manifest,
         episode,
         source_relative,
         source_count,
         video_count,
+        reference_media_file_id=reference_media_file_id,
     )
     required = [
         "camera",
@@ -330,6 +348,34 @@ def _load_episode_transforms(
     return transforms, rows, source_path, source_relative, source_count
 
 
+def _reference_media_timing(
+    episode: dict,
+    reference_media_file_id: str | None = None,
+) -> tuple[str | None, float, int]:
+    requested = str(reference_media_file_id or "").strip()
+    selected = next(
+        (
+            item
+            for item in episode.get("media_streams") or []
+            if requested and str(item.get("file_id") or "") == requested
+        ),
+        None,
+    )
+    if selected is None and requested == str(episode.get("primary_media_file_id") or ""):
+        selected = episode
+    selected = selected or episode
+    return (
+        str(selected.get("file_id") or requested or episode.get("primary_media_file_id") or "") or None,
+        float(selected.get("fps") or episode.get("fps") or 30.0),
+        int(
+            selected.get("source_frame_count")
+            or selected.get("frame_count")
+            or episode.get("frame_count")
+            or 0
+        ),
+    )
+
+
 def _write_hdf5_atomic(
     path: Path,
     observation: np.ndarray,
@@ -341,12 +387,14 @@ def _write_hdf5_atomic(
     manifest: dict,
     episode: dict,
     source_relative: str,
+    reference_media_file_id: str | None,
+    reference_fps: float,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     horizon = int(request.horizon_frames)
     count = int(action.shape[0])
-    fps = float(episode.get("fps") or 30.0)
+    fps = float(reference_fps or episode.get("fps") or 30.0)
     try:
         with h5py.File(temporary, "w") as output:
             output.attrs.update({
@@ -362,6 +410,7 @@ def _write_hdf5_atomic(
                 "coordinate_semantics": "current_camera_reference" if request.coordinate_frame == "camera" else "source_world_reference",
                 "source_hand": request.source_hand,
                 "source_hdf5": source_relative,
+                "reference_media_file_id": str(reference_media_file_id or ""),
                 "horizon_frames": horizon,
                 "fps": fps,
                 "action_dim": int(profile["action_dim"]),
@@ -429,12 +478,20 @@ def generate_episode_action(
     manifest: dict,
     episode: dict,
     request: ActionMappingRequest,
+    reference_media_file_id: str | None = None,
 ) -> dict:
     profile = _profile(request.profile_id)
     artifact_path, report_path, index_path = _action_paths(dataset_id, request.profile_id, str(episode["id"]))
-    transforms, source_rows, source_path, source_relative, source_count = _load_episode_transforms(manifest, episode)
+    selected_media_id, reference_fps, _ = _reference_media_timing(episode, reference_media_file_id)
+    transforms, source_rows, source_path, source_relative, source_count = _load_episode_transforms(
+        manifest,
+        episode,
+        reference_media_file_id=selected_media_id,
+    )
     source_signature = _source_signature(source_path, source_relative, source_count, int(transforms["camera"].shape[0]))
     config = _config_payload(request)
+    config["reference_media_file_id"] = selected_media_id
+    config["reference_fps"] = reference_fps
     config_signature = _digest({"config": config, "source": source_signature, "schema": ACTION_MAPPING_SCHEMA})
     if not request.force and report_path.is_file() and artifact_path.is_file():
         try:
@@ -463,6 +520,8 @@ def generate_episode_action(
         manifest,
         episode,
         source_relative,
+        selected_media_id,
+        reference_fps,
     )
     warnings = ["人手轨迹已转换为机器人末端代理 Action；部署前必须完成尺度、轴向、基座和工作空间标定。"]
     if profile["requires_ik"]:
@@ -486,7 +545,7 @@ def generate_episode_action(
             "action_count": int(action.shape[0]),
             "observation_dim": int(observation.shape[1]),
             "action_dim": int(action.shape[1]),
-            "fps": float(episode.get("fps") or 30.0),
+            "fps": reference_fps,
             "finite": True,
             "left_grip_mean": round(float(grips["left"].mean()), 6),
             "right_grip_mean": round(float(grips["right"].mean()), 6),
@@ -551,7 +610,13 @@ def validate_episode_action_mapping(
             coordinate_frame=str(config.get("coordinate_frame") or "camera"),
             horizon_frames=int(config.get("horizon_frames") or 1),
         )
-        transforms, source_rows, source_path, source_relative, source_count = _load_episode_transforms(manifest, episode)
+        reference_media_file_id = str(config.get("reference_media_file_id") or "") or None
+        _, reference_fps, _ = _reference_media_timing(episode, reference_media_file_id)
+        transforms, source_rows, source_path, source_relative, source_count = _load_episode_transforms(
+            manifest,
+            episode,
+            reference_media_file_id=reference_media_file_id,
+        )
         expected_observation, expected_action, _ = build_action_arrays(
             transforms,
             profile,
@@ -576,13 +641,15 @@ def validate_episode_action_mapping(
                 str(artifact.attrs.get("coordinate_frame") or "") == request.coordinate_frame,
                 str(artifact.attrs.get("source_hand") or "") == request.source_hand,
                 int(artifact.attrs.get("horizon_frames") or 0) == request.horizon_frames,
+                str(artifact.attrs.get("reference_media_file_id") or "") == str(reference_media_file_id or ""),
+                math.isclose(float(artifact.attrs.get("fps") or 0.0), reference_fps, rel_tol=1e-9, abs_tol=1e-9),
             ])
 
         count = int(expected_action.shape[0])
         horizon = request.horizon_frames
         expected_frames = np.arange(count, dtype=np.int64)
         expected_targets = np.arange(horizon, horizon + count, dtype=np.int64)
-        expected_timestamps = expected_frames.astype(np.float64) / max(0.01, float(episode.get("fps") or 30.0))
+        expected_timestamps = expected_frames.astype(np.float64) / max(0.01, reference_fps)
         shape_match = actual_observation.shape == expected_observation.shape and actual_action.shape == expected_action.shape
         index_shape_match = all(array.shape == (count,) for array in (
             actual_frames, actual_targets, actual_source_rows, actual_target_rows, actual_timestamps,

@@ -16,7 +16,7 @@ import cv2
 import httpx
 import numpy as np
 
-from .behavior_prompt import build_tri_level_prompts
+from .behavior_prompt import build_tri_level_prompts, build_window_summary_prompt
 from .schemas import HandPoseModelConfig, LocalModelConfig, VLMModelConfig
 from .storage import ROOT
 
@@ -1068,10 +1068,13 @@ class ModelRegistry:
         *,
         video_length: int | None = None,
         duration: float | None = None,
+        window_start: int | None = None,
+        window_end: int | None = None,
+        window_index: int = 0,
+        window_count: int = 1,
     ) -> dict:
         if not self.has_vlm:
             raise RuntimeError("Qwen-VLM is not configured")
-        del ontology
         resolved_video_length = max(1, int(video_length or (max((item[0] for item in frames), default=0) + 1)))
         resolved_duration = float(duration if duration is not None else max((item[1] for item in frames), default=0.0))
         system_prompt, user_prompt = build_tri_level_prompts(
@@ -1079,6 +1082,11 @@ class ModelRegistry:
             duration=resolved_duration,
             sampled_frames=[int(item[0]) for item in frames],
             context=context,
+            ontology=ontology,
+            window_start=window_start,
+            window_end=window_end,
+            window_index=window_index,
+            window_count=window_count,
         )
         content: list[dict] = [{"type": "text", "text": user_prompt}]
         for sampled_index, (frame_index, timestamp, frame) in enumerate(frames):
@@ -1095,6 +1103,34 @@ class ModelRegistry:
             content=content,
             max_tokens=8000,
             system_prompt=system_prompt,
+        )
+
+    def summarize_behavior_windows(
+        self,
+        window_results: list[dict],
+        ontology: list[dict],
+        context: str,
+        *,
+        video_length: int,
+        duration: float,
+        allowed_ranges: list[tuple[int, int]],
+    ) -> dict:
+        if not self.has_vlm:
+            raise RuntimeError("Qwen-VLM is not configured")
+        prompt = build_window_summary_prompt(
+            video_length=video_length,
+            duration=duration,
+            allowed_ranges=allowed_ranges,
+            window_results=window_results,
+            ontology=ontology,
+            context=context,
+        )
+        return self._request_json(
+            endpoint=self._vlm.endpoint or "",
+            api_key=self._vlm_key or "",
+            model=self._vlm.model or "",
+            content=[{"type": "text", "text": prompt}],
+            max_tokens=6000,
         )
 
     @staticmethod

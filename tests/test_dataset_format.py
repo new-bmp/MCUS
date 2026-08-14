@@ -114,6 +114,9 @@ class DatasetFormatTests(unittest.TestCase):
         self.assertTrue(report["capabilities"]["can_pressure_analysis"])
         self.assertFalse(report["capabilities"]["can_joint_overlay"])
         self.assertFalse(report["capabilities"]["can_full_export"])
+        self.assertTrue(report["capabilities"]["can_nexus_mano21_adapter"])
+        self.assertEqual(["nexus_dexweaveg1_20_to_mano21"], report["canonical_adapters"])
+        self.assertIn("nexus20_mano21_experimental", {item["code"] for item in report["issues"]})
         self.assertEqual("nexus_sensor_fusion_v1", report["processing_strategy"]["id"])
         self.assertFalse(report["processing_strategy"]["joint_overlay"])
         self.assertEqual("synchronized", report["processing_strategy"]["pressure"]["preferred_variant"])
@@ -201,6 +204,44 @@ class DatasetFormatTests(unittest.TestCase):
             after = inspect_dataset_format(root)["confirmation_token"]
 
         self.assertNotEqual(before, after)
+
+    def test_single_modality_directory_and_direct_media_are_dataset_roots(self) -> None:
+        for layout in ("camera", "rgb", "direct"):
+            with self.subTest(layout=layout), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                target = root / f"{layout}.png" if layout == "direct" else root / layout / "frame.png"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+
+                report = inspect_dataset_format(root)
+
+                self.assertTrue(is_self_describing_dataset_root(root))
+                self.assertEqual("dataset", report["root_mode"])
+
+    def test_camera_profile_is_part_of_confirmation_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_nexus_episode(root)
+
+            without_profile = inspect_dataset_format(root)["confirmation_token"]
+            with_profile = inspect_dataset_format(
+                root,
+                camera_profile_id=NEXUS_OAKD_PRO_W9_PROFILE_ID,
+            )["confirmation_token"]
+
+        self.assertNotEqual(without_profile, with_profile)
+
+    def test_preflight_reports_representative_media_readability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "camera").mkdir()
+            (root / "camera" / "broken.mp4").write_bytes(b"not-a-video")
+
+            report = inspect_dataset_format(root)
+
+        self.assertEqual("unreadable", report["media_probe"]["video"]["status"])
+        self.assertEqual("camera/broken.mp4", report["media_probe"]["video"]["relative_path"])
+        self.assertIn("representative_video_unreadable", {item["code"] for item in report["issues"]})
 
     def test_headerless_depth_without_geometry_is_not_claimed_importable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

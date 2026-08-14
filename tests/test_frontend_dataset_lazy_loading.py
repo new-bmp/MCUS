@@ -17,15 +17,28 @@ class FrontendDatasetLazyLoadingContractTests(unittest.TestCase):
 
     def test_collection_discovery_loads_only_selected_dataset(self) -> None:
         self.assertIn('data.mode === "collection"', self.app)
-        self.assertIn('body: JSON.stringify({ path: item.path, name: item.name, analyze_schema: false, camera_profile_id: report.selected_camera_profile_id || null })', self.app)
+        self.assertIn('importDatasetInBackground(report, { path: item.path, name: item.name, analyze_schema: false, camera_profile_id: report.selected_camera_profile_id || null })', self.app)
         self.assertIn('await loadCollectionDataset(data.datasets[0].key)', self.app)
         self.assertIn('不调用 Qwen', self.app)
+
+    def test_dataset_import_uses_background_job_progress(self) -> None:
+        self.assertIn('/api/datasets/import-jobs?confirmation_token=', self.app)
+        self.assertIn('/api/jobs/${encodeURIComponent(job.id)}', self.app)
+        self.assertIn('setProgress(Number(current.progress || 0), current.message || "正在导入数据集")', self.app)
+        self.assertIn('id="cancelDatasetImport"', self.index)
+        self.assertIn('/api/jobs/${encodeURIComponent(current.id)}/cancel', self.app)
+
+    def test_camera_profile_change_requests_a_new_preflight_token(self) -> None:
+        self.assertIn('requestDatasetPreflight(pending.report.root_path, pending.name || null, profileId)', self.app)
+        self.assertIn('addEventListener("change", refreshFormatCameraProfile)', self.app)
+        self.assertIn('if (calibration.requires_profile_selection && calibration.recommended_profile_id)', self.app)
+        self.assertIn('refreshFormatCameraProfile();', self.app)
 
     def test_loaded_dataset_cache_is_bounded(self) -> None:
         self.assertIn('while (state.datasetCache.size > 3)', self.app)
 
     def test_frontend_cache_version_is_updated(self) -> None:
-        self.assertIn('app.js?v=studio-101', self.index)
+        self.assertIn('app.js?v=studio-102', self.index)
 
     def test_full_completion_refreshes_vlm_panel_and_reports_request_counts(self) -> None:
         self.assertIn('await loadBehaviorAnnotation();', self.app)

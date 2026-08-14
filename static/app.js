@@ -124,12 +124,56 @@
     can_full_export: "Full 标准数据集导出",
   };
 
-  async function requestDatasetPreflight(path, name = null) {
+  async function requestDatasetPreflight(path, name = null, cameraProfileId = null) {
     return api("/api/datasets/preflight", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, name, analyze_schema: false }),
+      body: JSON.stringify({ path, name, analyze_schema: false, camera_profile_id: cameraProfileId || null }),
     });
+  }
+
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+  async function importDatasetInBackground(report, request) {
+    const job = await api(`/api/datasets/import-jobs?confirmation_token=${encodeURIComponent(report.confirmation_token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    state.datasetImportJob = job;
+    $("#cancelDatasetImport").classList.remove("hidden"); lucide.createIcons();
+    try {
+      while (true) {
+        const current = await api(`/api/jobs/${encodeURIComponent(job.id)}`);
+        state.datasetImportJob = current;
+        const metrics = [
+          current.file_count ? `${Number(current.file_count).toLocaleString()} 文件` : "",
+          current.video_count ? `${Number(current.video_count).toLocaleString()} 视频` : "",
+          current.episode_count ? `${Number(current.episode_count).toLocaleString()} Episode` : "",
+        ].filter(Boolean).join(" · ");
+        setProgress(Number(current.progress || 0), current.message || "正在导入数据集");
+        setStatus(`${current.message || "正在导入数据集"}${metrics ? ` · ${metrics}` : ""}`);
+        if (current.status === "complete") return current.result;
+        if (current.status === "failed" || current.status === "cancelled") {
+          throw new Error(current.error || current.message || (current.status === "cancelled" ? "数据集导入已终止" : "数据集导入失败"));
+        }
+        await wait(350);
+      }
+    } finally {
+      state.datasetImportJob = null;
+      $("#cancelDatasetImport").classList.add("hidden");
+    }
+  }
+
+  async function cancelDatasetImport() {
+    const current = state.datasetImportJob, button = $("#cancelDatasetImport");
+    if (!current?.id || button.disabled) return;
+    button.disabled = true;
+    try {
+      state.datasetImportJob = await api(`/api/jobs/${encodeURIComponent(current.id)}/cancel`, { method: "POST" });
+      setStatus(state.datasetImportJob.message || "正在终止数据集导入");
+    } catch (error) { toast(error.message, "error"); }
+    finally { button.disabled = false; }
   }
 
   function settleFormatConfirmation(accepted) {
@@ -147,33 +191,47 @@
     const calibration = report.camera_calibration || {}, profiles = Array.isArray(calibration.profiles) ? calibration.profiles : [];
     const profile = profiles.find(item => String(item.id) === String(select.value));
     report.selected_camera_profile_id = profile?.id || null;
-    if (report.capabilities) {
-      report.capabilities.can_rgb_depth_registration = Boolean(profile);
-      report.capabilities.can_depth_arm_localization = Boolean(profile);
-      const capabilityRows = Object.entries(formatCapabilityNames).filter(([key]) => key in report.capabilities);
-      const available = capabilityRows.filter(([key]) => report.capabilities[key]).map(([, label]) => label);
-      const unavailable = capabilityRows.filter(([key]) => !report.capabilities[key]).map(([, label]) => label);
-      $("#formatPreflightCapabilities").innerHTML = `<div class="available"><b>当前可用</b><span>${esc(available.join("、") || "无")}</span></div><div class="unavailable"><b>暂不可用</b><span>${esc(unavailable.join("、") || "无")}</span></div>`;
-    }
     summary.classList.toggle("warning", !profile);
     summary.textContent = profile
       ? `${profile.description || profile.label} 当前深度流按右目处理，应用 R → RGB X=+3.75 cm；仅启用 RGB–Depth 配准，不作为手套 Joint 投影外参。`
       : "保持未标定：仍可读取原始深度和生成深度相机坐标点云，但停用深度到 RGB 的空间配准。";
   }
 
+  async function refreshFormatCameraProfile() {
+    const pending = state.formatConfirmation, select = $("#formatPreflightCameraProfile"), confirm = $("#confirmFormatImport");
+    if (!pending || !select || pending.refreshingCameraProfile) return;
+    const profileId = select.value || null;
+    pending.refreshingCameraProfile = true; select.disabled = true; confirm.disabled = true;
+    $("#formatPreflightCameraSummary").textContent = "正在重新核对相机预设与可用能力…";
+    try {
+      const refreshed = await requestDatasetPreflight(pending.report.root_path, pending.name || null, profileId);
+      if (state.formatConfirmation !== pending) return;
+      refreshed.selected_camera_profile_id = profileId;
+      for (const key of Object.keys(pending.report)) delete pending.report[key];
+      Object.assign(pending.report, refreshed);
+      renderDatasetPreflight(pending.report);
+    } catch (error) {
+      if (state.formatConfirmation !== pending) return;
+      toast(error.message, "error"); setStatus(error.message);
+      renderDatasetPreflight(pending.report);
+    } finally {
+      pending.refreshingCameraProfile = false;
+      $("#formatPreflightCameraProfile").disabled = false;
+    }
+  }
+
   function renderFormatCameraProfile(report) {
     const section = $("#formatPreflightCameraSection"), select = $("#formatPreflightCameraProfile");
     const calibration = report?.camera_calibration || {}, profiles = Array.isArray(calibration.profiles) ? calibration.profiles : [];
-    const visible = report?.format_family === "nexus_multimodal" && calibration.requires_profile_selection === true && profiles.length > 0;
+    const visible = report?.format_family === "nexus_multimodal" && profiles.length > 0;
     section.classList.toggle("hidden", !visible);
     if (!visible) { report.selected_camera_profile_id = calibration.selected_profile_id || null; return; }
     select.innerHTML = `<option value="">保持未标定（停用 RGB–Depth 配准）</option>${profiles.map(profile => `<option value="${escAttr(profile.id)}">${esc(profile.label || profile.id)}</option>`).join("")}`;
-    select.value = report.selected_camera_profile_id || calibration.recommended_profile_id || profiles[0]?.id || "";
+    select.value = report.selected_camera_profile_id || calibration.selected_profile_id || "";
     updateFormatCameraProfile(report);
   }
 
-  function confirmDatasetPreflight(report, returnFocus = null) {
-    if (state.formatConfirmation) settleFormatConfirmation(false);
+  function renderDatasetPreflight(report) {
     const status = String(report?.status || "blocked"), capabilities = report?.capabilities || {};
     const canImport = status !== "blocked" && capabilities.can_import === true && Boolean(report?.confirmation_token);
     const family = formatFamilyNames[report?.format_family] || report?.format_family || "未识别格式";
@@ -220,7 +278,19 @@
     $("#formatPreflightModal").classList.remove("hidden");
     lucide.createIcons();
     setTimeout(() => (canImport ? confirm : $("#cancelFormatImport")).focus(), 0);
-    return new Promise(resolve => { state.formatConfirmation = { resolve, report, returnFocus }; });
+  }
+
+  function confirmDatasetPreflight(report, returnFocus = null, name = null) {
+    if (state.formatConfirmation) settleFormatConfirmation(false);
+    renderDatasetPreflight(report);
+    return new Promise(resolve => {
+      state.formatConfirmation = { resolve, report, returnFocus, name };
+      const calibration = report?.camera_calibration || {};
+      if (calibration.requires_profile_selection && calibration.recommended_profile_id) {
+        $("#formatPreflightCameraProfile").value = calibration.recommended_profile_id;
+        refreshFormatCameraProfile();
+      }
+    });
   }
 
   async function loadCollectionDataset(key) {
@@ -237,16 +307,15 @@
       if (!manifest) {
         setStatus(`正在确认 ${item.name} 的数据格式 · 尚未建立索引`);
         const report = await requestDatasetPreflight(item.path, item.name);
-        const confirmed = await confirmDatasetPreflight(report, $("#datasetSelect"));
+        const confirmed = await confirmDatasetPreflight(report, $("#datasetSelect"), item.name);
         if (!confirmed) {
           item.status = "unloaded"; collection.loadingKey = null; collection.activeKey = previousActiveKey; renderDatasetSelector();
           setStatus("已取消导入 · 源文件未读取到索引");
           return;
         }
-        finishProgress = beginLazyDatasetProgress();
+        finishProgress = () => setProgress(null);
         collection.activeKey = key; item.status = "loading"; renderDatasetSelector();
-        const openUrl = `/api/datasets/open-path?confirmation_token=${encodeURIComponent(report.confirmation_token)}`;
-        manifest = await api(openUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: item.path, name: item.name, analyze_schema: false, camera_profile_id: report.selected_camera_profile_id || null }) });
+        manifest = await importDatasetInBackground(report, { path: item.path, name: item.name, analyze_schema: false, camera_profile_id: report.selected_camera_profile_id || null });
       } else {
         finishProgress = beginLazyDatasetProgress(); collection.activeKey = key; item.status = "loading"; renderDatasetSelector();
       }
@@ -263,9 +332,14 @@
     const node = $("#sensorSyncStatus"), status = job?.status || "queued", result = job?.result || {}, summary = result.summary || result;
     state.sensorAlignmentStatus = status;
     if (status === "idle") { node.className = "sensor-sync-status"; node.textContent = "T0: 等待时间同步"; node.title = job.message || "时间同步尚未开始"; return; }
-    node.className = `sensor-sync-status ${status === "complete" ? (Number(summary.conflict_count || 0) ? "warning" : "ready") : status === "failed" ? "failed" : "running"}`;
+    node.className = `sensor-sync-status ${status === "complete" ? (Number(summary.conflict_count || 0) || Number(summary.warning_stream_count || 0) ? "warning" : "ready") : status === "failed" ? "failed" : "running"}`;
     if (status === "complete") {
-      const streams = Number(summary.stream_count ?? result.stream_count ?? 0), timestamp = Number(summary.timestamp_aligned_count || 0), scaled = Number(summary.rate_multiplier_count ?? summary.multiplier_aligned_count ?? summary.scaled_stream_count ?? 0), conflicts = Number(summary.conflict_count || 0);
+      const streams = Number(summary.stream_count ?? result.stream_count ?? 0), timestamp = Number(summary.timestamp_aligned_count || 0), scaled = Number(summary.rate_multiplier_count ?? summary.multiplier_aligned_count ?? summary.scaled_stream_count ?? 0), conflicts = Number(summary.conflict_count || 0), repaired = Number(summary.repaired_stream_count || 0), warnings = Number(summary.warning_stream_count || 0);
+      if (repaired || warnings) {
+        node.textContent = `T0: 已对齐 · ${streams} 路${repaired ? ` · ${repaired} 路自动修复` : ""}${warnings ? ` · ${warnings} 路部分覆盖` : ""}${conflicts ? ` · ${conflicts} 路频率冲突` : ""}`;
+        node.title = `${timestamp} 路按时间戳映射，${scaled} 路按采样率映射；修复和缺测范围已写入 T0 索引。`;
+        return;
+      }
       node.textContent = `T0: 已同步 · ${streams} 流 · ${timestamp} 时间戳 · ${scaled} 倍率${conflicts ? ` · ${conflicts} 冲突` : ""}`;
       node.title = summary.message || `传感器时钟检测完成；${timestamp} 路按时间戳映射，${scaled} 路按 Hz 倍率映射${conflicts ? `；${conflicts} 路声明频率存在冲突，已保留原始信息` : ""}`;
       return;
@@ -310,8 +384,14 @@
     return formatCapabilities(manifest)[capability] === false ? fallback : "";
   }
 
+  function nexusEpisodePackageSupported(manifest = state.dataset) {
+    const family = String(manifest?.format_family || manifest?.format_map?.format_family || "").toLowerCase();
+    return family === "nexus_multimodal" && formatCapabilities(manifest).can_nexus_mano21_adapter === true;
+  }
+
   function fullPipelineExportWarning(manifest = state.dataset) {
     if ($("#fullOutputFormat")?.value === "subtask_json") return "";
+    if ($("#fullOutputFormat")?.value === "episode_lerobot_json" && nexusEpisodePackageSupported(manifest)) return "";
     const formatMap = manifest?.format_map || {}, capabilities = formatCapabilities(manifest);
     if (capabilities.can_full_export !== false) return "";
     const issues = formatMap.issues || [];
@@ -380,7 +460,7 @@
       fullHint.textContent = reason ? "当前格式不可处理" : warning ? "清洗可运行 · 导出受限" : "一键标准数据集";
       fullHint.title = reason || warning;
     }
-    const episodePackageButton = $("#episodePackageButton"), episodePackageHint = $("#episodePackageHint"), episodePackageReason = fullExportBlockReason() || capabilityBlockReason("can_full_export", "当前数据格式缺少可安全导出的 MANO / 相机变换");
+    const episodePackageButton = $("#episodePackageButton"), episodePackageHint = $("#episodePackageHint"), episodePackageReason = fullExportBlockReason() || ((formatCapabilities().can_full_export === false && !nexusEpisodePackageSupported()) ? "当前数据格式缺少可安全导出的 MANO / 相机变换" : "");
     if (episodePackageButton) {
       episodePackageButton.disabled = !hasEpisodes || Boolean(episodePackageReason);
       episodePackageButton.title = episodePackageReason ? `EP 数据包不可用：${episodePackageReason}` : "每个 Episode 输出完整 LeRobot 数据与任务 JSON；坏帧只做标记，不删除";
@@ -437,7 +517,7 @@
       const requiresRerun = isPending && item.kind === "paper_curation" && Boolean(item.requires_rerun);
       const selectable = isPending && !requiresRerun;
       const summary = item.summary || {};
-      const detail = item.kind === "vlm_behavior" ? `${summary.task_label || "other"} · ${Number(summary.target_count || 0)} 个主要目标` : item.kind === "paper_curation" ? `${Number(summary.invalid_frame_count || 0).toLocaleString()} 异常帧 · ${Number(summary.review_frame_count || 0).toLocaleString()} 待审 · ${Number(summary.stage_completed_count || 0)}/8 阶段` : item.kind === "episode_annotation" ? `${summary.segment_count || 0} 个片段 · ${summary.invalid_count || 0} 个无效片段` : item.kind === "no_action_trim" ? `${Number(summary.valid_frame_count || 0).toLocaleString()} 有效帧 · ${Number(summary.invalid_frame_count || 0).toLocaleString()} 无动作帧` : item.kind === "qwen_action_trim" ? `${Number(summary.valid_frame_count || 0).toLocaleString()} 有效帧 · ${Number(summary.invalid_frame_count || 0).toLocaleString()} Qwen 无效帧` : item.kind === "video_smoothing" ? `${summary.stream_name || "video"} · ${Number(summary.frame_count || 0).toLocaleString()} 帧平滑` : item.kind === "dataset_exclusion" ? `本次移出 ${Number(summary.excluded_count || 0)} 个 · 累计 ${Number(summary.total_excluded || 0)} 个` : `${summary.recovered_frame_count || 0} 帧恢复建议`;
+      const detail = item.kind === "vlm_behavior" ? `${summary.task_label || "other"} · ${Number(summary.target_count || 0)} 个主要目标` : item.kind === "paper_curation" ? `${Number(summary.invalid_frame_count || 0).toLocaleString()} 异常帧 · ${Number(summary.review_frame_count || 0).toLocaleString()} 待审 · ${Number(summary.stage_completed_count || 0)}/8 阶段` : item.kind === "episode_annotation" ? `${summary.segment_count || 0} 个片段 · ${summary.invalid_count || 0} 个无效片段` : item.kind === "no_action_trim" ? `${Number(summary.valid_frame_count || 0).toLocaleString()} 有效帧 · ${Number(summary.invalid_frame_count || 0).toLocaleString()} 无动作帧` : item.kind === "qwen_action_trim" ? `${Number(summary.valid_frame_count || 0).toLocaleString()} 有效帧 · ${Number(summary.invalid_frame_count || 0).toLocaleString()} Qwen 无效帧` : item.kind === "video_smoothing" ? `${summary.stream_name || "video"} · ${Number(summary.source_fps || summary.fps || 0).toFixed(2)}→${Number(summary.fps || 0).toFixed(2)} FPS · ${Number(summary.frame_count || 0).toLocaleString()} 帧` : item.kind === "dataset_exclusion" ? `本次移出 ${Number(summary.excluded_count || 0)} 个 · 累计 ${Number(summary.total_excluded || 0)} 个` : `${summary.recovered_frame_count || 0} 帧恢复建议`;
       const statusLabel = requiresRerun ? "需重新运行" : selectable ? "待应用" : "已应用";
       const rowClass = requiresRerun ? "requires-rerun" : isPending ? "pending" : "applied";
       const checkbox = `<input type="checkbox" data-change-id="${escAttr(item.id)}" ${selectable ? "checked" : "disabled"}>`;
@@ -1563,14 +1643,9 @@
       }
       const report = data.preflight || await requestDatasetPreflight(data.root_path);
       if (!await confirmDatasetPreflight(report, button)) { setStatus("已取消导入 · 源文件未建立索引"); return; }
-      const finishProgress = beginDatasetLoadProgress();
+      const finishProgress = () => setProgress(null);
       try {
-        const openUrl = `/api/datasets/open-path?confirmation_token=${encodeURIComponent(report.confirmation_token)}`;
-        const manifest = await api(openUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: data.root_path, name: null, analyze_schema: true, camera_profile_id: report.selected_camera_profile_id || null }),
-        });
+        const manifest = await importDatasetInBackground(report, { path: data.root_path, name: null, analyze_schema: true, camera_profile_id: report.selected_camera_profile_id || null });
         state.datasetLoadToken += 1; state.datasetCollection = null; state.datasetCache = new Map(); renderDatasetSelector(); renderDataset(manifest);
         const schemaStatus = manifest?.schema_profile?.status;
         toast(schemaStatus === "completed" ? `已打开 ${manifest.name} · 格式已自动理解` : `已打开 ${manifest.name}`, schemaStatus === "error" ? "error" : "");
@@ -1808,14 +1883,17 @@
   function ensureCurationSamplingControls() {
     const videoFps = $("#curationVideoFps");
     if (videoFps && !videoFps.dataset.highRateDefault) {
-      if (Number(videoFps.value) === 2) videoFps.value = "4";
-      videoFps.defaultValue = "4";
-      videoFps.setAttribute("value", "4");
+      if (Number(videoFps.value) < 15) videoFps.value = "15";
+      videoFps.min = "15";
+      videoFps.max = "60";
+      videoFps.step = "1";
+      videoFps.defaultValue = "15";
+      videoFps.setAttribute("value", "15");
       videoFps.dataset.highRateDefault = "true";
     }
     if ($("#curationVlmSamples")) return;
     const field = document.createElement("label");
-    field.innerHTML = 'VLM 关键帧数<input id="curationVlmSamples" type="number" min="6" max="64" step="1" value="36" title="只从非红色有效区间均匀抽样">';
+    field.innerHTML = 'VLM 每窗口图片上限<input id="curationVlmSamples" type="number" min="6" max="64" step="1" value="56" title="每个时间窗口的多图上限；系统会在运动和传感器事件附近提高采样密度">';
     const blurField = $("#curationBlurThreshold")?.closest("label");
     if (blurField) blurField.before(field);
   }
@@ -1829,6 +1907,28 @@
     const maximum = document.createElement("label");
     maximum.innerHTML = '最大修复帧数<input id="curationS1MaxRepairFrames" type="number" min="1" max="15" step="1" value="5">';
     sigmaField.after(enabled, maximum);
+  }
+  function configureVideoSmoothingControls() {
+    let section = $("#videoSmoothingSettings");
+    if (!section) {
+      section = document.createElement("details");
+      section.id = "videoSmoothingSettings";
+      section.className = "trim-settings hidden";
+      section.open = true;
+      section.innerHTML = '<summary><span>视频平滑模式</span><small>高帧率可生成稳定的 30 FPS 派生视频</small></summary><div class="trim-settings-grid"><label>处理方式<select id="videoSmoothingMode"><option value="eis_30" selected>高帧率 EIS → 30 FPS（推荐）</option><option value="native">保持原帧率稳像</option></select></label><label>目标帧率<input id="videoSmoothingTargetFps" type="number" min="1" max="60" step="1" value="30"></label><label class="analysis-scope-option"><input type="checkbox" id="videoSmoothingMotionCompensation" checked><span><b>运动补偿重采样</b><small>非整数倍率使用双向光流；低置信度自动退回真实源帧</small></span></label></div><p class="field-hint">仅当源帧率高于目标帧率时降采样；低帧率视频自动保持原帧率。源视频只读，逐帧来源和稳像矩阵写入 .alicePD。</p>';
+      $("#analysisScopeNotice").before(section);
+      $("#videoSmoothingMode").addEventListener("change", () => {
+        $("#videoSmoothingTargetFps").disabled = $("#videoSmoothingMode").value === "native";
+        $("#videoSmoothingMotionCompensation").disabled = $("#videoSmoothingMode").value === "native";
+        updateAnalysisScope();
+      });
+    }
+    const visible = ["video_smoothing", "full_pipeline"].includes(state.analysisOperation);
+    section.classList.toggle("hidden", !visible);
+    if (visible) section.open = true;
+    const native = $("#videoSmoothingMode")?.value === "native";
+    if ($("#videoSmoothingTargetFps")) $("#videoSmoothingTargetFps").disabled = native;
+    if ($("#videoSmoothingMotionCompensation")) $("#videoSmoothingMotionCompensation").disabled = native;
   }
   function ensureFullActionControls() {
     if ($("#fullActionSettings")) return;
@@ -1883,6 +1983,11 @@
     updateTrimSettingOutputs();
   }
   function trimRequestConfig() {
+    if (["video_smoothing", "full_pipeline"].includes(state.analysisOperation)) return {
+      smoothing_mode: $("#videoSmoothingMode")?.value || "eis_30",
+      smoothing_target_fps: trimNumber("videoSmoothingTargetFps", 30),
+      smoothing_motion_compensation: $("#videoSmoothingMotionCompensation")?.checked !== false,
+    };
     if (state.analysisOperation === "projection_correction") return {
       sample_fps: trimNumber("projectionSampleFps", 15),
       max_gap_seconds: trimNumber("projectionMaxGapSeconds", 0.75),
@@ -1922,13 +2027,13 @@
     directional_agreement_threshold: trimNumber("curationDaThreshold", 0.65),
     max_lag_seconds: trimNumber("curationMaxLag", 0.5),
     outlier_alpha: trimNumber("curationOutlierAlpha", 0.1),
-    video_sample_fps: trimNumber("curationVideoFps", 4),
+    video_sample_fps: trimNumber("curationVideoFps", 15),
     black_level_threshold: trimNumber("curationBlackThreshold", 8),
     blur_laplacian_threshold: trimNumber("curationBlurThreshold", 35),
     static_difference_threshold: 1.5,
     static_duration_seconds: trimNumber("curationStaticDuration", 2),
     quality_gap_merge_seconds: trimNumber("curationQualityGap", 0.3),
-    vlm_sample_count: Math.round(trimNumber("curationVlmSamples", 36)),
+    vlm_sample_count: Math.round(trimNumber("curationVlmSamples", 56)),
   }; }
   function fullActionRequestConfig() {
     const output = { full_output_format: $("#fullOutputFormat")?.value || "lerobot" };
@@ -1947,9 +2052,12 @@
     };
   }
   function validateTrimSettings() {
-    const section = ["paper_curation", "full_pipeline"].includes(state.analysisOperation) ? $("#curationPlan") : state.analysisOperation === "projection_correction" ? $("#projectionCorrectionSettings") : state.analysisOperation === "no_action_trim" ? $("#yoloTrimSettings") : state.analysisOperation === "qwen_trim" ? $("#qwenTrimSettings") : null;
-    if (!section) return true;
-    const invalid = [...section.querySelectorAll("input,select")].find(input => !input.checkValidity() || (input.type === "number" && !input.value.trim()));
+    const sections = ["paper_curation", "full_pipeline"].includes(state.analysisOperation)
+      ? [$("#curationPlan"), ...(state.analysisOperation === "full_pipeline" ? [$("#videoSmoothingSettings")] : [])]
+      : [state.analysisOperation === "video_smoothing" ? $("#videoSmoothingSettings") : state.analysisOperation === "projection_correction" ? $("#projectionCorrectionSettings") : state.analysisOperation === "no_action_trim" ? $("#yoloTrimSettings") : state.analysisOperation === "qwen_trim" ? $("#qwenTrimSettings") : null];
+    const controls = sections.filter(Boolean).flatMap(section => [...section.querySelectorAll("input,select")]);
+    if (!controls.length) return true;
+    const invalid = controls.find(input => !input.checkValidity() || (input.type === "number" && !input.value.trim()));
     if (invalid) {
       invalid.reportValidity(); invalid.focus(); toast(["paper_curation", "full_pipeline"].includes(state.analysisOperation) ? "请先修正清洗参数" : "请先修正任务参数", "error");
       return false;
@@ -2140,7 +2248,11 @@
       : state.analysisOperation === "paper_curation"
       ? (all ? `将按所选视频流依次执行 S1-S5 与 C3 初筛，仅对有效片段调用 VLM，最后执行 C2；共 ${episodes.length} 个 Episode。` : "顺序：S1-S5 → C3 → 仅标注有效片段 → C2；所有报告先写入 .alicePD，源文件不变。")
       : state.analysisOperation === "video_smoothing"
-      ? (all ? `将按所选同名视频流依次平滑 ${episodes.length} 个 Episode，输出只写入 .alicePD。` : "将执行光流稳像、边缘补偿和轻度锐化；它不能恢复曝光期间已经丢失的细节。")
+      ? (all
+        ? `将按所选视频流依次处理 ${episodes.length} 个 Episode；高于目标帧率的流执行双遍 EIS 与运动补偿降采样，其他流保持原帧率。`
+        : $("#videoSmoothingMode")?.value === "native"
+          ? "将保持原帧率执行光流稳像、边缘补偿和轻度锐化。"
+          : `将先在原生帧率估计稳定轨迹，再按真实时间轴生成 ${Number($("#videoSmoothingTargetFps")?.value || 30)} FPS；低置信度光流自动退回真实源帧。`)
       : state.analysisOperation === "projection_correction"
       ? (all ? `将为 ${episodes.length} 个 Episode 使用本次所选手部模型生成全帧约束三维修正；结果先进入查看修改，确认应用后才替代 Joint、S1、Action 与导出读取源。` : "使用本次所选 MediaPipe 或 AlicePose 生成可审核、可撤回的完整视频帧三维修正；确认应用后 Joint、S1、Action、Full/LeRobot 才会实际使用，原始 HDF5 始终只读。")
       : state.analysisOperation === "vlm_behavior"
@@ -2160,16 +2272,23 @@
     configureAnalysisForceOption();
     configureTrimSettings();
     configureProjectionCorrectionControls();
+    configureVideoSmoothingControls();
     if (operation === "full_pipeline") {
       const outputSelect = $("#fullOutputFormat");
       if (outputSelect) outputSelect.value = state.fullOutputOverride || "lerobot";
     }
     configureFullActionSettings();
     const full = operation === "full_pipeline", curation = operation === "paper_curation", smoothing = operation === "video_smoothing", projection = operation === "projection_correction", behavior = operation === "vlm_behavior", trimming = operation === "no_action_trim", qwenTrimming = operation === "qwen_trim", episodes = state.dataset.episodes;
+    const datasetFamily = String(state.dataset?.format_map?.format_family || state.dataset?.format_family || "").toLowerCase();
+    const fullPipelineDescription = datasetFamily === "egodex"
+      ? "MediaPipe 手部归正 65% → 平滑 → S1-S5/C3（Action 可选）→ VLM → C1/C2 → LeRobot / 兼容格式导出"
+      : datasetFamily === "nexus_multimodal"
+        ? "Nexus 原生流程（不启用 MediaPipe 归正）→ 平滑 → P1/S1-S5/C3（Action 可选）→ VLM → C1/C2 → 导出"
+        : "平滑 → S1-S5/C3（Action 可选）→ VLM → C1/C2 → LeRobot / 兼容格式导出";
     const episodePackage = full && $("#fullOutputFormat")?.value === "episode_lerobot_json";
     $("#curationPlan").classList.toggle("hidden", !(curation || full));
     $("#analysisScopeTitle").textContent = episodePackage ? "Episode LeRobot + JSON 范围" : full ? "Full 标准数据集范围" : curation ? "数据质量清洗范围" : smoothing ? "视频平滑范围" : projection ? "手部二维投影归正范围" : behavior ? "VLM 行为标注范围" : trimming ? "YOLOE 无动作剪切范围" : qwenTrimming ? "Qwen 片段剪切范围" : "SLAM 位姿恢复范围";
-    $("#analysisScopeKind").textContent = episodePackage ? "完整保留每个 Episode 的视频与 LeRobot 帧；坏帧 / 待复核帧写入同目录 subtasks.json" : full ? "平滑 → S1-S5/C3（Action 可选）→ VLM → C1/C2 → LeRobot / 兼容格式导出" : curation ? "S1-S5 → C3 → 非红片段 VLM → C1/C2" : smoothing ? "光流稳像与轻度运动模糊缓解" : projection ? "MediaPipe / AlicePose 全帧双手观测 → 左右手唯一关联 → 骨长与刚性掌部约束 → 视频帧对齐 3D 快照" : behavior ? "Qwen-VLM 高层任务 + 可变长度细阶段 + Joint 边界校正" : trimming ? "YOLOE 物体与手/夹爪距离分析" : qwenTrimming ? "Qwen-VLM 有效操作 / 无效片段判定" : "SLAM / Visual Odometry 初始位姿恢复";
+    $("#analysisScopeKind").textContent = episodePackage ? "完整保留每个 Episode 的视频与 LeRobot 帧；坏帧 / 待复核帧写入同目录 subtasks.json" : full ? fullPipelineDescription : curation ? "S1-S5 → C3 → 非红片段 VLM → C1/C2" : smoothing ? "原帧率稳像，或高帧率 EIS + 运动补偿降至 30 FPS" : projection ? "MediaPipe / AlicePose 全帧双手观测 → 左右手唯一关联 → 骨长与刚性掌部约束 → 视频帧对齐 3D 快照" : behavior ? "Qwen-VLM 高层任务 + 可变长度细阶段 + Joint 边界校正" : trimming ? "YOLOE 物体与手/夹爪距离分析" : qwenTrimming ? "Qwen-VLM 有效操作 / 无效片段判定" : "SLAM / Visual Odometry 初始位姿恢复";
     $("#analysisAllDescription").textContent = `依次处理全部 ${episodes.length} 个 Episode`;
     $("#analysisEpisodeSelect").innerHTML = episodes.map(item => `<option value="${escAttr(item.id)}">${esc(item.name)} · ${Number(item.frame_count || 0).toLocaleString()} frames</option>`).join("");
     $("#analysisEpisodeSelect").value = state.episode?.id || episodes[0].id;
@@ -2430,10 +2549,10 @@
       const fullActionConfig = full ? fullActionRequestConfig() : {};
       if (fullActionConfig === null) return;
       const payload = curation || full
-        ? { episode_ids: episodeIds, media_file_ids: mediaFileIds, ...curationRequestConfig(), ...fullActionConfig, full_pipeline: full, force_vlm: full && Boolean($("#forceAnalysis")?.checked) }
+        ? { episode_ids: episodeIds, media_file_ids: mediaFileIds, ...curationRequestConfig(), ...(full ? trimConfig : {}), ...fullActionConfig, full_pipeline: full, force_vlm: full && Boolean($("#forceAnalysis")?.checked) }
         : qwenTrim
         ? { episode_ids: episodeIds, all_episodes: all, media_file_ids: mediaFileIds, ...trimConfig }
-        : { operation: state.analysisOperation, episode_ids: episodeIds, media_file_ids: mediaFileIds, sample_count: 36, sample_fps: 4, proximity_threshold: 0.04, max_gap_seconds: 0.5, min_valid_seconds: 0.3, force: ["vlm_behavior", "projection_correction"].includes(state.analysisOperation) && Boolean($("#forceAnalysis")?.checked), ...trimConfig };
+        : { operation: state.analysisOperation, episode_ids: episodeIds, media_file_ids: mediaFileIds, sample_count: 56, sample_fps: 4, proximity_threshold: 0.04, max_gap_seconds: 0.5, min_valid_seconds: 0.3, force: ["vlm_behavior", "projection_correction"].includes(state.analysisOperation) && Boolean($("#forceAnalysis")?.checked), ...trimConfig };
       const job = await api(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const trackedJob = { ...job, requested_episode_ids: [...episodeIds], requested_media_file_ids: { ...mediaFileIds } };
       state.analysisJobs.set(job.id, trackedJob); renderAnalysisThreadStatus(); closeAnalysisScope();
@@ -2461,7 +2580,7 @@
     if (!state.dataset || !await ensureEpisodeSelected()) return;
     const button = $("#behaviorAnnotateButton"); button.disabled = true; setProgress(2, "准备 VLM 行为标注");
     try {
-      const job = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/episodes/${encodeURIComponent(state.episode.id)}/annotate-behavior`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sample_count: 36, media_file_id: state.media?.file_id || null }) });
+      const job = await api(`/api/datasets/${encodeURIComponent(state.dataset.id)}/episodes/${encodeURIComponent(state.episode.id)}/annotate-behavior`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sample_count: 56, media_file_id: state.media?.file_id || null }) });
       const result = await waitBehaviorJob(job.id); renderBehaviorAnnotation(result); await loadChangeCatalog();
       toast(`行为标注完成，已暂存待应用 · ${result.task_label || "other"} · 目标 ${(result.primary_targets || []).length} 个`, "");
       setStatus(`VLM 行为标注已写入 .alicePD · ${result.artifacts?.behavior || ""}`);
@@ -2496,8 +2615,8 @@
     $$("[data-ribbon]").forEach(button => button.addEventListener("click", () => { $$("[data-ribbon]").forEach(item => item.classList.toggle("active", item === button)); $$("[data-pane]").forEach(pane => pane.classList.toggle("active", pane.dataset.pane === button.dataset.ribbon)); }));
     $$("[data-view-target]").forEach(button => button.addEventListener("click", () => showView(button.dataset.viewTarget)));
     $$("[data-inspector]").forEach(button => button.addEventListener("click", () => activateInspector(button.dataset.inspector)));
-    $("#openFolderButton").addEventListener("click", openFolder); $("#datasetSelect").addEventListener("change", event => loadCollectionDataset(event.target.value)); $("#refreshButton").addEventListener("click", refreshDataset); $("#analyzeSchemaButton").addEventListener("click", understandSchema); $("#excludeFileButton").addEventListener("click", openExcludeFileModal); $("#confirmExcludeFile").addEventListener("click", confirmExcludeFile); $("#manualRangeButton").addEventListener("click", openManualRange); $("#curationPipelineButton").addEventListener("click", event => openAnalysisScope("paper_curation", event.currentTarget)); $("#fullPipelineButton").addEventListener("click", event => { state.fullOutputOverride = null; openAnalysisScope("full_pipeline", event.currentTarget); }); $("#episodePackageButton").addEventListener("click", event => { state.fullOutputOverride = "episode_lerobot_json"; openAnalysisScope("full_pipeline", event.currentTarget); }); $("#actionMappingButton").addEventListener("click", event => openActionMapping(event.currentTarget)); $("#videoSmoothButton").addEventListener("click", event => openAnalysisScope("video_smoothing", event.currentTarget)); $("#projectionCorrectionButton").addEventListener("click", event => openAnalysisScope("projection_correction", event.currentTarget)); $("#poseRecoveryButton").addEventListener("click", recoverInitialPose); $("#behaviorAnnotateButton").addEventListener("click", annotateBehavior); $("#noActionTrimButton").addEventListener("click", event => openAnalysisScope("no_action_trim", event.currentTarget)); $("#qwenTrimButton").addEventListener("click", event => openAnalysisScope("qwen_trim", event.currentTarget)); $("#cancelAnalysisButton").addEventListener("click", cancelActiveAnalysis); $("#exportFolderButton").addEventListener("click", exportFolder); $("#downloadExport").addEventListener("click", downloadZip); $("#reviewChangesButton").addEventListener("click", openChangeModal); $("#applyChangesButton").addEventListener("click", openChangeModal); $("#confirmApplyChanges").addEventListener("click", applySelectedChanges); $("#changeConfirm").addEventListener("change", updateChangeApplyState); $("#modelButton").addEventListener("click", configureModal); $("#saveModel").addEventListener("click", saveModel);
-    $$(".modal-close").forEach(button => button.addEventListener("click", () => $("#modelModal").classList.add("hidden"))); $$(".format-preflight-close").forEach(button => button.addEventListener("click", () => settleFormatConfirmation(false))); $("#confirmFormatImport").addEventListener("click", () => settleFormatConfirmation(true)); $("#formatPreflightCameraProfile").addEventListener("change", () => updateFormatCameraProfile(state.formatConfirmation?.report)); $$(".change-modal-close").forEach(button => button.addEventListener("click", closeChangeModal)); $$(".analysis-scope-close").forEach(button => button.addEventListener("click", closeAnalysisScope)); $$(".action-mapping-close").forEach(button => button.addEventListener("click", closeActionMapping)); $$(".manual-range-close").forEach(button => button.addEventListener("click", closeManualRange)); $$(".exclude-file-close").forEach(button => button.addEventListener("click", closeExcludeFileModal)); $$("input[name='manualRangeState']").forEach(input => input.addEventListener("change", updateManualRangeSummary)); $("#manualRangeStart").addEventListener("input", updateManualRangeSummary); $("#manualRangeEnd").addEventListener("input", updateManualRangeSummary); $("#manualStartCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeStart")); $("#manualEndCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeEnd")); $("#saveManualRange").addEventListener("click", saveManualRange); $$("input[name='analysisScope']").forEach(input => input.addEventListener("change", updateAnalysisScope)); $$("input[name='actionScope']").forEach(input => input.addEventListener("change", updateActionMappingScope)); $("#actionRobotProfile").addEventListener("change", renderActionProfileNote); $("#fullOutputFormat").addEventListener("change", updateAnalysisScope); $("#fullGenerateAction").addEventListener("change", renderFullActionSettings); $("#fullRobotProfile").addEventListener("change", renderFullActionSettings); $("#startActionMapping").addEventListener("click", submitActionMapping); $("#analysisEpisodeSelect").addEventListener("change", updateAnalysisMediaOptions); $("#analysisMediaSelect").addEventListener("change", () => { renderAnalysisMediaMap(); updateCurationPreflight(); }); $("#fillAnalysisMediaByName").addEventListener("click", fillAnalysisMediaByName); $("#startScopedAnalysis").addEventListener("click", submitScopedAnalysis); $("#clearCurationStageFilter").addEventListener("click", () => { state.curationStageFilter = null; $$(".curation-stage-row", $("#curationStageList")).forEach(item => item.classList.remove("active")); renderCurationTrack(); }); $("#modelType").addEventListener("change", syncModelTypeFields);
+    $("#openFolderButton").addEventListener("click", openFolder); $("#datasetSelect").addEventListener("change", event => loadCollectionDataset(event.target.value)); $("#refreshButton").addEventListener("click", refreshDataset); $("#analyzeSchemaButton").addEventListener("click", understandSchema); $("#excludeFileButton").addEventListener("click", openExcludeFileModal); $("#confirmExcludeFile").addEventListener("click", confirmExcludeFile); $("#manualRangeButton").addEventListener("click", openManualRange); $("#curationPipelineButton").addEventListener("click", event => openAnalysisScope("paper_curation", event.currentTarget)); $("#fullPipelineButton").addEventListener("click", event => { state.fullOutputOverride = null; openAnalysisScope("full_pipeline", event.currentTarget); }); $("#episodePackageButton").addEventListener("click", event => { state.fullOutputOverride = "episode_lerobot_json"; openAnalysisScope("full_pipeline", event.currentTarget); }); $("#actionMappingButton").addEventListener("click", event => openActionMapping(event.currentTarget)); $("#videoSmoothButton").addEventListener("click", event => openAnalysisScope("video_smoothing", event.currentTarget)); $("#projectionCorrectionButton").addEventListener("click", event => openAnalysisScope("projection_correction", event.currentTarget)); $("#poseRecoveryButton").addEventListener("click", recoverInitialPose); $("#behaviorAnnotateButton").addEventListener("click", annotateBehavior); $("#noActionTrimButton").addEventListener("click", event => openAnalysisScope("no_action_trim", event.currentTarget)); $("#qwenTrimButton").addEventListener("click", event => openAnalysisScope("qwen_trim", event.currentTarget)); $("#cancelAnalysisButton").addEventListener("click", cancelActiveAnalysis); $("#cancelDatasetImport").addEventListener("click", cancelDatasetImport); $("#exportFolderButton").addEventListener("click", exportFolder); $("#downloadExport").addEventListener("click", downloadZip); $("#reviewChangesButton").addEventListener("click", openChangeModal); $("#applyChangesButton").addEventListener("click", openChangeModal); $("#confirmApplyChanges").addEventListener("click", applySelectedChanges); $("#changeConfirm").addEventListener("change", updateChangeApplyState); $("#modelButton").addEventListener("click", configureModal); $("#saveModel").addEventListener("click", saveModel);
+    $$(".modal-close").forEach(button => button.addEventListener("click", () => $("#modelModal").classList.add("hidden"))); $$(".format-preflight-close").forEach(button => button.addEventListener("click", () => settleFormatConfirmation(false))); $("#confirmFormatImport").addEventListener("click", () => settleFormatConfirmation(true)); $("#formatPreflightCameraProfile").addEventListener("change", refreshFormatCameraProfile); $$(".change-modal-close").forEach(button => button.addEventListener("click", closeChangeModal)); $$(".analysis-scope-close").forEach(button => button.addEventListener("click", closeAnalysisScope)); $$(".action-mapping-close").forEach(button => button.addEventListener("click", closeActionMapping)); $$(".manual-range-close").forEach(button => button.addEventListener("click", closeManualRange)); $$(".exclude-file-close").forEach(button => button.addEventListener("click", closeExcludeFileModal)); $$("input[name='manualRangeState']").forEach(input => input.addEventListener("change", updateManualRangeSummary)); $("#manualRangeStart").addEventListener("input", updateManualRangeSummary); $("#manualRangeEnd").addEventListener("input", updateManualRangeSummary); $("#manualStartCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeStart")); $("#manualEndCurrent").addEventListener("click", () => setManualRangeCurrent("#manualRangeEnd")); $("#saveManualRange").addEventListener("click", saveManualRange); $$("input[name='analysisScope']").forEach(input => input.addEventListener("change", updateAnalysisScope)); $$("input[name='actionScope']").forEach(input => input.addEventListener("change", updateActionMappingScope)); $("#actionRobotProfile").addEventListener("change", renderActionProfileNote); $("#fullOutputFormat").addEventListener("change", updateAnalysisScope); $("#fullGenerateAction").addEventListener("change", renderFullActionSettings); $("#fullRobotProfile").addEventListener("change", renderFullActionSettings); $("#startActionMapping").addEventListener("click", submitActionMapping); $("#analysisEpisodeSelect").addEventListener("change", updateAnalysisMediaOptions); $("#analysisMediaSelect").addEventListener("change", () => { renderAnalysisMediaMap(); updateCurationPreflight(); }); $("#fillAnalysisMediaByName").addEventListener("click", fillAnalysisMediaByName); $("#startScopedAnalysis").addEventListener("click", submitScopedAnalysis); $("#clearCurationStageFilter").addEventListener("click", () => { state.curationStageFilter = null; $$(".curation-stage-row", $("#curationStageList")).forEach(item => item.classList.remove("active")); renderCurationTrack(); }); $("#modelType").addEventListener("change", syncModelTypeFields);
     $("#treeMode").addEventListener("change", event => { state.treeMode = event.target.value; state.treeGroups = new Map(); state.treeExpanded = new Set(); state.treeCollapsed = new Set(); if (state.treeSelection?.kind === "episode") state.treeSelection = null; renderResolvedTree(); updateTreeSelectionUI(); }); $("#treeSearch").addEventListener("input", () => { clearTimeout(state.treeSearchTimer); state.treeSearchTimer = setTimeout(renderResolvedTree, 120); }); $("#expandButton").addEventListener("click", () => { state.treeAutoCollapse = false; state.treeCollapsed = new Set(); state.treeExpanded = new Set(); renderResolvedTree(); }); $("#collapseButton").addEventListener("click", () => { state.treeAutoCollapse = true; state.treeExpanded = new Set(); state.treeCollapsed = new Set(); renderResolvedTree(); }); $("#themeButton").addEventListener("click", () => document.body.classList.toggle("dark")); $("#detailButton").addEventListener("click", () => $("#inspector").classList.toggle("closed"));
     $("#frameSlider").addEventListener("input", event => updateFrame(event.target.value)); $("#prevFrame").addEventListener("click", () => updateFrame(state.frame - 1)); $("#nextFrame").addEventListener("click", () => updateFrame(state.frame + 1)); $("#transportPlay").addEventListener("click", togglePlay); $("#playButton").addEventListener("click", togglePlay); $("#rawJointOverlayButton").addEventListener("click", () => toggleJointOverlay("raw")); $("#correctedJointOverlayButton").addEventListener("click", () => toggleJointOverlay("corrected")); $("#jointIndexButton").addEventListener("click", toggleJointIndices); $("#jointFrameOffset").addEventListener("change", event => setJointFrameOffset(event.target.value)); $("#yoloOverlayButton").addEventListener("click", toggleYoloOverlay); $$(".segmented button").forEach(button => button.addEventListener("click", () => { $$(".segmented button").forEach(item => item.classList.toggle("active", item === button)); updateFrame(state.frame); })); $("#zoomIn").addEventListener("click", () => zoom(0.1)); $("#zoomOut").addEventListener("click", () => zoom(-0.1));
     $("#behaviorRemoveSelect").addEventListener("change", updateBehaviorRemovalState); $("#behaviorRemoveButton").addEventListener("click", removeBehaviorPhase);

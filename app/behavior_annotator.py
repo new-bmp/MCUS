@@ -13,9 +13,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 
-from .behavior_boundary_refiner import load_episode_joint_pose, refine_behavior_boundaries
+from .behavior_boundary_refiner import joint_motion_change_score, load_episode_joint_pose, refine_behavior_boundaries
 from .behavior_prompt import (
     META_ACTION_TRANSLATIONS,
     TRI_LEVEL_PROTOCOL_SCHEMA,
@@ -27,14 +28,23 @@ from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .qwen_trim import _source_fingerprints_match, _source_video_fingerprint
 from .schemas import BehaviorAnnotationRequest
-from .sensor_alignment import ensure_episode_time_sync
+from .sensor_alignment import ensure_episode_time_sync, retime_sensor_alignment
 from .storage import dataset_artifact_dir, episode_media, get_episode, read_frame, record_change, require_media_eligibility, slugify
 from .video_smoothing import preferred_smoothed_media
 
 
 BEHAVIOR_SCHEMA = "alice/vlm-behavior/v1"
 TARGET_SCHEMA = "alice/behavior-targets/v1"
-BEHAVIOR_ARTIFACT_VERSION = 4
+BEHAVIOR_ARTIFACT_VERSION = 5
+
+BEHAVIOR_SAMPLING_STRATEGY = "windowed_adaptive_multi_image_v1"
+BEHAVIOR_WINDOW_SECONDS = 20.0
+BEHAVIOR_WINDOW_OVERLAP_SECONDS = 3.0
+BEHAVIOR_BASE_SAMPLE_FPS = 1.5
+BEHAVIOR_EVENT_SAMPLE_FPS = 12.0
+BEHAVIOR_EVENT_RADIUS_SECONDS = 0.75
+BEHAVIOR_MIN_IMAGES_PER_WINDOW = 12
+BEHAVIOR_MIN_IMAGES_PER_RANGE = 6
 
 PHASE_LABELS = (
     "idle", "observe", "reach", "grasp", "lift", "transport", "align", "place",
@@ -74,6 +84,8 @@ _PHASE_ALIASES = {
 }
 
 _META_ACTION_PHASES = {
+    "Idle": "idle", "Observe": "observe", "Reach": "reach", "Withdraw": "withdraw",
+    "Align": "align", "Inspect": "inspect",
     "Grasp": "grasp", "Hold": "grasp", "Pinch": "grasp", "Clip": "grasp",
     "Suction": "grasp", "Catch": "grasp", "TakeOver": "grasp",
     "Lift": "lift", "Raise height": "lift",
@@ -82,6 +94,22 @@ _META_ACTION_PHASES = {
     "Release": "release",
     "Scan": "inspect",
     "Other": "unknown",
+}
+
+_PHASE_META_ACTIONS = {
+    "idle": "Idle",
+    "observe": "Observe",
+    "reach": "Reach",
+    "grasp": "Grasp",
+    "lift": "Lift",
+    "transport": "Transport",
+    "align": "Align",
+    "place": "Place",
+    "release": "Release",
+    "withdraw": "Withdraw",
+    "manipulate": "Other",
+    "inspect": "Inspect",
+    "unknown": "Other",
 }
 
 BUILTIN_BEHAVIOR_CATEGORIES = [
@@ -255,7 +283,13 @@ def _legacy_source_matches(annotation: dict, media: dict, episode: dict) -> bool
         except (TypeError, ValueError):
             continue
     frame_count = int(media.get("frame_count") or episode.get("frame_count") or 0)
-    if frame_count <= 0 or not frames or max(frames) != frame_count - 1:
+    stored_ranges = [
+        (_safe_int(item.get("start_frame")), _safe_int(item.get("end_frame")))
+        for item in sampling.get("allowed_ranges") or []
+        if isinstance(item, dict)
+    ]
+    expected_last = max((end for _start, end in stored_ranges), default=frame_count - 1)
+    if frame_count <= 0 or not frames or max(frames) != expected_last:
         return False
     expected_stream = str(sampling.get("stream_name") or "")
     actual_stream = str(media.get("stream_name") or "")
@@ -476,6 +510,224 @@ def _sample_indices_in_ranges(frame_count: int, count: int, ranges: list[tuple[i
             consumed += length
             range_index += 1
     return indices
+
+
+def _uniform_indices(start: int, end: int, count: int) -> list[int]:
+    if start > end or count <= 0:
+        return []
+    length = end - start + 1
+    return sorted({
+        start + int(round(value))
+        for value in np.linspace(0, length - 1, min(length, count))
+    })
+
+
+def _plan_behavior_windows(
+    frame_count: int,
+    fps: float,
+    ranges: list[tuple[int, int]] | None,
+    *,
+    window_seconds: float = BEHAVIOR_WINDOW_SECONDS,
+    overlap_seconds: float = BEHAVIOR_WINDOW_OVERLAP_SECONDS,
+) -> list[dict]:
+    normalized = _normalize_frame_ranges(frame_count, ranges)
+    window_frames = max(1, int(round(max(1.0, window_seconds) * max(0.01, fps))))
+    overlap_frames = max(0, min(window_frames - 1, int(round(max(0.0, overlap_seconds) * max(0.01, fps)))))
+    step = max(1, window_frames - overlap_frames)
+    windows: list[dict] = []
+    for range_index, (range_start, range_end) in enumerate(normalized):
+        start = range_start
+        while start <= range_end:
+            end = min(range_end, start + window_frames - 1)
+            if range_end - end <= overlap_frames:
+                end = range_end
+            windows.append({
+                "window_id": f"range-{range_index + 1}-window-{len(windows) + 1}",
+                "range_index": range_index,
+                "range_start": range_start,
+                "range_end": range_end,
+                "start_frame": start,
+                "end_frame": end,
+            })
+            if end >= range_end:
+                break
+            start += step
+    for index, window in enumerate(windows):
+        window["window_index"] = index
+        window["window_count"] = len(windows)
+    return windows
+
+
+def _select_score_events(
+    score: np.ndarray | None,
+    start: int,
+    end: int,
+    fps: float,
+    limit: int,
+) -> list[int]:
+    if score is None or limit <= 0 or start > end:
+        return []
+    values = np.asarray(score, dtype=np.float64).reshape(-1)
+    if not values.size:
+        return []
+    low = max(0, start)
+    high = min(end, values.size - 1)
+    if low > high:
+        return []
+    local = values[low:high + 1]
+    finite = local[np.isfinite(local)]
+    if not finite.size:
+        return []
+    median = float(np.median(finite))
+    mad = float(np.median(np.abs(finite - median)) * 1.4826)
+    threshold = max(1e-10, median + 0.75 * mad)
+    ordered = sorted(
+        (
+            (float(values[index]), index)
+            for index in range(low, high + 1)
+            if np.isfinite(values[index]) and float(values[index]) > threshold
+        ),
+        reverse=True,
+    )
+    separation = max(1, int(round(max(0.01, fps) * 0.35)))
+    selected: list[int] = []
+    for _value_at_frame, frame in ordered:
+        if all(abs(frame - existing) >= separation for existing in selected):
+            selected.append(frame)
+            if len(selected) >= limit:
+                break
+    return sorted(selected)
+
+
+def _evidence_event_frames(
+    evidence: list[dict] | None,
+    start: int,
+    end: int,
+    fps: float,
+    limit: int,
+) -> list[int]:
+    candidates = []
+    previous_state = ""
+    for item in evidence or []:
+        if not isinstance(item, dict):
+            continue
+        frame = _safe_int(item.get("frame"), -1)
+        if frame < start or frame > end:
+            continue
+        motion = max(0.0, _safe_float(item.get("motion")))
+        state = str(item.get("state") or "")
+        transition_bonus = 1.0 if previous_state and state and state != previous_state else 0.0
+        candidates.append((motion + transition_bonus, frame))
+        if state:
+            previous_state = state
+    separation = max(1, int(round(max(0.01, fps) * 0.35)))
+    selected: list[int] = []
+    for score, frame in sorted(candidates, reverse=True):
+        if score <= 0.0:
+            continue
+        if all(abs(frame - existing) >= separation for existing in selected):
+            selected.append(frame)
+            if len(selected) >= max(0, limit):
+                break
+    return sorted(selected)
+
+
+def _visual_event_frames(
+    indices: list[int],
+    frame_cache: dict[int, np.ndarray | None],
+    fps: float,
+    limit: int,
+) -> list[int]:
+    differences: list[tuple[float, int]] = []
+    previous_frame = None
+    previous_index = None
+    for index in indices:
+        frame = frame_cache.get(index)
+        if frame is None:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else np.asarray(frame)
+        gray = cv2.resize(gray, (96, 96), interpolation=cv2.INTER_AREA).astype(np.float32)
+        if previous_frame is not None and previous_index is not None:
+            difference = float(np.mean(np.abs(gray - previous_frame)) / 255.0)
+            differences.append((difference, int(round((previous_index + index) / 2.0))))
+        previous_frame = gray
+        previous_index = index
+    if not differences or limit <= 0:
+        return []
+    values = np.asarray([item[0] for item in differences], dtype=np.float64)
+    median = float(np.median(values))
+    mad = float(np.median(np.abs(values - median)) * 1.4826)
+    threshold = max(0.015, median + 0.5 * mad)
+    separation = max(1, int(round(max(0.01, fps) * 0.35)))
+    selected: list[int] = []
+    for difference, frame in sorted(differences, reverse=True):
+        if difference < threshold:
+            continue
+        if all(abs(frame - existing) >= separation for existing in selected):
+            selected.append(frame)
+            if len(selected) >= limit:
+                break
+    return sorted(selected)
+
+
+def _adaptive_window_indices(
+    window: dict,
+    fps: float,
+    maximum_images: int,
+    frame_cache: dict[int, np.ndarray | None],
+    frame_reader,
+    *,
+    joint_score: np.ndarray | None = None,
+    sampling_evidence: list[dict] | None = None,
+) -> tuple[list[int], dict]:
+    start = int(window["start_frame"])
+    end = int(window["end_frame"])
+    length = end - start + 1
+    cap = max(1, min(length, int(maximum_images)))
+    minimum = min(cap, length, max(BEHAVIOR_MIN_IMAGES_PER_RANGE, BEHAVIOR_MIN_IMAGES_PER_WINDOW))
+    duration = length / max(0.01, fps)
+    desired_base = max(minimum, int(np.ceil(duration * BEHAVIOR_BASE_SAMPLE_FPS)) + 1)
+    event_reserve = min(18, max(0, cap - minimum), cap // 3)
+    base_count = min(length, max(minimum, min(desired_base, cap - event_reserve)))
+    base_indices = _uniform_indices(start, end, base_count)
+    for index in base_indices:
+        if index not in frame_cache:
+            frame_cache[index] = frame_reader(index)
+
+    event_limit = max(1, min(8, cap // 7))
+    joint_events = _select_score_events(joint_score, start, end, fps, event_limit)
+    evidence_events = _evidence_event_frames(sampling_evidence, start, end, fps, event_limit)
+    visual_events = _visual_event_frames(base_indices, frame_cache, fps, event_limit)
+    events = list(dict.fromkeys([*joint_events, *evidence_events, *visual_events]))
+
+    selected = set(base_indices)
+    event_step = max(1, int(round(max(0.01, fps) / BEHAVIOR_EVENT_SAMPLE_FPS)))
+    radius = max(event_step, int(round(BEHAVIOR_EVENT_RADIUS_SECONDS * max(0.01, fps))))
+    offsets = [0]
+    for distance in range(event_step, radius + 1, event_step):
+        offsets.extend((-distance, distance))
+    dense_candidates: list[int] = []
+    for offset in offsets:
+        for event in events:
+            candidate = event + offset
+            if start <= candidate <= end and candidate not in selected and candidate not in dense_candidates:
+                dense_candidates.append(candidate)
+    for candidate in dense_candidates:
+        if len(selected) >= cap:
+            break
+        selected.add(candidate)
+    if len(selected) < cap:
+        for candidate in _uniform_indices(start, end, cap):
+            selected.add(candidate)
+            if len(selected) >= cap:
+                break
+    return sorted(selected), {
+        "base_frame_count": len(base_indices),
+        "event_frame_count": max(0, len(selected) - len(base_indices)),
+        "joint_event_frames": joint_events,
+        "quality_motion_event_frames": evidence_events,
+        "visual_event_frames": visual_events,
+    }
 
 
 def _constrain_segments_to_ranges(
@@ -713,13 +965,28 @@ def _normalize_tri_level_intervals(items: Any, frame_count: int, default_descrip
 
 
 def _fine_from_segments(segments: list[dict]) -> list[dict]:
-    return [{
-        "start_frame": int(item.get("start_frame") or 0),
-        "end_frame": int(item.get("end_frame") or item.get("start_frame") or 0),
-        "description": str(item.get("description") or "")[:800],
-        "skill": canonical_meta_action(item.get("skill")),
-        "skill_zh": META_ACTION_TRANSLATIONS[canonical_meta_action(item.get("skill"))],
-    } for item in segments]
+    output = []
+    for item in segments:
+        skill = canonical_meta_action(item.get("skill"))
+        fine = {
+            "start_frame": int(item.get("start_frame") or 0),
+            "end_frame": int(item.get("end_frame") or item.get("start_frame") or 0),
+            "description": str(item.get("description") or "")[:800],
+            "skill": skill,
+            "skill_zh": META_ACTION_TRANSLATIONS[skill],
+            "confidence": _confidence(item.get("confidence")),
+            "primary_targets": list(_list_value(item.get("primary_targets")))[:20],
+            "target_instance": str(item.get("target_instance") or "")[:120],
+            "evidence_frames": sorted({
+                _safe_int(value, -1)
+                for value in _list_value(item.get("evidence_frames"))
+                if _safe_int(value, -1) >= 0
+            }),
+        }
+        if isinstance(item.get("boundary_range"), list):
+            fine["boundary_range"] = list(item["boundary_range"])[:2]
+        output.append(fine)
+    return output
 
 
 def _segment_object_signature(segment: dict) -> tuple[str, tuple[str, ...]]:
@@ -730,6 +997,405 @@ def _segment_object_signature(segment: dict) -> tuple[str, tuple[str, ...]]:
         if name:
             targets.append(name)
     return instance, tuple(sorted(set(targets)))
+
+
+def _target_names(value: Any) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for item in _list_value(value):
+        name = str(item.get("name") if isinstance(item, dict) else item).strip()[:120]
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            output.append(name)
+    return output
+
+
+def _normalize_window_result(
+    raw: dict,
+    window: dict,
+    sampled_frames: list[int],
+    fps: float,
+) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    start = int(window["start_frame"])
+    end = int(window["end_frame"])
+    length = end - start + 1
+    valid_evidence = set(sampled_frames)
+    source_items = raw.get("fine") if isinstance(raw.get("fine"), list) else raw.get("segments")
+    segments: list[dict] = []
+    warnings = [str(value)[:500] for value in _list_value(raw.get("warnings"))[:30]]
+    for item in _list_value(source_items)[:160]:
+        if not isinstance(item, dict):
+            continue
+        item_start = max(start, min(_safe_int(item.get("start_frame"), start), end))
+        item_end = max(item_start, min(_safe_int(item.get("end_frame"), item_start), end))
+        phase = _normalize_phase_label(item.get("phase_label") or item.get("stage") or item.get("label"))
+        supplied_skill = str(item.get("skill") or "").strip()
+        skill = canonical_meta_action(supplied_skill) if supplied_skill else _PHASE_META_ACTIONS.get(phase, "Other")
+        if supplied_skill and skill == "Other" and supplied_skill.casefold() != "other":
+            warnings.append(f"Fine skill '{supplied_skill[:80]}' is outside the meta_action vocabulary and was normalized to Other.")
+        if phase == "unknown" and skill != "Other":
+            phase = _phase_for_meta_action(skill)
+        evidence_frames = sorted({
+            frame
+            for value in _list_value(item.get("evidence_frames"))
+            if (frame := _safe_int(value, -1)) in valid_evidence
+        })
+        targets = _target_names(item.get("primary_targets"))
+        segments.append({
+            "start_frame": item_start - start,
+            "end_frame": item_end - start,
+            "phase_label": phase if supplied_skill == "" else _phase_for_meta_action(skill),
+            "label": phase if supplied_skill == "" else _phase_for_meta_action(skill),
+            "skill": skill,
+            "skill_zh": META_ACTION_TRANSLATIONS[skill],
+            "description": str(item.get("description") or "")[:800],
+            "confidence": _confidence(item.get("confidence"), 0.5),
+            "object_nouns": [str(value).strip()[:120] for value in _list_value(item.get("object_nouns")) if str(value).strip()][:30],
+            "primary_targets": targets,
+            "target_instance": str(item.get("target_instance") or "").strip()[:120],
+            "evidence_frames": evidence_frames,
+            "boundary_source": "vlm",
+            "source_window_ids": [str(window["window_id"])],
+        })
+    normalized = _normalize_phase_segments(segments, length, fps)
+    for segment in normalized:
+        segment["start_frame"] += start
+        segment["end_frame"] += start
+        segment["start_time"] = round(segment["start_frame"] / max(0.01, fps), 3)
+        segment["end_time"] = round(segment["end_frame"] / max(0.01, fps), 3)
+        segment["skill"] = canonical_meta_action(segment.get("skill"))
+        segment["skill_zh"] = META_ACTION_TRANSLATIONS[segment["skill"]]
+        segment["source_window_ids"] = list(segment.get("source_window_ids") or [str(window["window_id"])])
+
+    target_records: list[dict] = []
+    for item in _list_value(raw.get("primary_targets"))[:30]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:120]
+        if not name:
+            continue
+        evidence_frames = sorted({
+            frame
+            for value in _list_value(item.get("visible_evidence_frames"))
+            if (frame := _safe_int(value, -1)) in valid_evidence
+        })
+        target_records.append({
+            "name": name,
+            "role": str(item.get("role") or "behavior_target")[:120],
+            "confidence": _confidence(item.get("confidence"), 0.5),
+            "visible_evidence_frames": evidence_frames,
+            "evidence": str(item.get("evidence") or "")[:500],
+        })
+    segment_targets = _target_names([
+        target
+        for segment in normalized
+        for target in _list_value(segment.get("primary_targets"))
+    ])
+    known_targets = {item["name"].casefold() for item in target_records}
+    for name in segment_targets:
+        if name.casefold() not in known_targets:
+            evidence = sorted({
+                frame
+                for segment in normalized
+                if name in _list_value(segment.get("primary_targets"))
+                for frame in _list_value(segment.get("evidence_frames"))
+            })
+            target_records.append({
+                "name": name,
+                "role": "behavior_target",
+                "confidence": max(
+                    [_confidence(segment.get("confidence"), 0.5) for segment in normalized if name in _list_value(segment.get("primary_targets"))]
+                    or [0.5]
+                ),
+                "visible_evidence_frames": evidence,
+                "evidence": "Derived from window-level Fine annotation.",
+            })
+            known_targets.add(name.casefold())
+    coarse = raw.get("coarse") if isinstance(raw.get("coarse"), dict) else {}
+    summary = str(
+        raw.get("window_summary")
+        or coarse.get("summary")
+        or raw.get("behavior_description")
+        or raw.get("task_label")
+        or ""
+    ).strip()[:800]
+    object_nouns = []
+    seen_nouns: set[str] = set()
+    for value in [
+        *_list_value(raw.get("object_nouns")),
+        *[noun for segment in normalized for noun in _list_value(segment.get("object_nouns"))],
+        *[item["name"] for item in target_records],
+    ]:
+        noun = str(value or "").strip().strip(" ,.;:")[:120]
+        if noun and noun.casefold() not in seen_nouns:
+            seen_nouns.add(noun.casefold())
+            object_nouns.append(noun)
+    return {
+        "window_id": str(window["window_id"]),
+        "start_frame": start,
+        "end_frame": end,
+        "sampled_frames": list(sampled_frames),
+        "summary": summary,
+        "coarse": coarse,
+        "medium": [dict(item) for item in _list_value(raw.get("medium")) if isinstance(item, dict)][:40],
+        "segments": normalized,
+        "object_nouns": object_nouns,
+        "primary_targets": target_records,
+        "confidence": _confidence(raw.get("confidence"), np.mean([segment["confidence"] for segment in normalized]) if normalized else 0.0),
+        "warnings": warnings[:30],
+    }
+
+
+def _window_segment_signature(segment: dict) -> tuple:
+    return (
+        canonical_meta_action(segment.get("skill")),
+        _normalize_phase_label(segment.get("phase_label")),
+        *_segment_object_signature(segment),
+    )
+
+
+def _merge_window_segments(
+    window_results: list[dict],
+    frame_count: int,
+    fps: float,
+    allowed_ranges: list[tuple[int, int]],
+) -> list[dict]:
+    if frame_count <= 0:
+        return []
+    candidates: list[dict] = []
+    best_score = np.full(frame_count, -np.inf, dtype=np.float64)
+    best_candidate = np.full(frame_count, -1, dtype=np.int32)
+    for window_result in window_results:
+        window_start = int(window_result["start_frame"])
+        window_end = int(window_result["end_frame"])
+        center = (window_start + window_end) / 2.0
+        half = max(1.0, (window_end - window_start + 1) / 2.0)
+        for segment in window_result.get("segments") or []:
+            item = deepcopy(segment)
+            start = max(window_start, min(_safe_int(item.get("start_frame"), window_start), window_end))
+            end = max(start, min(_safe_int(item.get("end_frame"), start), window_end))
+            item["start_frame"] = start
+            item["end_frame"] = end
+            item["source_window_ids"] = list(dict.fromkeys([
+                *(_list_value(item.get("source_window_ids"))),
+                str(window_result["window_id"]),
+            ]))
+            candidate_index = len(candidates)
+            candidates.append(item)
+            positions = np.arange(start, end + 1, dtype=np.int64)
+            centrality = np.clip(1.0 - np.abs(positions.astype(np.float64) - center) / half, 0.0, 1.0)
+            score = 0.75 * _confidence(item.get("confidence"), 0.5) + 0.25 * (0.25 + 0.75 * centrality)
+            if _normalize_phase_label(item.get("phase_label")) == "unknown":
+                score -= 0.3
+            current = best_score[positions]
+            update = score > current
+            if update.any():
+                selected_positions = positions[update]
+                best_score[selected_positions] = score[update]
+                best_candidate[selected_positions] = candidate_index
+
+    output: list[dict] = []
+    for range_start, range_end in allowed_ranges:
+        cursor = range_start
+        while cursor <= range_end:
+            candidate_index = int(best_candidate[cursor])
+            signature = _window_segment_signature(candidates[candidate_index]) if candidate_index >= 0 else ("Other", "unknown", "", ())
+            end = cursor
+            while end + 1 <= range_end:
+                next_index = int(best_candidate[end + 1])
+                next_signature = _window_segment_signature(candidates[next_index]) if next_index >= 0 else ("Other", "unknown", "", ())
+                if next_signature != signature:
+                    break
+                end += 1
+            if candidate_index >= 0:
+                item = deepcopy(candidates[candidate_index])
+                source_ids = []
+                confidences = []
+                evidence_frames = []
+                for frame in range(cursor, end + 1):
+                    index = int(best_candidate[frame])
+                    if index < 0 or _window_segment_signature(candidates[index]) != signature:
+                        continue
+                    source_ids.extend(_list_value(candidates[index].get("source_window_ids")))
+                    confidences.append(_confidence(candidates[index].get("confidence"), 0.5))
+                    evidence_frames.extend(_list_value(candidates[index].get("evidence_frames")))
+                item.update({
+                    "start_frame": cursor,
+                    "end_frame": end,
+                    "start_time": round(cursor / max(0.01, fps), 3),
+                    "end_time": round(end / max(0.01, fps), 3),
+                    "confidence": float(np.mean(confidences)) if confidences else _confidence(item.get("confidence"), 0.5),
+                    "evidence_frames": sorted({
+                        _safe_int(value, -1)
+                        for value in evidence_frames
+                        if cursor <= _safe_int(value, -1) <= end
+                    }),
+                    "source_window_ids": list(dict.fromkeys(str(value) for value in source_ids if str(value))),
+                    "boundary_source": "vlm",
+                })
+            else:
+                item = {
+                    "start_frame": cursor,
+                    "end_frame": end,
+                    "start_time": round(cursor / max(0.01, fps), 3),
+                    "end_time": round(end / max(0.01, fps), 3),
+                    "phase_label": "unknown",
+                    "label": "unknown",
+                    "skill": "Other",
+                    "skill_zh": META_ACTION_TRANSLATIONS["Other"],
+                    "description": "No readable window-level visual evidence covered this interval.",
+                    "confidence": 0.0,
+                    "primary_targets": [],
+                    "target_instance": "",
+                    "evidence_frames": [],
+                    "source_window_ids": [],
+                    "boundary_source": "vlm",
+                }
+            if output and output[-1]["end_frame"] + 1 == cursor and _window_segment_signature(output[-1]) == signature:
+                output[-1]["end_frame"] = end
+                output[-1]["end_time"] = item["end_time"]
+                output[-1]["confidence"] = max(_confidence(output[-1].get("confidence")), _confidence(item.get("confidence")))
+                output[-1]["evidence_frames"] = sorted(set(_list_value(output[-1].get("evidence_frames"))) | set(_list_value(item.get("evidence_frames"))))
+                output[-1]["source_window_ids"] = list(dict.fromkeys([
+                    *_list_value(output[-1].get("source_window_ids")),
+                    *_list_value(item.get("source_window_ids")),
+                ]))
+            else:
+                output.append(item)
+            cursor = end + 1
+    return output
+
+
+def _aggregate_window_targets(window_results: list[dict]) -> tuple[list[str], list[dict]]:
+    nouns: list[str] = []
+    seen_nouns: set[str] = set()
+    targets: dict[str, dict] = {}
+    for window in window_results:
+        for value in window.get("object_nouns") or []:
+            noun = str(value or "").strip()[:120]
+            if noun and noun.casefold() not in seen_nouns:
+                seen_nouns.add(noun.casefold())
+                nouns.append(noun)
+        for item in window.get("primary_targets") or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()[:120]
+            if not name:
+                continue
+            key = name.casefold()
+            if key not in targets:
+                targets[key] = deepcopy(item)
+                targets[key]["visible_evidence_frames"] = list(_list_value(item.get("visible_evidence_frames")))
+            else:
+                targets[key]["confidence"] = max(_confidence(targets[key].get("confidence")), _confidence(item.get("confidence")))
+                targets[key]["visible_evidence_frames"] = sorted(set(
+                    _list_value(targets[key].get("visible_evidence_frames"))
+                ) | set(_list_value(item.get("visible_evidence_frames"))))
+            if key not in seen_nouns:
+                seen_nouns.add(key)
+                nouns.append(name)
+    return nouns, list(targets.values())[:30]
+
+
+def _fallback_medium_from_segments(segments: list[dict], frame_count: int, summary: str) -> list[dict]:
+    if not segments:
+        return _normalize_tri_level_intervals([], frame_count, summary)
+
+    def objective(skill: str) -> str:
+        if skill in {"Reach", "Grasp", "Hold", "Pinch", "Clip", "Lift"}:
+            return "acquire"
+        if skill in {"Transport", "Carry", "Move", "Align", "HandOver"}:
+            return "transfer"
+        if skill in {"Place", "Release", "Drop", "Withdraw"}:
+            return "finish"
+        return skill
+
+    output: list[dict] = []
+    for segment in segments:
+        skill = canonical_meta_action(segment.get("skill"))
+        key = (objective(skill), _segment_object_signature(segment))
+        description = str(segment.get("description") or summary)[:800]
+        if output and output[-1]["_key"] == key and output[-1]["end_frame"] + 1 == int(segment["start_frame"]):
+            output[-1]["end_frame"] = int(segment["end_frame"])
+            if len(description) > len(output[-1]["description"]):
+                output[-1]["description"] = description
+        else:
+            output.append({
+                "start_frame": int(segment["start_frame"]),
+                "end_frame": int(segment["end_frame"]),
+                "description": description,
+                "_key": key,
+            })
+    for item in output:
+        item.pop("_key", None)
+    return _normalize_tri_level_intervals(output, frame_count, summary)
+
+
+def _global_result_from_windows(
+    window_results: list[dict],
+    merged_segments: list[dict],
+    summary_raw: dict | None,
+    episode: dict,
+) -> dict:
+    frame_count = max(1, _safe_int(episode.get("frame_count"), 1))
+    fps = max(0.01, _safe_float(episode.get("fps"), 30.0))
+    normalized_segments = _normalize_phase_segments(merged_segments, frame_count, fps)
+    for segment in normalized_segments:
+        skill = canonical_meta_action(segment.get("skill"))
+        segment["skill"] = skill
+        segment["skill_zh"] = META_ACTION_TRANSLATIONS[skill]
+    raw = summary_raw if isinstance(summary_raw, dict) else {}
+    coarse = raw.get("coarse") if isinstance(raw.get("coarse"), dict) else {}
+    summaries = [str(item.get("summary") or "").strip() for item in window_results if str(item.get("summary") or "").strip()]
+    summary = str(coarse.get("summary") or "").strip()[:800]
+    if not summary and summaries:
+        scores: dict[str, tuple[float, str]] = {}
+        for item in window_results:
+            value = str(item.get("summary") or "").strip()[:800]
+            if not value:
+                continue
+            weight = max(1, int(item["end_frame"]) - int(item["start_frame"]) + 1) * max(0.1, _confidence(item.get("confidence"), 0.5))
+            current = scores.get(value.casefold(), (0.0, value))
+            scores[value.casefold()] = (current[0] + weight, current[1])
+        if scores:
+            summary = max(scores.values(), key=lambda item: item[0])[1]
+    summary = summary or "other"
+    medium_source = raw.get("medium") if isinstance(raw.get("medium"), list) and raw.get("medium") else None
+    medium = (
+        _normalize_tri_level_intervals(medium_source, frame_count, summary)
+        if medium_source
+        else _fallback_medium_from_segments(normalized_segments, frame_count, summary)
+    )
+    object_nouns, primary_targets = _aggregate_window_targets(window_results)
+    duration_weight = 0
+    confidence_total = 0.0
+    for segment in normalized_segments:
+        if _normalize_phase_label(segment.get("phase_label")) == "unknown":
+            continue
+        weight = int(segment["end_frame"]) - int(segment["start_frame"]) + 1
+        duration_weight += weight
+        confidence_total += weight * _confidence(segment.get("confidence"), 0.5)
+    warnings = [
+        str(value)[:500]
+        for item in window_results
+        for value in _list_value(item.get("warnings"))
+    ]
+    warnings.extend(str(value)[:500] for value in _list_value(raw.get("warnings")))
+    return {
+        "annotation_protocol": {"version": TRI_LEVEL_PROTOCOL_VERSION, "schema": TRI_LEVEL_PROTOCOL_SCHEMA},
+        "task_label": summary,
+        "direction": "unknown",
+        "behavior_description": summary,
+        "confidence": confidence_total / duration_weight if duration_weight else _confidence(raw.get("confidence")),
+        "coarse": {"summary": summary},
+        "medium": medium,
+        "fine": _fine_from_segments(normalized_segments),
+        "segments": normalized_segments,
+        "object_nouns": object_nouns,
+        "primary_targets": primary_targets,
+        "warnings": list(dict.fromkeys(warnings))[:30],
+    }
 
 
 def _normalize_phase_segments(segments: list[dict], frame_count: int, fps: float) -> list[dict]:
@@ -771,6 +1437,13 @@ def _normalize_phase_segments(segments: list[dict], frame_count: int, fps: float
             merged[-1]["primary_targets"] = list(dict.fromkeys([
                 *_list_value(merged[-1].get("primary_targets")),
                 *_list_value(item.get("primary_targets")),
+            ]))
+            merged[-1]["evidence_frames"] = sorted(set(
+                _list_value(merged[-1].get("evidence_frames"))
+            ) | set(_list_value(item.get("evidence_frames"))))
+            merged[-1]["source_window_ids"] = list(dict.fromkeys([
+                *_list_value(merged[-1].get("source_window_ids")),
+                *_list_value(item.get("source_window_ids")),
             ]))
             continue
         merged.append(item)
@@ -838,12 +1511,13 @@ def _normalize_phase_segments(segments: list[dict], frame_count: int, fps: float
     return merged
 
 
-def _validate_tri_level_result(raw: dict, episode: dict) -> dict:
+def _validate_tri_level_result(raw: dict, episode: dict, sampled_frames: list[int] | None = None) -> dict:
     frame_count = max(1, int(episode.get("frame_count") or 1))
     fps = max(0.01, float(episode.get("fps") or 30.0))
     coarse_source = raw.get("coarse") if isinstance(raw.get("coarse"), dict) else {}
     summary = str(coarse_source.get("summary") or "other").strip()[:800] or "other"
     warnings: list[str] = []
+    valid_evidence = set(sampled_frames or [])
     fine_segments = []
     for item in _list_value(raw.get("fine"))[:120]:
         if not isinstance(item, dict):
@@ -854,6 +1528,11 @@ def _validate_tri_level_result(raw: dict, episode: dict) -> dict:
             warnings.append(f"Fine skill '{supplied_skill[:80]}' is outside the meta_action vocabulary and was normalized to Other.")
         start = max(0, min(_safe_int(item.get("start_frame")), frame_count - 1))
         end = max(start, min(_safe_int(item.get("end_frame"), start), frame_count - 1))
+        evidence_frames = sorted({
+            frame
+            for value in _list_value(item.get("evidence_frames"))
+            if (frame := _safe_int(value, -1)) in valid_evidence
+        })
         fine_segments.append({
             "start_frame": start,
             "end_frame": end,
@@ -862,9 +1541,11 @@ def _validate_tri_level_result(raw: dict, episode: dict) -> dict:
             "skill": skill,
             "skill_zh": META_ACTION_TRANSLATIONS[skill],
             "description": str(item.get("description") or "")[:800],
-            "confidence": 0.8,
-            "primary_targets": [],
-            "target_instance": "",
+            "confidence": _confidence(item.get("confidence"), 0.5),
+            "object_nouns": [str(value).strip()[:120] for value in _list_value(item.get("object_nouns")) if str(value).strip()][:30],
+            "primary_targets": _target_names(item.get("primary_targets")),
+            "target_instance": str(item.get("target_instance") or "").strip()[:120],
+            "evidence_frames": evidence_frames,
             "boundary_source": "vlm",
         })
     fine_segments = _normalize_phase_segments(fine_segments, frame_count, fps)
@@ -873,18 +1554,33 @@ def _validate_tri_level_result(raw: dict, episode: dict) -> dict:
         segment["skill"] = skill
         segment["skill_zh"] = META_ACTION_TRANSLATIONS[skill]
     medium = _normalize_tri_level_intervals(raw.get("medium"), frame_count, summary)
+    window_result = {
+        "object_nouns": [str(value).strip()[:120] for value in _list_value(raw.get("object_nouns")) if str(value).strip()],
+        "primary_targets": [item for item in _list_value(raw.get("primary_targets")) if isinstance(item, dict)],
+    }
+    object_nouns, primary_targets = _aggregate_window_targets([window_result])
+    for segment in fine_segments:
+        for noun in _list_value(segment.get("object_nouns")):
+            text = str(noun).strip()[:120]
+            if text and text.casefold() not in {value.casefold() for value in object_nouns}:
+                object_nouns.append(text)
+    weights = [max(1, int(item["end_frame"]) - int(item["start_frame"]) + 1) for item in fine_segments]
+    overall_confidence = (
+        sum(weight * _confidence(item.get("confidence"), 0.5) for weight, item in zip(weights, fine_segments)) / sum(weights)
+        if weights else 0.0
+    )
     return {
         "annotation_protocol": {"version": TRI_LEVEL_PROTOCOL_VERSION, "schema": TRI_LEVEL_PROTOCOL_SCHEMA},
         "task_label": summary,
         "direction": "unknown",
         "behavior_description": summary,
-        "confidence": 0.8 if fine_segments else 0.0,
+        "confidence": overall_confidence,
         "coarse": {"summary": summary},
         "medium": medium,
         "fine": _fine_from_segments(fine_segments),
         "segments": fine_segments,
-        "object_nouns": [],
-        "primary_targets": [],
+        "object_nouns": object_nouns,
+        "primary_targets": primary_targets,
         "warnings": warnings[:30],
     }
 
@@ -892,7 +1588,7 @@ def _validate_tri_level_result(raw: dict, episode: dict) -> dict:
 def _validate_result(raw: dict, ontology: dict, episode: dict, sampled_frames: list[int]) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     if isinstance(raw.get("coarse"), dict) or isinstance(raw.get("fine"), list):
-        return _validate_tri_level_result(raw, episode)
+        return _validate_tri_level_result(raw, episode, sampled_frames)
     categories = {
         str(item.get("label") or "").casefold(): str(item.get("label") or "")
         for item in _list_value(ontology.get("categories"))
@@ -1011,6 +1707,7 @@ def annotate_episode_behavior(
     source_media_file_id: str | None = None,
     run_id: str | None = None,
     timeline_id: str | None = None,
+    sampling_evidence: list[dict] | None = None,
 ) -> dict:
     selected_media_file_id = (
         source_media_file_id
@@ -1057,21 +1754,12 @@ def annotate_episode_behavior(
     same_analysis_source = str(analysis_media.get("path") or "") == str(source_media.get("path") or "")
     analysis_fingerprint = source_fingerprint if same_analysis_source else _media_fingerprint(analysis_media)
     if smoothing_document:
-        message = "使用 minRE 视频平滑结果" if analysis_media_override is not None else "使用已应用的视频平滑结果"
+        message = "使用指定的视频平滑结果" if analysis_media_override is not None else "使用已应用的视频平滑结果"
         progress(10, f"{message}: {source_media.get('stream_name') or 'primary'}")
     analysis_frame_count = int(analysis_media["frame_count"])
     allowed_ranges = _normalize_frame_ranges(analysis_frame_count, analysis_frame_ranges)
-    indices = _sample_indices_in_ranges(analysis_frame_count, request.sample_count, analysis_frame_ranges)
-    if not indices:
+    if not allowed_ranges:
         raise RuntimeError("S1-S5/C3 初筛后没有可供 VLM 标注的有效帧")
-    frames: list[tuple[int, float, np.ndarray]] = []
-    for position, index in enumerate(indices):
-        frame = read_frame(analysis_media, index)
-        if frame is not None:
-            frames.append((index, index / max(0.01, float(analysis_media["fps"])), frame))
-        progress(12 + 24 * (position + 1) / max(1, len(indices)), f"抽取视频关键帧 {position + 1}/{len(indices)}")
-    if len(frames) < 4:
-        raise RuntimeError("可读取的视频关键帧不足，无法进行 VLM 行为标注")
     schema_summary = json.dumps((manifest.get("schema_profile") or {}).get("understanding") or {}, ensure_ascii=False)[:3500]
     behavior_frame_count = int(
         analysis_media.get("frame_count")
@@ -1086,41 +1774,135 @@ def annotate_episode_behavior(
         or 30.0
     ))
     timing_episode = {**episode, "frame_count": behavior_frame_count, "fps": behavior_fps}
-    progress(42, "Qwen-VLM 正在生成三级粒度动作标注")
-    raw = registry.annotate_behavior(
-        frames,
-        ontology["categories"],
-        f"Episode {episode['name']}; schema={schema_summary}",
-        video_length=behavior_frame_count,
-        duration=behavior_frame_count / behavior_fps,
-    )
-    _assert_media_unchanged(source_media, source_fingerprint, "during the Qwen request")
-    if not same_analysis_source:
-        _assert_media_unchanged(analysis_media, analysis_fingerprint, "during the Qwen request")
-    result = _apply_dataset_task_fallback(
-        _validate_result(raw, ontology, timing_episode, [item[0] for item in frames]),
-        manifest,
-    )
-    progress(78, "使用已对齐 Joint Pose 微调 VLM 阶段边界")
+    source_positions = np.asarray(analysis_media.get("source_frame_positions") or [], dtype=np.float64).reshape(-1)
+    joint_alignment_kwargs: dict[str, Any] = {}
+    if source_positions.shape == (behavior_frame_count,) and np.isfinite(source_positions).all():
+        joint_alignment = ensure_episode_time_sync(
+            manifest,
+            episode,
+            force=False,
+            reference_media_file_id=str(analysis_media.get("file_id") or "") or None,
+        )
+        joint_alignment_kwargs["alignment"] = retime_sensor_alignment(joint_alignment, analysis_media)
     joint_pose = load_episode_joint_pose(
         manifest,
         episode,
         frame_count=behavior_frame_count,
         reference_media_file_id=str(analysis_media.get("file_id") or "") or None,
+        **joint_alignment_kwargs,
     )
-    result["segments"] = refine_behavior_boundaries(
-        result["segments"],
-        behavior_fps,
-        behavior_frame_count,
-        joint_pose,
-    )
-    if analysis_frame_ranges is not None:
-        result["segments"] = _constrain_segments_to_ranges(
-            result["segments"],
-            allowed_ranges,
-            behavior_frame_count,
+    joint_score = joint_motion_change_score(joint_pose, behavior_fps, behavior_frame_count)
+    windows = _plan_behavior_windows(behavior_frame_count, behavior_fps, allowed_ranges)
+    if not windows:
+        raise RuntimeError("没有可供 VLM 分窗标注的有效帧区间")
+
+    frame_cache: dict[int, np.ndarray | None] = {}
+
+    def cached_frame(index: int) -> np.ndarray | None:
+        if index not in frame_cache:
+            frame_cache[index] = read_frame(analysis_media, index)
+        return frame_cache[index]
+
+    context = f"Episode {episode['name']}; schema={schema_summary}"
+    window_results: list[dict] = []
+    window_sampling: list[dict] = []
+    for position, window in enumerate(windows):
+        progress(12 + 20 * position / max(1, len(windows)), f"自适应抽取多图窗口 {position + 1}/{len(windows)}")
+        indices, sampling_metrics = _adaptive_window_indices(
+            window,
             behavior_fps,
+            request.sample_count,
+            frame_cache,
+            cached_frame,
+            joint_score=joint_score,
+            sampling_evidence=sampling_evidence,
         )
+        frames = [
+            (index, index / behavior_fps, frame)
+            for index in indices
+            if (frame := cached_frame(index)) is not None
+        ]
+        if not frames:
+            raise RuntimeError(
+                f"多图窗口 {position + 1}/{len(windows)} 没有可解码图像，范围="
+                f"[{window['start_frame']}, {window['end_frame']}]"
+            )
+        progress(34 + 36 * position / max(1, len(windows)), f"Qwen-VLM 分析多图窗口 {position + 1}/{len(windows)}")
+        raw = registry.annotate_behavior(
+            frames,
+            ontology["categories"],
+            context,
+            video_length=behavior_frame_count,
+            duration=behavior_frame_count / behavior_fps,
+            window_start=int(window["start_frame"]),
+            window_end=int(window["end_frame"]),
+            window_index=position,
+            window_count=len(windows),
+        )
+        window_result = _normalize_window_result(raw, window, [item[0] for item in frames], behavior_fps)
+        window_results.append(window_result)
+        window_sampling.append({
+            **window,
+            "requested_max_images": request.sample_count,
+            "frames": [item[0] for item in frames],
+            "readable_frame_count": len(frames),
+            **sampling_metrics,
+        })
+        _assert_media_unchanged(source_media, source_fingerprint, f"during Qwen window {position + 1}")
+        if not same_analysis_source:
+            _assert_media_unchanged(analysis_media, analysis_fingerprint, f"during Qwen window {position + 1}")
+
+    progress(72, "合并重叠窗口的 Fine 动作标注")
+    merged_segments = _merge_window_segments(
+        window_results,
+        behavior_frame_count,
+        behavior_fps,
+        allowed_ranges,
+    )
+    summary_raw = None
+    summary_warning = ""
+    if len(window_results) > 1 and hasattr(registry, "summarize_behavior_windows"):
+        progress(74, "Qwen-VLM 正在归纳全局 Coarse 与多个 Medium 子任务")
+        try:
+            summary_raw = registry.summarize_behavior_windows(
+                window_results,
+                ontology["categories"],
+                context,
+                video_length=behavior_frame_count,
+                duration=behavior_frame_count / behavior_fps,
+                allowed_ranges=allowed_ranges,
+            )
+        except Exception as exc:
+            summary_warning = f"Global window summarization failed; deterministic fallback was used: {str(exc)[:300]}"
+    result = _apply_dataset_task_fallback(
+        _global_result_from_windows(window_results, merged_segments, summary_raw, timing_episode),
+        manifest,
+    )
+    if summary_warning:
+        result["warnings"] = [*result.get("warnings", []), summary_warning][:30]
+
+    progress(78, "使用已对齐 Joint Pose 微调窗口内动作边界")
+    refined_pieces: list[dict] = []
+    for range_start, range_end in allowed_ranges:
+        pieces = []
+        for segment in result["segments"]:
+            start = max(range_start, int(segment.get("start_frame") or 0))
+            end = min(range_end, int(segment.get("end_frame") or start))
+            if start <= end:
+                pieces.append({**segment, "start_frame": start, "end_frame": end})
+        if pieces:
+            refined_pieces.extend(refine_behavior_boundaries(
+                pieces,
+                behavior_fps,
+                behavior_frame_count,
+                joint_pose,
+            ))
+    result["segments"] = _constrain_segments_to_ranges(
+        refined_pieces,
+        allowed_ranges,
+        behavior_frame_count,
+        behavior_fps,
+    )
     result["fine"] = _fine_from_segments(result["segments"])
     joint_refined_count = sum(item.get("boundary_source") == "joint_refined" for item in result["segments"])
     boundary_refinement = {
@@ -1132,6 +1914,11 @@ def annotate_episode_behavior(
     _assert_media_unchanged(source_media, source_fingerprint, "during Joint boundary refinement")
     if not same_analysis_source:
         _assert_media_unchanged(analysis_media, analysis_fingerprint, "during Joint boundary refinement")
+    all_sampled_frames = sorted({
+        frame
+        for window in window_sampling
+        for frame in window.get("frames", [])
+    })
     created_at = datetime.now(timezone.utc).isoformat()
     document = {
         "schema": BEHAVIOR_SCHEMA,
@@ -1150,8 +1937,18 @@ def annotate_episode_behavior(
         },
         "sampling": {
             "frame_space": "analysis_video",
+            "strategy": BEHAVIOR_SAMPLING_STRATEGY,
             "requested": request.sample_count,
-            "frames": [item[0] for item in frames],
+            "requested_max_images_per_window": request.sample_count,
+            "frames": all_sampled_frames,
+            "total_image_count": sum(int(item.get("readable_frame_count") or 0) for item in window_sampling),
+            "unique_image_count": len(all_sampled_frames),
+            "window_seconds": BEHAVIOR_WINDOW_SECONDS,
+            "window_overlap_seconds": BEHAVIOR_WINDOW_OVERLAP_SECONDS,
+            "base_sample_fps": BEHAVIOR_BASE_SAMPLE_FPS,
+            "event_sample_fps": BEHAVIOR_EVENT_SAMPLE_FPS,
+            "event_radius_seconds": BEHAVIOR_EVENT_RADIUS_SECONDS,
+            "windows": window_sampling,
             "allowed_ranges": [
                 {"start_frame": start, "end_frame": end}
                 for start, end in allowed_ranges
@@ -1161,6 +1958,7 @@ def annotate_episode_behavior(
             "stream_name": analysis_media.get("stream_name"),
             "used_applied_video_smoothing": bool(smoothing_document),
         },
+        "window_annotations": window_results,
         "source_video": {
             "file_id": source_media.get("file_id"),
             "stream_name": source_media.get("stream_name"),
@@ -1376,6 +2174,7 @@ class BehaviorJobManager(CancellableJobMixin):
                 analysis_source_kind=context["analysis_source_kind"],
                 analysis_frame_ranges=context["analysis_frame_ranges"],
                 source_media_file_id=str(context["source_media"].get("file_id") or "") or None,
+                sampling_evidence=(context.get("curation_report") or {}).get("samples"),
             )
             self._raise_if_cancelled(job_id)
             self._update(job_id, status="complete", progress=100, message="VLM 行为标注完成", result=result)

@@ -7,11 +7,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from .behavior_annotator import annotate_episode_behavior, behavior_analysis_context, behavior_annotation_status
+from .dataset_modes import dataset_mode
 from .job_control import CancellableJobMixin, JobCancelled
 from .models import registry
 from .no_action_trim import analyze_no_action_trim
 from .pose_recovery import pose_recovery_status, recover_episode_pose
-from .projection_correction import projection_correction_status, run_projection_correction
+from .projection_correction import PROJECTION_RUNTIME_LOCK, projection_correction_status, run_projection_correction
 from .schemas import BatchAnalysisRequest, BehaviorAnnotationRequest, HandPoseModelConfig
 from .sensor_alignment import ensure_episode_time_sync
 from .storage import episode_media, get_manifest, require_media_eligibility
@@ -31,11 +32,16 @@ class BatchAnalysisJobManager(CancellableJobMixin):
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="alice-batch-analysis")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.RLock()
-        self._projection_lock = threading.Lock()
+        self._projection_lock = PROJECTION_RUNTIME_LOCK
         self._init_cancellation()
 
     def submit(self, dataset_id: str, request: BatchAnalysisRequest) -> dict:
         manifest = get_manifest(dataset_id)
+        if (
+            request.operation == "projection_correction"
+            and dataset_mode(manifest)["projection_correction_backend"] != "egodex_mano_prior_v1"
+        ):
+            raise ValueError("Projection correction is available only in EgoDex mode")
         episodes = {item["id"]: item for item in manifest.get("episodes", [])}
         episode_ids = list(dict.fromkeys(request.episode_ids))
         if not episode_ids:
@@ -256,7 +262,15 @@ class BatchAnalysisJobManager(CancellableJobMixin):
                                 message=f"{episode['name']} · {message} · {position + 1}/{total}",
                             )
 
-                        payload = smooth_video(dataset_id, episode, selected_media, smoothing_progress)
+                        payload = smooth_video(
+                            dataset_id,
+                            episode,
+                            selected_media,
+                            smoothing_progress,
+                            mode=request.smoothing_mode,
+                            target_fps=request.smoothing_target_fps,
+                            motion_compensation=request.smoothing_motion_compensation,
+                        )
                         results.append({
                             "episode_id": episode_id,
                             "episode_name": episode["name"],
@@ -264,6 +278,9 @@ class BatchAnalysisJobManager(CancellableJobMixin):
                             "media_file_id": selected_media.get("file_id"),
                             "stream_name": selected_media.get("stream_name"),
                             "frame_count": payload.get("summary", {}).get("frame_count", 0),
+                            "fps": payload.get("summary", {}).get("fps"),
+                            "source_fps": payload.get("summary", {}).get("source_fps"),
+                            "smoothing_mode": payload.get("summary", {}).get("smoothing_mode"),
                             "artifact_path": payload.get("artifact_path"),
                         })
                     elif request.operation == "vlm_behavior":
@@ -298,6 +315,7 @@ class BatchAnalysisJobManager(CancellableJobMixin):
                             analysis_source_kind=context["analysis_source_kind"],
                             analysis_frame_ranges=context["analysis_frame_ranges"],
                             source_media_file_id=str(context["source_media"].get("file_id") or "") or None,
+                            sampling_evidence=(context.get("curation_report") or {}).get("samples"),
                         )
                         reused = bool((payload.get("reuse") or {}).get("reused"))
                         results.append({

@@ -9,6 +9,8 @@ from typing import Any
 
 import numpy as np
 
+from .openxr_mano import detect_openxr_schema
+
 
 STRUCTURED_EXTENSIONS = {".json", ".jsonl", ".h5", ".hdf5", ".h5df", ".parquet", ".npz", ".npy", ".csv", ".tsv"}
 MAX_FILES = 300
@@ -271,8 +273,58 @@ def infer_local_signal_fields(fields: list[dict], max_dimensions: int | None = N
     skeleton_groups: dict[str, dict[int, list[dict]]] = {}
     skeleton_fields: set[str] = set()
     native_skeleton_fields: set[str] = set()
+    openxr_fields: set[str] = set()
+
+    # OpenXR is a semantic joint set, not merely a tensor with 26 rows.  Only
+    # promote tensors carrying an explicit OpenXR/XR-hand field hint here;
+    # arbitrary 26-point arrays remain generic until a recorder schema or
+    # standard joint-name list proves their meaning.
     for field in fields:
         field_name = str(field.get("key") or "")
+        shape = _signal_shape(field.get("shape"))
+        if not shape or not _numeric_dtype(field.get("dtype")):
+            continue
+        detection = detect_openxr_schema(field=field_name, shape=shape)
+        if not detection.get("detected"):
+            continue
+        source_shape = list(shape)
+        side_hint = _side(field_name)
+        output_shape = [int(shape[0]), 21 * 3]
+        dimension_names = [
+            f"mano21_{node:02d}.{axis}"
+            for node in range(21)
+            for axis in ("x", "y", "z")
+        ]
+        representation = (
+            "transform" if tuple(shape[-3:]) == (26, 4, 4)
+            else "pose7_xyzw" if shape[-1] == 7
+            else "absolute"
+        )
+        descriptors.append({
+            "field": field_name,
+            "kind": "joint",
+            "modality": "pose",
+            "shape": output_shape,
+            "source_shape": source_shape,
+            "dtype": str(field.get("dtype") or "float"),
+            "side_hint": side_hint,
+            "role": "hand_skeleton",
+            "representation": representation,
+            "dimension_names": dimension_names,
+            "members": [],
+            "gripper_indices": [],
+            "embodiment_id": "openxr-hand-26",
+            "node_count": 26,
+            "confidence": float(detection.get("confidence") or 0.96),
+            "evidence": f"openxr_hand_26_{detection.get('evidence', 'schema')}",
+            "extraction": "openxr_hand_26_to_mano21",
+        })
+        openxr_fields.add(field_name)
+
+    for field in fields:
+        field_name = str(field.get("key") or "")
+        if field_name in openxr_fields:
+            continue
         shape = _signal_shape(field.get("shape"))
         if is_skeletal_transform_field(field_name, shape, field.get("dtype")):
             group = field_name.replace("\\", "/").rsplit("/", 1)[0]
@@ -354,6 +406,8 @@ def infer_local_signal_fields(fields: list[dict], max_dimensions: int | None = N
 
     for field in fields:
         field_name = str(field.get("key") or "")
+        if field_name in openxr_fields:
+            continue
         if field_name in skeleton_fields:
             continue
         if field_name in native_skeleton_fields:

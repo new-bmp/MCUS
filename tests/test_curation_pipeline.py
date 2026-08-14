@@ -16,6 +16,7 @@ from app.curation_pipeline import (
     _build_s3_references,
     _episode_records,
     _full_action_config,
+    _full_projection_config,
     _hand_visibility_capability,
     _load_signal_bundle,
     _signal_candidates,
@@ -36,6 +37,7 @@ from app.curation_pipeline import (
     _guard_projection_introduced_s1,
     _downgrade_sustained_motion_s1,
     inspect_rot6d_jumps,
+    load_nexus_tactile_evidence,
     load_curation_report,
     merge_dense_quality_marks,
     repair_isolated_spikes,
@@ -68,6 +70,28 @@ class CurationPipelineTests(unittest.TestCase):
         self.assertFalse(available)
         self.assertIn("Nexus", reason)
 
+    def test_nexus_hand_visibility_requires_complete_tracking_projection_contract(self) -> None:
+        manifest = {
+            "format_family": "nexus_multimodal",
+            "camera_calibration": {
+                "source_extrinsics_applied": True,
+                "hand_projection": {
+                    "applied": True,
+                    "source_space": "mocap_tracking",
+                    "target_space": "rgb_camera",
+                    "transform_direction": "source_to_rgb_camera",
+                    "unit": "m",
+                    "T_rgb__mocap_tracking": np.eye(4).tolist(),
+                    "intrinsics": {
+                        "K": [[500.0, 0.0, 320.0], [0.0, 500.0, 240.0], [0.0, 0.0, 1.0]],
+                    },
+                    "target_media_file_id": "rgb",
+                },
+            },
+        }
+
+        self.assertEqual((True, None), _hand_visibility_capability(manifest))
+
     def test_full_request_locks_one_action_profile_for_every_shard(self) -> None:
         request = CurationJobRequest(
             episode_ids=["ep"],
@@ -87,6 +111,110 @@ class CurationPipelineTests(unittest.TestCase):
         request = CurationJobRequest(episode_ids=["ep"], full_pipeline=True)
 
         self.assertIsNone(_full_action_config(request))
+
+    def test_egodex_full_enables_mediapipe_projection_at_sixty_five_percent(self) -> None:
+        config = _full_projection_config(
+            {"format_family": "egodex"},
+            CurationJobRequest(episode_ids=["ep"], full_pipeline=True),
+        )
+
+        self.assertTrue(config["enabled"])
+        self.assertEqual("mediapipe", config["backend"])
+        self.assertEqual(0.65, config["adjustment_rate"])
+        self.assertEqual("uniform", config["adjustment_mode"])
+        self.assertEqual("egodex", config["wrist_point_source"])
+        self.assertFalse(config["nexus_isolation"])
+
+    def test_nexus_full_never_enables_mediapipe_projection(self) -> None:
+        config = _full_projection_config(
+            {"format_family": "nexus_multimodal"},
+            CurationJobRequest(episode_ids=["ep"], full_pipeline=True),
+        )
+
+        self.assertFalse(config["enabled"])
+        self.assertIsNone(config["backend"])
+        self.assertIsNone(config["adjustment_rate"])
+        self.assertTrue(config["nexus_isolation"])
+
+    def test_egodex_full_runtime_invokes_mediapipe_after_source_t0_at_sixty_five_percent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = CurationJobManager(max_workers=1)
+            manager._jobs["full-egodex"] = {"id": "full-egodex", "dataset_id": "fixture", "status": "queued"}
+            episode = {"id": "ep", "name": "episode", "frame_count": 20, "fps": 10.0}
+            manifest = {
+                "id": "fixture",
+                "name": "fixture",
+                "root_path": str(root),
+                "format_family": "egodex",
+                "episodes": [episode],
+            }
+            media = {"file_id": "rgb", "path": str(root / "source.mp4"), "frame_count": 20, "fps": 10.0}
+            events: list[str] = []
+
+            def source_t0(*_args, **_kwargs):
+                events.append("t0")
+                return {"reference_video": {"file_id": "rgb"}, "streams": [], "gate": {"status": "ready"}}
+
+            def projection(*_args, **_kwargs):
+                events.append("projection")
+                return {"schema": "alice/projection-correction/v1"}
+
+            request = CurationJobRequest(episode_ids=["ep"], media_file_ids={"ep": "rgb"}, full_pipeline=True)
+            try:
+                with (
+                    patch("app.curation_pipeline.get_manifest", return_value=manifest),
+                    patch("app.full_run.dataset_artifact_dir", side_effect=lambda _dataset_id, category: root / ".alicePD" / category),
+                    patch("app.curation_pipeline._curation_time_sync", side_effect=source_t0),
+                    patch("app.curation_pipeline.run_projection_correction", side_effect=projection) as run_projection,
+                    patch("app.curation_pipeline.projection_source_from_document", return_value=None),
+                    patch("app.curation_pipeline._build_s3_references", return_value={}),
+                    patch("app.curation_pipeline.write_dataset_index", return_value=root / "dataset.json"),
+                    patch("app.curation_pipeline.registry", SimpleNamespace(
+                        has_hand_pose=True,
+                        has_vlm=False,
+                        status=lambda: {"hand_pose": {"loaded": True, "backend": "mediapipe"}},
+                    )),
+                ):
+                    manager._run("full-egodex", "fixture", ["ep"], {"ep": media}, request)
+            finally:
+                manager._executor.shutdown(wait=True, cancel_futures=True)
+
+        self.assertEqual(["t0", "projection"], events)
+        self.assertEqual(0.65, run_projection.call_args.kwargs["adjustment_rate"])
+        self.assertEqual("uniform", run_projection.call_args.kwargs["adjustment_mode"])
+        self.assertEqual("egodex", run_projection.call_args.kwargs["wrist_point_source"])
+        self.assertFalse(run_projection.call_args.kwargs["record_review_change"])
+
+    def test_nexus_full_runtime_skips_projection_before_entering_native_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = CurationJobManager(max_workers=1)
+            manager._jobs["full-nexus"] = {"id": "full-nexus", "dataset_id": "fixture", "status": "queued"}
+            episode = {"id": "ep", "name": "episode", "frame_count": 20, "fps": 10.0}
+            manifest = {
+                "id": "fixture",
+                "name": "fixture",
+                "root_path": str(root),
+                "format_family": "nexus_multimodal",
+                "episodes": [episode],
+            }
+            media = {"file_id": "rgb", "path": str(root / "source.mp4"), "frame_count": 20, "fps": 10.0}
+            request = CurationJobRequest(episode_ids=["ep"], media_file_ids={"ep": "rgb"}, full_pipeline=True)
+            try:
+                with (
+                    patch("app.curation_pipeline.get_manifest", return_value=manifest),
+                    patch("app.full_run.dataset_artifact_dir", side_effect=lambda _dataset_id, category: root / ".alicePD" / category),
+                    patch("app.curation_pipeline.run_projection_correction", side_effect=AssertionError("Nexus must not run projection")) as run_projection,
+                    patch("app.curation_pipeline._build_s3_references", return_value={}),
+                    patch("app.curation_pipeline._curation_time_sync", side_effect=RuntimeError("stop after projection gate")),
+                    patch("app.curation_pipeline.write_dataset_index", return_value=root / "dataset.json"),
+                ):
+                    manager._run("full-nexus", "fixture", ["ep"], {"ep": media}, request)
+            finally:
+                manager._executor.shutdown(wait=True, cancel_futures=True)
+
+        run_projection.assert_not_called()
 
     def test_submit_rejects_raw_depth_before_queueing_paper_curation(self) -> None:
         manager = CurationJobManager(max_workers=1)
@@ -258,7 +386,13 @@ class CurationPipelineTests(unittest.TestCase):
             }
 
             candidates = _signal_candidates(manifest, episode)
-            bundle = _load_signal_bundle(manifest, episode, {}, frame_count=12)
+            alignment = {"streams": [{
+                "relative_path": "episode.hdf5",
+                "field": "transforms/*",
+                "data_count": 12,
+                "mode": "paired_frame_index",
+            }]}
+            bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=12)
             with patch("app.curation_pipeline.get_manifest", return_value=manifest), patch("app.curation_pipeline.load_behavior_annotation", return_value=None):
                 preflight = curation_preflight("fixture", "ep")
 
@@ -293,7 +427,11 @@ class CurationPipelineTests(unittest.TestCase):
             }
 
             candidates = _signal_candidates(manifest, episode)
-            bundle = _load_signal_bundle(manifest, episode, {}, frame_count=12)
+            alignment = {"streams": [
+                {"relative_path": "episode.h5", "field": "observations/state", "data_count": 12, "mode": "paired_frame_index"},
+                {"relative_path": "episode.h5", "field": "action/target_qpos", "data_count": 12, "mode": "paired_frame_index"},
+            ]}
+            bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=12)
 
         self.assertEqual({"joint", "action"}, {item["kind"] for item in candidates})
         self.assertNotIn("observations/rgb", {item["field"] for item in candidates})
@@ -346,12 +484,18 @@ class CurationPipelineTests(unittest.TestCase):
             }
 
             candidates = _signal_candidates(manifest, episode)
-            bundle = _load_signal_bundle(manifest, episode, {}, frame_count=12)
+            alignment = {"streams": [{
+                "relative_path": "mocap/dexweaveg1_left.h5",
+                "field": "skeleton",
+                "data_count": 12,
+                "mode": "paired_frame_index",
+            }]}
+            bundle = _load_signal_bundle(manifest, episode, alignment, frame_count=12)
 
         self.assertEqual(["mocap/dexweaveg1_left.h5"], sorted({item["relative_path"] for item in candidates}))
         self.assertEqual(["skeleton"], [item["field"] for item in candidates])
-        self.assertEqual("skeleton_xyz", candidates[0]["extraction"])
-        self.assertEqual((12, 60), bundle["joint"].shape)
+        self.assertEqual("nexus_dexweaveg1_20_to_mano21", candidates[0]["extraction"])
+        self.assertEqual((12, 63), bundle["joint"].shape)
         self.assertTrue(np.isnan(bundle["joint"][5]).all())
         self.assertFalse(bundle["valid_mask"][5])
         self.assertTrue(bundle["valid_mask"][[0, 4, 6, 11]].all())
@@ -393,7 +537,11 @@ class CurationPipelineTests(unittest.TestCase):
                 "format_map": {"processing_strategy": {"id": "nexus_sensor_fusion_v1"}},
                 "files": records,
             }
-            result = inspect_nexus_pressure_integrity(manifest, {"id": "ep"}, {}, 12)
+            alignment = {"streams": [
+                {"relative_path": f"tactile/{side}.h5", "field": "adc", "data_count": 12, "mode": "paired_frame_index"}
+                for side in ("left", "right")
+            ]}
+            result = inspect_nexus_pressure_integrity(manifest, {"id": "ep"}, alignment, 12)
 
         self.assertTrue(result["enabled"])
         self.assertTrue(result["metrics"]["zero_is_valid"])
@@ -426,7 +574,13 @@ class CurationPipelineTests(unittest.TestCase):
                     "variant": "synchronized",
                 }],
             }
-            result = inspect_nexus_pressure_integrity(manifest, {"id": "ep"}, {}, 8)
+            alignment = {"streams": [{
+                "relative_path": "tactile/left.h5",
+                "field": "adc",
+                "data_count": 8,
+                "mode": "paired_frame_index",
+            }]}
+            result = inspect_nexus_pressure_integrity(manifest, {"id": "ep"}, alignment, 8)
 
         self.assertTrue(result["empty_mask"].all())
         self.assertFalse(result["side_masks"]["left"].any())
@@ -494,7 +648,11 @@ class CurationPipelineTests(unittest.TestCase):
                 "format_map": {"processing_strategy": {"id": "nexus_sensor_fusion_v1"}},
                 "files": records,
             }
-            result = inspect_nexus_tactile_sudden_changes(manifest, {"id": "ep"}, {}, 120, 6.0)
+            alignment = {"streams": [
+                {"relative_path": f"tactile/{side}.h5", "field": "adc", "data_count": 120, "mode": "paired_frame_index"}
+                for side in ("left", "right")
+            ]}
+            result = inspect_nexus_tactile_sudden_changes(manifest, {"id": "ep"}, alignment, 120, 6.0)
 
         self.assertTrue(result["enabled"])
         self.assertEqual([40], np.flatnonzero(result["side_masks"]["left"]).tolist())
@@ -503,6 +661,50 @@ class CurationPipelineTests(unittest.TestCase):
         self.assertEqual(2, result["metrics"]["spike_frame_count"])
         self.assertTrue(result["metrics"]["zero_is_valid"])
         self.assertTrue(result["metrics"]["sustained_contact_step_is_valid"])
+
+    def test_nexus_tactile_evidence_aligns_contact_and_validity(self) -> None:
+        import h5py
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records = []
+            for side, start in (("left", 4), ("right", 8)):
+                path = root / "tactile" / f"{side}.h5"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                values = np.zeros((12, 4), dtype=np.uint16)
+                values[start:, 0] = 100
+                partial = np.zeros(12, dtype=bool)
+                if side == "left":
+                    partial[6] = True
+                with h5py.File(path, "w") as handle:
+                    handle.create_dataset("adc", data=values)
+                    handle.create_dataset("partial", data=partial)
+                records.append({
+                    "id": side,
+                    "relative_path": f"tactile/{side}.h5",
+                    "extension": ".h5",
+                    "episode_id": "ep",
+                    "modality": "tactile",
+                    "side": side,
+                    "variant": "synchronized",
+                })
+            manifest = {
+                "root_path": str(root),
+                "format_family": "nexus_multimodal",
+                "format_map": {"processing_strategy": {"id": "nexus_sensor_fusion_v1"}},
+                "files": records,
+            }
+            alignment = {"streams": [
+                {"relative_path": f"tactile/{side}.h5", "field": "adc", "data_count": 12, "mode": "paired_frame_index"}
+                for side in ("left", "right")
+            ]}
+            result = load_nexus_tactile_evidence(manifest, {"id": "ep"}, alignment, 12)
+
+        self.assertTrue(result["enabled"])
+        self.assertEqual([4, 5, 7, 8, 9, 10, 11], np.flatnonzero(result["contact"]).tolist())
+        self.assertFalse(result["side_valid_mask"]["left"][6])
+        self.assertTrue(result["valid_mask"].all())
+        self.assertEqual(7, result["bindings"][0]["contact_frame_count"])
 
     def test_nexus_tactile_only_episode_marks_s1_preflight_ready(self) -> None:
         manifest = {
@@ -653,6 +855,32 @@ class CurationPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(clean[150, 0], repaired["values"][150, 0], places=5)
         self.assertTrue(repaired["entries"])
 
+    def test_s1_does_not_repair_projection_introduced_review_frames(self) -> None:
+        clean = np.sin(np.linspace(0, 12, 300))[:, None]
+        corrected = clean.copy()
+        corrected[150] += 20
+        bundle = {
+            "joint": corrected,
+            "action": None,
+            "bindings": [{
+                "kind": "joint",
+                "relative_path": "episode.h5",
+                "field": "observations/state",
+                "column_start": 0,
+                "column_end": 1,
+                "dimensions": 1,
+                "_source_row_indices": np.arange(300, dtype=np.int64),
+            }],
+        }
+        blocked = np.zeros(300, dtype=bool)
+        blocked[150] = True
+
+        repaired = repair_s1_bundle(bundle, sigma=6.0, max_gap_frames=5, blocked_repair_frames=blocked)
+
+        self.assertFalse(repaired["repaired_mask"][150])
+        self.assertEqual(corrected[150, 0], repaired["values"][150, 0])
+        self.assertTrue(repaired["after_mask"][150])
+
     def test_s1_does_not_repair_long_or_boundary_ranges(self) -> None:
         values = np.linspace(0.0, 1.0, 30)[:, None]
         dimensions = np.ones_like(values, dtype=bool)
@@ -799,6 +1027,73 @@ class CurationPipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "表示类型未知"):
             estimate_state_action_alignment(values, values, 30.0, 0.5, 0.65, "unknown")
 
+    def test_state_action_alignment_matches_reordered_dimensions_by_name(self) -> None:
+        rng = np.random.default_rng(12)
+        state = np.cumsum(rng.normal(size=(400, 2)), axis=0)
+        action = state[:, [1, 0]]
+
+        result = estimate_state_action_alignment(
+            state,
+            action,
+            40.0,
+            0.5,
+            0.65,
+            "absolute",
+            ["observation.state.left_x", "observation.state.left_y"],
+            ["action.left_y", "action.left_x"],
+            require_semantic_mapping=True,
+        )
+
+        self.assertEqual("pass", result["verdict"])
+        self.assertEqual(
+            [(0, 1, "left/x"), (1, 0, "left/y")],
+            [
+                (item["state_dimension"], item["action_dimension"], item["name"])
+                for item in result["semantic_mapping"]
+            ],
+        )
+
+    def test_state_action_alignment_requires_semantic_names_in_pipeline_mode(self) -> None:
+        values = np.arange(100, dtype=np.float64)[:, None]
+        with self.assertRaisesRegex(ValueError, "dimension_names"):
+            estimate_state_action_alignment(
+                values,
+                values,
+                30.0,
+                0.5,
+                0.65,
+                "absolute",
+                [""],
+                [""],
+                require_semantic_mapping=True,
+            )
+
+    def test_state_action_alignment_localizes_direction_mismatch(self) -> None:
+        rng = np.random.default_rng(21)
+        increments = rng.normal(size=(600, 2))
+        action = np.cumsum(increments, axis=0)
+        state_increments = increments.copy()
+        state_increments[240:320] *= -1.0
+        state = np.cumsum(state_increments, axis=0)
+
+        result = estimate_state_action_alignment(
+            state,
+            action,
+            30.0,
+            0.5,
+            0.65,
+            "absolute",
+            ["left_x", "left_y"],
+            ["left_x", "left_y"],
+            require_semantic_mapping=True,
+        )
+
+        invalid = np.asarray(result["invalid_mask"], dtype=bool)
+        self.assertTrue(invalid[250:310].any())
+        self.assertFalse(invalid[:150].any())
+        self.assertFalse(invalid[420:].any())
+        self.assertLess(int(invalid.sum()), 200)
+
     def test_extreme_value_filter_exempts_known_gripper_dimension(self) -> None:
         values = np.zeros((100, 2), dtype=np.float64)
         values[50, 1] = 100.0
@@ -905,10 +1200,82 @@ class CurationPipelineTests(unittest.TestCase):
                 "embodiment_id": None,
             }
             series = {"values": np.arange(5, dtype=np.float64)[:, None], "row_indices": np.arange(5), "source_count": 5}
+            alignment = {"streams": [{
+                "relative_path": "joint.npy",
+                "field": "$",
+                "data_count": 5,
+                "mode": "rate_multiplier",
+                "index_multiplier": 5.0 / 7.0,
+            }]}
             with patch("app.curation_pipeline._signal_candidates", return_value=[candidate]), patch("app.curation_pipeline._read_numeric_series", return_value=series):
-                bundle = _load_signal_bundle({"root_path": str(root)}, {"frame_count": 99}, {"streams": []}, frame_count=7)
+                bundle = _load_signal_bundle({"root_path": str(root)}, {"frame_count": 99}, alignment, frame_count=7)
 
         self.assertEqual(7, bundle["joint"].shape[0])
+
+    def test_signal_bundle_marks_unmapped_dynamic_stream_as_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "joint.npy"
+            source.write_bytes(b"placeholder")
+            candidate = {
+                "kind": "joint",
+                "relative_path": "joint.npy",
+                "field": "$",
+                "confidence": 1.0,
+                "role": "",
+                "modality": "",
+                "representation": "unknown",
+                "dimension_names": ["joint"],
+                "gripper_indices": [],
+                "embodiment_id": None,
+            }
+            series = {"values": np.arange(5, dtype=np.float64)[:, None], "row_indices": np.arange(5), "source_count": 5}
+            with patch("app.curation_pipeline._signal_candidates", return_value=[candidate]), patch("app.curation_pipeline._read_numeric_series", return_value=series):
+                bundle = _load_signal_bundle({"root_path": str(root)}, {"frame_count": 7}, {"streams": []}, frame_count=7)
+
+        self.assertTrue(np.isnan(bundle["joint"]).all())
+        self.assertFalse(bundle["valid_mask"].any())
+        self.assertTrue((bundle["bindings"][0]["_source_row_indices"] == -1).all())
+
+    def test_projection_video_uses_corrected_hdf5_identity_timeline_before_smoothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            corrected = root / "projection.hdf5"
+            corrected.write_bytes(b"placeholder")
+            candidate = {
+                "kind": "joint",
+                "relative_path": "source.hdf5",
+                "absolute_path": str(corrected),
+                "source": "full_run_projection_correction",
+                "field": "transforms",
+                "confidence": 1.0,
+                "role": "joint_state",
+                "modality": "transform",
+                "representation": "absolute",
+                "dimension_names": ["joint"],
+                "gripper_indices": [],
+                "embodiment_id": "egodex",
+            }
+            series = {
+                "values": np.arange(4, dtype=np.float64)[:, None],
+                "row_indices": np.arange(4),
+                "source_count": 4,
+            }
+            alignment = {
+                "streams": [],
+                "retiming": {
+                    "mode": "derived_video_timeline",
+                    "source_frame_positions": [0.0, 0.5, 1.0, 2.0],
+                },
+            }
+            with (
+                patch("app.curation_pipeline._signal_candidates", return_value=[candidate]),
+                patch("app.curation_pipeline._read_numeric_series", return_value=series),
+            ):
+                bundle = _load_signal_bundle({"root_path": str(root)}, {"frame_count": 4}, alignment, frame_count=4)
+
+        np.testing.assert_array_equal(np.arange(4), bundle["bindings"][0]["_source_row_indices"])
+        np.testing.assert_array_equal(np.arange(4, dtype=np.float64), bundle["joint"][:, 0])
 
     def test_episode_curation_aligns_against_selected_media_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1080,7 +1447,33 @@ class CurationPipelineTests(unittest.TestCase):
 
         self.assertEqual("cohort", references["ep-1"]["scope"])
         self.assertEqual(references["ep-1"]["cohort_id"], references["ep-2"]["cohort_id"])
-        self.assertEqual(10, references["ep-1"]["matrix"].shape[0])
+        self.assertEqual("leave_one_episode_out", references["ep-1"]["reference_policy"])
+        self.assertEqual(5, references["ep-1"]["matrix"].shape[0])
+        self.assertEqual(["ep-2"], references["ep-1"]["reference_episode_ids"])
+        self.assertTrue(np.all(references["ep-1"]["matrix"] == 1.0))
+        self.assertTrue(np.all(references["ep-2"]["matrix"] == 0.0))
+
+    def test_s3_outlier_episode_does_not_expand_its_own_reference(self) -> None:
+        episode_ids = ["normal-0", "normal-1", "outlier"]
+        episodes = {episode_id: {"id": episode_id, "frame_count": 5} for episode_id in episode_ids}
+        media = {episode_id: {"frame_count": 5} for episode_id in episode_ids}
+        values = {"normal-0": 0.0, "normal-1": 1.0, "outlier": 100.0}
+
+        def bundle(_manifest, episode, _alignment, frame_count=None):
+            return {
+                "joint": np.full((frame_count, 2), values[episode["id"]]),
+                "action": None,
+                "bindings": [{"dimension_names": ["j1", "j2"]}],
+                "embodiment_ids": ["robot-a"],
+                "semantic_dimensions_known": True,
+            }
+
+        with patch("app.curation_pipeline.scan_episode_sensor_alignment", return_value={}), patch("app.curation_pipeline._load_signal_bundle", side_effect=bundle):
+            references = _build_s3_references({"root_path": str(Path.cwd())}, episodes, media, episode_ids)
+
+        outlier_reference = references["outlier"]
+        self.assertEqual(["normal-0", "normal-1"], outlier_reference["reference_episode_ids"])
+        self.assertLess(float(np.nanmax(outlier_reference["matrix"])), 2.0)
 
     def test_source_signature_detects_replaced_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1106,7 +1499,7 @@ class CurationPipelineTests(unittest.TestCase):
             writer.release()
             request = CurationJobRequest(
                 episode_ids=["ep"],
-                video_sample_fps=5,
+                video_sample_fps=15,
                 blur_laplacian_threshold=5,
                 static_duration_seconds=1,
             )
@@ -1119,6 +1512,25 @@ class CurationPipelineTests(unittest.TestCase):
 
         self.assertFalse(result["invalid_mask"].any())
         self.assertTrue(result["review_mask"].any())
+        self.assertEqual(10.0, result["metrics"]["effective_sample_fps"])
+
+    def test_video_quality_sampling_never_drops_below_fifteen_fps(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "motion.mp4"
+            writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 60.0, (96, 64))
+            for index in range(60):
+                frame = np.full((64, 96, 3), index % 255, dtype=np.uint8)
+                writer.write(frame)
+            writer.release()
+            result = inspect_video_quality(
+                {"type": "video", "path": str(path), "frame_count": 60, "fps": 60.0},
+                None,
+                CurationJobRequest(episode_ids=["ep"]),
+                lambda _value, _message: None,
+            )
+
+        self.assertGreaterEqual(result["metrics"]["effective_sample_fps"], 15.0)
+        self.assertEqual(4, result["metrics"]["sample_step_frames"])
 
     def test_dense_quality_marks_merge_below_point_three_seconds_only(self) -> None:
         mask = np.zeros(16, dtype=bool)
@@ -1143,6 +1555,125 @@ class CurationPipelineTests(unittest.TestCase):
         self.assertTrue(result["review_mask"].all())
         self.assertEqual(1, result["metrics"]["mismatch_segment_count"])
 
+    def test_c2_grasp_accepts_gripper_transition_with_static_arm(self) -> None:
+        joint = np.zeros((30, 3), dtype=np.float64)
+        joint[10:, 2] = 1.0
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 5, "end_frame": 18, "phase_label": "grasp", "skill": "Grasp"}]},
+            {
+                "joint": joint,
+                "action": None,
+                "action_representation": "unknown",
+                "gripper_columns": {"joint": {2}, "action": set()},
+            },
+            np.ones(30, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["review_mask"].any())
+        self.assertEqual(1, result["metrics"]["supported_contact_segment_count"])
+        self.assertEqual("gripper_state_transition", result["metrics"]["evidence_audit"][0]["support"])
+
+    def test_c2_grasp_accepts_tactile_onset_without_joint_or_action(self) -> None:
+        contact = np.zeros(30, dtype=bool)
+        contact[10:] = True
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 5, "end_frame": 18, "phase_label": "grasp", "skill": "Grasp"}]},
+            {"joint": None, "action": None, "action_representation": "unknown"},
+            np.ones(30, dtype=bool),
+            10.0,
+            tactile_evidence={"contact": contact, "valid_mask": np.ones(30, dtype=bool)},
+        )
+
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["review_mask"].any())
+        self.assertEqual("tactile_contact_established", result["metrics"]["evidence_audit"][0]["support"])
+
+    def test_c2_hold_accepts_sustained_tactile_contact(self) -> None:
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 5, "end_frame": 18, "phase_label": "grasp", "skill": "Hold"}]},
+            {"joint": None, "action": None, "action_representation": "unknown"},
+            np.ones(30, dtype=bool),
+            10.0,
+            tactile_evidence={"contact": np.ones(30, dtype=bool), "valid_mask": np.ones(30, dtype=bool)},
+        )
+
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["review_mask"].any())
+        self.assertEqual("sustained_tactile_contact", result["metrics"]["evidence_audit"][0]["support"])
+
+    def test_c2_hold_without_tactile_is_insufficient_not_mismatch(self) -> None:
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 5, "end_frame": 18, "phase_label": "grasp", "skill": "Hold"}]},
+            {
+                "joint": np.zeros((30, 2), dtype=np.float64),
+                "action": None,
+                "action_representation": "unknown",
+                "gripper_columns": {"joint": {1}, "action": set()},
+            },
+            np.ones(30, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("warning", result["status"])
+        self.assertFalse(result["review_mask"].any())
+        self.assertEqual(1, result["metrics"]["insufficient_evidence_segment_count"])
+        self.assertEqual("insufficient_evidence", result["metrics"]["evidence_audit"][0]["outcome"])
+
+    def test_c2_release_accepts_tactile_offset(self) -> None:
+        contact = np.ones(30, dtype=bool)
+        contact[12:] = False
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 5, "end_frame": 18, "phase_label": "release", "skill": "Release"}]},
+            {"joint": None, "action": None, "action_representation": "unknown"},
+            np.ones(30, dtype=bool),
+            10.0,
+            tactile_evidence={"contact": contact, "valid_mask": np.ones(30, dtype=bool)},
+        )
+
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["review_mask"].any())
+        self.assertEqual("tactile_contact_released", result["metrics"]["evidence_audit"][0]["support"])
+
+    def test_c2_grasp_reviews_valid_tactile_without_contact(self) -> None:
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 5, "end_frame": 18, "phase_label": "grasp", "skill": "Grasp"}]},
+            {"joint": None, "action": None, "action_representation": "unknown"},
+            np.ones(30, dtype=bool),
+            10.0,
+            tactile_evidence={"contact": np.zeros(30, dtype=bool), "valid_mask": np.ones(30, dtype=bool)},
+        )
+
+        self.assertEqual("warning", result["status"])
+        self.assertTrue(result["review_mask"][5:19].all())
+        self.assertEqual(1, result["metrics"]["mismatch_contact_segment_count"])
+
+    def test_c2_generic_active_action_keeps_motion_ratio_check(self) -> None:
+        joint = np.column_stack((np.linspace(0.0, 1.0, 30), np.zeros(30)))
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 0, "end_frame": 29, "phase_label": "manipulate", "skill": "Insert"}]},
+            {"joint": joint, "action": None, "action_representation": "unknown"},
+            np.ones(30, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("completed", result["status"])
+        self.assertFalse(result["review_mask"].any())
+        self.assertEqual(0, result["metrics"]["contact_segment_count"])
+        self.assertGreater(result["metrics"]["mean_active_motion_ratio"], 0.08)
+
+    def test_c2_skips_when_all_numeric_and_tactile_evidence_is_missing(self) -> None:
+        result = inspect_behavior_state_consistency(
+            {"segments": [{"start_frame": 0, "end_frame": 9, "phase_label": "grasp", "skill": "Grasp"}]},
+            {"joint": None, "action": None, "action_representation": "unknown"},
+            np.ones(10, dtype=bool),
+            10.0,
+        )
+
+        self.assertEqual("skipped", result["status"])
+        self.assertFalse(result["review_mask"].any())
+
     def test_c1_reviews_explicit_task_mismatch(self) -> None:
         result = inspect_instruction_consistency(
             {"task_label": "remove_lid", "confidence": 0.9},
@@ -1165,13 +1696,13 @@ class CurationPipelineTests(unittest.TestCase):
         self.assertEqual("completed", result["status"])
         self.assertFalse(result["review_mask"].any())
 
-    def test_c1_c2_clear_precheck_review_only_after_both_checks_run(self) -> None:
+    def test_c1_c2_never_clear_precheck_review(self) -> None:
         precheck_review = np.ones(6, dtype=bool)
         clear = np.zeros(6, dtype=bool)
         completed = {"status": "completed", "review_mask": clear}
         skipped = {"status": "skipped", "review_mask": clear}
 
-        self.assertFalse(resolve_post_vlm_review(precheck_review, completed, completed).any())
+        self.assertTrue(resolve_post_vlm_review(precheck_review, completed, completed).all())
         self.assertTrue(resolve_post_vlm_review(precheck_review, completed, skipped).all())
 
     def test_main_curation_job_orders_precheck_vlm_then_c2(self) -> None:
@@ -1366,6 +1897,9 @@ class CurationPipelineTests(unittest.TestCase):
             self.assertIsNone(job["result"]["action_config"])
             self.assertNotIn("action_s2", job["result"]["items"][0])
             smooth.assert_called_once()
+            self.assertEqual("eis_30", smooth.call_args.kwargs["mode"])
+            self.assertEqual(30.0, smooth.call_args.kwargs["target_fps"])
+            self.assertTrue(smooth.call_args.kwargs["motion_compensation"])
 
     def test_full_job_preserves_curation_when_optional_action_and_export_fail(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -2,16 +2,18 @@ from __future__ import annotations
 
 """Apply full-frame hand observations as constrained EgoDex 3D corrections.
 
-The source HDF5 stays read-only.  A corrected, video-aligned transform HDF5 is
-staged in ``.alicePD`` and becomes active only after the normal change-review
-flow marks it applied.  MediaPipe supplies image observations; it never gets to
-resize fingers or directly overwrite unconstrained XYZ values.
+The source HDF5 stays read-only.  Interactive corrections are staged in
+``.alicePD`` and become globally active only after review; EgoDex Full runs may
+instead activate an immutable run-scoped snapshot.  MediaPipe supplies image
+observations; it never gets to resize fingers or directly overwrite
+unconstrained XYZ values.
 """
 
 import hashlib
 import json
 import math
 import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +23,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
 
+from .dataset_modes import dataset_mode
 from .egodex_mano import (
     EGODEX_MANO_REVISION,
     MANO21_RETARGETED_ATTRIBUTE,
@@ -33,7 +36,7 @@ from .egodex_mano import (
     source_is_retargeted,
 )
 from .lerobot_export import HAND_21_JOINT_NAMES, scaled_egodex_camera_intrinsic, side_hand_joint_names
-from .sensor_alignment import load_sensor_alignment, scan_episode_sensor_alignment
+from .sensor_alignment import aligned_sensor_rows
 from .storage import change_is_applied, dataset_artifact_dir, read_frame, record_change, slugify
 
 
@@ -45,6 +48,8 @@ PROJECTION_SMOOTHING_SECONDS = 0.20
 PROJECTION_EDGE_TAPER_SECONDS = 0.15
 MAXIMUM_NORMALIZED_CORRECTION_SPEED_PER_SECOND = 1.0
 PROJECTION_S1_SIGMA = 6.0
+PROJECTION_RUNTIME_LOCK = threading.Lock()
+FULL_PROJECTION_SOURCE_OVERRIDES = "_alice_full_projection_source_overrides"
 FINGER_CHAINS = (
     (0, 1, 2, 3, 4),
     (0, 5, 6, 7, 8),
@@ -58,16 +63,20 @@ VISUAL_WRIST_PALM_WIDTH_RATIO = 0.80
 HAND_BONES = tuple(edge for chain in FINGER_CHAINS for edge in zip(chain, chain[1:]))
 
 
-def _artifact_paths(dataset_id: str, episode_id: str) -> tuple[Path, Path]:
-    root = dataset_artifact_dir(dataset_id, "projection-correction")
+def _projection_artifact_root(dataset_id: str, artifact_root: str | Path | None = None) -> Path:
+    root = Path(artifact_root).expanduser().resolve() if artifact_root is not None else dataset_artifact_dir(dataset_id, "projection-correction")
     root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _artifact_paths(dataset_id: str, episode_id: str, artifact_root: str | Path | None = None) -> tuple[Path, Path]:
+    root = _projection_artifact_root(dataset_id, artifact_root)
     stem = slugify(episode_id)
     return root / f"{stem}.projection.alice", root / f"{stem}.projection.hdf5"
 
 
-def _retimed_video_path(dataset_id: str, episode_id: str) -> Path:
-    root = dataset_artifact_dir(dataset_id, "projection-correction")
-    root.mkdir(parents=True, exist_ok=True)
+def _retimed_video_path(dataset_id: str, episode_id: str, artifact_root: str | Path | None = None) -> Path:
+    root = _projection_artifact_root(dataset_id, artifact_root)
     return root / f"{slugify(episode_id)}.projection.mp4"
 
 
@@ -125,28 +134,23 @@ def _media_path(manifest: dict, media: dict) -> Path:
     return path
 
 
-def _aligned_rows(manifest: dict, episode: dict, relative: str, source_count: int, video_count: int) -> np.ndarray:
-    if source_count == video_count:
-        return np.arange(video_count, dtype=np.int64)
-    alignment = load_sensor_alignment(manifest, str(episode["id"])) or scan_episode_sensor_alignment(manifest, episode)
-    stream = next((
-        item for item in alignment.get("streams") or []
-        if str(item.get("relative_path") or "").replace("\\", "/").casefold() == relative.casefold()
-    ), None)
-    if stream is None:
-        raise RuntimeError(f"Projection source cannot be aligned to video frames: {relative}")
-    lookup = stream.get("frame_to_sensor_index")
-    if isinstance(lookup, list) and len(lookup) >= video_count:
-        rows = np.asarray(lookup[:video_count], dtype=np.int64)
-    elif stream.get("mode") in {"prealigned_master_clock", "paired_frame_index"}:
-        rows = np.arange(video_count, dtype=np.int64)
-    elif stream.get("index_multiplier") is not None:
-        rows = np.rint(np.arange(video_count) * float(stream["index_multiplier"])).astype(np.int64)
-    else:
-        raise RuntimeError(f"Projection alignment has no frame mapping: {relative}")
-    if (rows < 0).any() or (rows >= source_count).any():
-        raise RuntimeError(f"Projection alignment contains out-of-range rows: {relative}")
-    return rows
+def _aligned_rows(
+    manifest: dict,
+    episode: dict,
+    relative: str,
+    source_count: int,
+    video_count: int,
+    reference_media_file_id: str | None = None,
+) -> np.ndarray:
+    return aligned_sensor_rows(
+        manifest,
+        episode,
+        relative,
+        source_count,
+        video_count,
+        reference_media_file_id=reference_media_file_id,
+        require_complete=True,
+    )
 
 
 def _take_rows(dataset: Any, rows: np.ndarray) -> np.ndarray:
@@ -1476,9 +1480,15 @@ def run_projection_correction(
     dynamic_low_multiplier: float = 0.4,
     dynamic_mid_multiplier: float = 1.0,
     dynamic_high_multiplier: float = 2.0,
+    artifact_root: str | Path | None = None,
+    record_review_change: bool = True,
+    full_run_id: str | None = None,
 ) -> dict:
     import h5py
 
+    mode = dataset_mode(manifest)
+    if mode["projection_correction_backend"] != "egodex_mano_prior_v1":
+        raise RuntimeError(f"Projection correction is EgoDex-only; dataset mode is {mode['family']}")
     if not registry.has_hand_pose:
         raise RuntimeError("Hand-pose detector is not loaded")
     report_progress = progress or (lambda _value, _message: None)
@@ -1503,7 +1513,14 @@ def run_projection_correction(
     height = int(media.get("height") or episode.get("height") or 0)
     if frame_count <= 0 or width <= 0 or height <= 0:
         raise RuntimeError("Selected video geometry is invalid")
-    rows = _aligned_rows(manifest, episode, source_relative, source_count, frame_count)
+    rows = _aligned_rows(
+        manifest,
+        episode,
+        source_relative,
+        source_count,
+        frame_count,
+        reference_media_file_id=str(media.get("file_id") or "") or None,
+    )
     step = max(1, int(round(fps / max(0.1, float(sample_fps)))))
     sample_frames = sorted(set([*range(0, frame_count, step), frame_count - 1]))
     maximum_gap_frames = max(0, int(round(maximum_interpolation_gap_seconds * fps)))
@@ -1610,8 +1627,8 @@ def run_projection_correction(
             )
             for side in ("left", "right")
         }
-        metadata_path, corrected_path = _artifact_paths(dataset_id, str(episode["id"]))
-        retimed_video_path = _retimed_video_path(dataset_id, str(episode["id"]))
+        metadata_path, corrected_path = _artifact_paths(dataset_id, str(episode["id"]), artifact_root)
+        retimed_video_path = _retimed_video_path(dataset_id, str(episode["id"]), artifact_root)
         temporary_hdf5 = corrected_path.with_name(f".{corrected_path.name}.{uuid.uuid4().hex}.tmp")
         applied_frames = {"left": 0, "right": 0}
         rejected_frames = {"left": 0, "right": 0}
@@ -1796,8 +1813,14 @@ def run_projection_correction(
         "algorithm_revision": PROJECTION_CORRECTION_ALGORITHM_REVISION,
         "dataset_id": dataset_id,
         "episode_id": str(episode["id"]),
+        "full_run_id": full_run_id,
+        "activation_scope": "full_run" if full_run_id else "review_then_apply",
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source_policy": "Source HDF5/video remain read-only; applying activates the reviewed corrected and synchronized retimed snapshots.",
+        "source_policy": (
+            "Source HDF5/video remain read-only; this corrected snapshot is active only inside the owning Full run."
+            if full_run_id
+            else "Source HDF5/video remain read-only; applying activates the reviewed corrected and synchronized retimed snapshots."
+        ),
         "source_transform": {"relative_path": source_relative, "frame_count": source_count},
         "source_video": {"relative_path": media_relative, "file_id": media.get("file_id"), "frame_count": frame_count, "fps": fps},
         "source_signatures": source_signatures,
@@ -1919,18 +1942,21 @@ def run_projection_correction(
         "retimed_video": str(retimed_video_path) if retimed_video is not None else None,
     }
     _write_json_atomic(metadata_path, document)
-    change = record_change(
-        dataset_id,
-        PROJECTION_CORRECTION_KIND,
-        str(episode["id"]),
-        f"{pose_label} constrained projection correction: {episode.get('name') or episode['id']}",
-        [metadata_path, corrected_path, *([retimed_video_path] if retimed_video is not None else [])],
-        document["summary"],
-        [source_relative, media_relative],
-    )
     document["artifact_path"] = str(metadata_path)
-    document["change"] = {"id": change["id"], "status": change["status"], "revision": change["revision"]}
-    report_progress(100.0, "Projection correction staged for review")
+    if record_review_change:
+        change = record_change(
+            dataset_id,
+            PROJECTION_CORRECTION_KIND,
+            str(episode["id"]),
+            f"{pose_label} constrained projection correction: {episode.get('name') or episode['id']}",
+            [metadata_path, corrected_path, *([retimed_video_path] if retimed_video is not None else [])],
+            document["summary"],
+            [source_relative, media_relative],
+        )
+        document["change"] = {"id": change["id"], "status": change["status"], "revision": change["revision"]}
+        report_progress(100.0, "Projection correction staged for review")
+    else:
+        report_progress(100.0, "Projection correction completed for Full run")
     return document
 
 
@@ -2009,6 +2035,52 @@ def applied_projection_source(manifest: dict, episode: dict) -> dict | None:
     }
 
 
+def projection_source_from_document(document: dict) -> dict | None:
+    """Build a processing source from a run-scoped correction document."""
+    if document.get("schema") != PROJECTION_CORRECTION_SCHEMA:
+        return None
+    metadata_path_value = str(document.get("artifact_path") or "").strip()
+    hdf5_value = str(document.get("corrected_hdf5") or "").strip()
+    if not metadata_path_value or not hdf5_value:
+        return None
+    metadata_path = Path(metadata_path_value).expanduser().resolve()
+    hdf5_path = Path(hdf5_value).expanduser().resolve()
+    retiming = document.get("retiming") or {}
+    inserted = int(retiming.get("inserted_frame_count") or 0)
+    video_value = str(document.get("retimed_video") or "").strip()
+    video_path = Path(video_value).expanduser().resolve() if video_value else None
+    output_count = int(retiming.get("output_frame_count") or (document.get("summary") or {}).get("frame_count") or 0)
+    positions = retiming.get("source_frame_positions") or []
+    if not metadata_path.is_file() or not hdf5_path.is_file() or output_count <= 0 or len(positions) != output_count:
+        return None
+    if inserted > 0 and (video_path is None or not video_path.is_file()):
+        return None
+    return {
+        "path": hdf5_path,
+        "metadata_path": metadata_path,
+        "metadata": document,
+        "video_path": video_path if inserted > 0 else None,
+        "source_relative_path": str((document.get("source_transform") or {}).get("relative_path") or ""),
+        "frame_count": output_count,
+        "application_id": None,
+        "change_id": None,
+        "full_run_id": document.get("full_run_id"),
+        "activation_scope": "full_run",
+    }
+
+
+def active_projection_source(manifest: dict, episode: dict) -> dict | None:
+    """Return a Full-run override when present, otherwise the reviewed applied source."""
+    episode_id = str(episode.get("id") or "")
+    overrides = manifest.get(FULL_PROJECTION_SOURCE_OVERRIDES) or {}
+    override = overrides.get(episode_id) if isinstance(overrides, dict) else None
+    if isinstance(override, dict):
+        path_value = override.get("path")
+        if path_value and Path(path_value).expanduser().is_file():
+            return override
+    return applied_projection_source(manifest, episode)
+
+
 def staged_projection_source(manifest: dict, episode: dict) -> dict | None:
     """Return the latest review artifact without activating it for processing."""
     episode_id = str(episode.get("id") or "")
@@ -2081,8 +2153,8 @@ def review_projection_source(manifest: dict, episode: dict) -> dict | None:
 
 
 def preferred_projection_media(manifest: dict, episode: dict, media: dict) -> tuple[dict, dict | None]:
-    """Use the applied S1-retimed video together with its corrected HDF5 timeline."""
-    applied = applied_projection_source(manifest, episode)
+    """Use the active S1-retimed video together with its corrected HDF5 timeline."""
+    applied = active_projection_source(manifest, episode)
     if applied is None or applied.get("video_path") is None:
         return media, None
     metadata = applied.get("metadata") or {}

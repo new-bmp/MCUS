@@ -15,6 +15,13 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as parquet
 
+from .mano21 import HAND_21_JOINT_NAMES
+from .nexus_mano import (
+    NEXUS_ASSUMED_FINGER_ORDER,
+    NEXUS_MANO21_REVISION,
+    NEXUS_MANO21_SCHEMA,
+    mano21_points_from_nexus_value,
+)
 from .video_smoothing import _create_frame_writer
 
 
@@ -240,10 +247,26 @@ def _load_episode_arrays(episode_root: Path) -> dict[str, np.ndarray | list[str]
         mocap_path = episode_root / "mocap" / f"dexweaveg1_{side}.h5"
         tactile_path = episode_root / "tactile" / f"{side}.h5"
         with h5py.File(mocap_path, "r") as source:
-            result[f"{side}_skeleton"] = _h5_dataset(source, "skeleton", (20, 7), count).astype(np.float32)
+            skeleton = _h5_dataset(source, "skeleton", (20, 7), count).astype(np.float32)
+            wrist_quaternion = _h5_dataset(source, "wrist_quat", (4,), count).astype(np.float32)
+            mocap_partial = _h5_vector(source, "partial", count, False, np.dtype(bool))
+            result[f"{side}_skeleton"] = skeleton
             result[f"{side}_joints"] = _h5_dataset(source, "joints", (6,), count).astype(np.uint8)
-            result[f"{side}_wrist_quaternion"] = _h5_dataset(source, "wrist_quat", (4,), count).astype(np.float32)
-            result[f"{side}_mocap_partial"] = _h5_vector(source, "partial", count, False, np.dtype(bool))
+            result[f"{side}_wrist_quaternion"] = wrist_quaternion
+            result[f"{side}_mocap_partial"] = mocap_partial
+            mano_points, mano_valid, mano_diagnostics = mano21_points_from_nexus_value(
+                skeleton,
+                wrist_quaternion=wrist_quaternion,
+                validity=~mocap_partial,
+            )
+            result[f"{side}_mano21_positions"] = mano_points.astype(np.float32)
+            result[f"{side}_mano21_valid"] = mano_valid.astype(bool)
+            result[f"{side}_mano0_confidence"] = np.asarray(
+                mano_diagnostics["root_confidence"], dtype=np.float32,
+            )
+            result[f"{side}_mano_palm_width"] = np.asarray(
+                mano_diagnostics["palm_width"], dtype=np.float32,
+            )
         with h5py.File(tactile_path, "r") as source:
             tactile = _h5_dataset(source, "adc", (225,), count).astype(np.uint16)
             result[f"{side}_tactile"] = tactile
@@ -317,13 +340,31 @@ def _merge_intervals(intervals: list[tuple[int, int]], count: int) -> list[tuple
 
 def _selected_intervals(curation: dict, count: int, minimum_frames: int) -> list[tuple[int, int]]:
     segments = curation.get("segments") or curation.get("pre_vlm_segments") or []
+    if not segments:
+        return [] if curation else [(0, count - 1)]
     valid = [
         (int(item.get("start_frame", 0)), int(item.get("end_frame", -1)))
         for item in segments
         if isinstance(item, dict) and str(item.get("state") or "").casefold() == "valid"
     ]
-    intervals = _merge_intervals(valid, count) if valid else [(0, count - 1)]
+    intervals = _merge_intervals(valid, count)
     return [(start, end) for start, end in intervals if end - start + 1 >= max(1, minimum_frames)]
+
+
+def _curation_states(curation: dict, count: int) -> np.ndarray:
+    states = np.full(count, "valid", dtype=object)
+    for item in curation.get("segments") or curation.get("pre_vlm_segments") or []:
+        if not isinstance(item, dict) or count <= 0:
+            continue
+        start = max(0, min(count - 1, int(item.get("start_frame") or 0)))
+        end = max(start, min(count - 1, int(item.get("end_frame") or start)))
+        state = str(item.get("state") or "valid").casefold()
+        if state == "invalid":
+            states[start:end + 1] = "invalid"
+        elif state in {"uncertain", "review"}:
+            current = states[start:end + 1]
+            current[current != "invalid"] = "review"
+    return states
 
 
 def _annotation_arrays(annotation: dict, count: int) -> tuple[np.ndarray, np.ndarray, str]:
@@ -415,6 +456,14 @@ def _main_schema() -> pa.Schema:
     fields = [
         pa.field("observation.left_hand.skeleton", pa.list_(pa.float32(), 20 * 7)),
         pa.field("observation.right_hand.skeleton", pa.list_(pa.float32(), 20 * 7)),
+        pa.field("observation.left_hand.mano21_positions", pa.list_(pa.float32(), 21 * 3)),
+        pa.field("observation.right_hand.mano21_positions", pa.list_(pa.float32(), 21 * 3)),
+        pa.field("quality.left_hand.mano21_valid", pa.list_(pa.bool_(), 21)),
+        pa.field("quality.right_hand.mano21_valid", pa.list_(pa.bool_(), 21)),
+        pa.field("quality.left_hand.mano0_confidence", pa.float32()),
+        pa.field("quality.right_hand.mano0_confidence", pa.float32()),
+        pa.field("observation.left_hand.mano_palm_width", pa.float32()),
+        pa.field("observation.right_hand.mano_palm_width", pa.float32()),
         pa.field("observation.left_hand.joints", pa.list_(pa.uint8(), 6)),
         pa.field("observation.right_hand.joints", pa.list_(pa.uint8(), 6)),
         pa.field("observation.left_hand.wrist_quaternion", pa.list_(pa.float32(), 4)),
@@ -429,6 +478,9 @@ def _main_schema() -> pa.Schema:
         pa.field("observation.head_imu.valid", pa.bool_()),
         pa.field("annotation.phase_label", pa.string()),
         pa.field("annotation.action_description", pa.string()),
+        pa.field("quality.curation_state", pa.string()),
+        pa.field("quality.is_bad", pa.bool_()),
+        pa.field("quality.needs_review", pa.bool_()),
         pa.field("quality.partial", pa.bool_()),
         pa.field("quality.partial_reason", pa.string()),
         pa.field("quality.left_mocap_partial", pa.bool_()),
@@ -458,6 +510,7 @@ def _episode_table(
     rows: np.ndarray,
     labels: np.ndarray,
     descriptions: np.ndarray,
+    curation_states: np.ndarray,
     episode_index: int,
     global_offset: int,
     task_index: int,
@@ -473,9 +526,18 @@ def _episode_table(
         np.asarray(arrays["sync_partial"], dtype=bool)[rows]
         | left_mocap_partial | right_mocap_partial | left_tactile_partial | right_tactile_partial
     )
+    selected_quality = np.asarray(curation_states, dtype=object)[rows]
     columns = [
         _fixed_list(np.asarray(arrays["left_skeleton"])[rows], 20 * 7, pa.float32()),
         _fixed_list(np.asarray(arrays["right_skeleton"])[rows], 20 * 7, pa.float32()),
+        _fixed_list(np.asarray(arrays["left_mano21_positions"])[rows], 21 * 3, pa.float32()),
+        _fixed_list(np.asarray(arrays["right_mano21_positions"])[rows], 21 * 3, pa.float32()),
+        _fixed_list(np.asarray(arrays["left_mano21_valid"])[rows], 21, pa.bool_()),
+        _fixed_list(np.asarray(arrays["right_mano21_valid"])[rows], 21, pa.bool_()),
+        pa.array(np.asarray(arrays["left_mano0_confidence"])[rows], type=pa.float32()),
+        pa.array(np.asarray(arrays["right_mano0_confidence"])[rows], type=pa.float32()),
+        pa.array(np.asarray(arrays["left_mano_palm_width"])[rows], type=pa.float32()),
+        pa.array(np.asarray(arrays["right_mano_palm_width"])[rows], type=pa.float32()),
         _fixed_list(np.asarray(arrays["left_joints"])[rows], 6, pa.uint8()),
         _fixed_list(np.asarray(arrays["right_joints"])[rows], 6, pa.uint8()),
         _fixed_list(np.asarray(arrays["left_wrist_quaternion"])[rows], 4, pa.float32()),
@@ -490,6 +552,9 @@ def _episode_table(
         pa.array(np.asarray(arrays["head_imu_valid"])[rows], type=pa.bool_()),
         pa.array([str(value) for value in labels[rows]], type=pa.string()),
         pa.array([str(value) for value in descriptions[rows]], type=pa.string()),
+        pa.array([str(value) for value in selected_quality], type=pa.string()),
+        pa.array(selected_quality == "invalid", type=pa.bool_()),
+        pa.array(selected_quality == "review", type=pa.bool_()),
         pa.array(partial, type=pa.bool_()),
         pa.array([str(arrays["partial_reason"][int(row)]) for row in rows], type=pa.string()),
         pa.array(left_mocap_partial, type=pa.bool_()),
@@ -534,6 +599,14 @@ def _features(camera_geometry: dict[str, tuple[int, int]]) -> dict:
     features = {
         "observation.left_hand.skeleton": {"dtype": "float32", "shape": [20, 7], "names": list(NEXUS_SKELETON_NODE_NAMES), "coordinate_names": list(NEXUS_SKELETON_FIELDS)},
         "observation.right_hand.skeleton": {"dtype": "float32", "shape": [20, 7], "names": list(NEXUS_SKELETON_NODE_NAMES), "coordinate_names": list(NEXUS_SKELETON_FIELDS)},
+        "observation.left_hand.mano21_positions": {"dtype": "float32", "shape": [21, 3], "names": list(HAND_21_JOINT_NAMES), "coordinate_names": ["x", "y", "z"]},
+        "observation.right_hand.mano21_positions": {"dtype": "float32", "shape": [21, 3], "names": list(HAND_21_JOINT_NAMES), "coordinate_names": ["x", "y", "z"]},
+        "quality.left_hand.mano21_valid": {"dtype": "bool", "shape": [21], "names": list(HAND_21_JOINT_NAMES)},
+        "quality.right_hand.mano21_valid": {"dtype": "bool", "shape": [21], "names": list(HAND_21_JOINT_NAMES)},
+        "quality.left_hand.mano0_confidence": {"dtype": "float32", "shape": [1], "names": None},
+        "quality.right_hand.mano0_confidence": {"dtype": "float32", "shape": [1], "names": None},
+        "observation.left_hand.mano_palm_width": {"dtype": "float32", "shape": [1], "names": None},
+        "observation.right_hand.mano_palm_width": {"dtype": "float32", "shape": [1], "names": None},
         "observation.left_hand.joints": {"dtype": "uint8", "shape": [6], "names": list(NEXUS_JOINT_CHANNEL_NAMES)},
         "observation.right_hand.joints": {"dtype": "uint8", "shape": [6], "names": list(NEXUS_JOINT_CHANNEL_NAMES)},
         "observation.left_hand.wrist_quaternion": {"dtype": "float32", "shape": [4], "names": ["x", "y", "z", "w"]},
@@ -548,6 +621,9 @@ def _features(camera_geometry: dict[str, tuple[int, int]]) -> dict:
         "observation.head_imu.valid": {"dtype": "bool", "shape": [1], "names": None},
         "annotation.phase_label": {"dtype": "string", "shape": [1], "names": None},
         "annotation.action_description": {"dtype": "string", "shape": [1], "names": None},
+        "quality.curation_state": {"dtype": "string", "shape": [1], "names": None},
+        "quality.is_bad": {"dtype": "bool", "shape": [1], "names": None},
+        "quality.needs_review": {"dtype": "bool", "shape": [1], "names": None},
         "quality.partial": {"dtype": "bool", "shape": [1], "names": None},
         "quality.partial_reason": {"dtype": "string", "shape": [1], "names": None},
         "quality.left_mocap_partial": {"dtype": "bool", "shape": [1], "names": None},
@@ -604,6 +680,7 @@ def convert_nexus_to_lerobot(
     alice_sidecar: str | Path | None = None,
     preserve_raw_sensors: bool = False,
     minimum_segment_seconds: float = 0.0,
+    keep_all_frames: bool = False,
     task: str | None = None,
     progress=None,
 ) -> dict:
@@ -646,7 +723,8 @@ def convert_nexus_to_lerobot(
             curation_document = _document_for_episode(curation, episode_root.name)
             annotation_document = _document_for_episode(annotations, episode_root.name)
             labels, descriptions, annotation_task = _annotation_arrays(annotation_document, source_count)
-            intervals = _selected_intervals(curation_document, source_count, minimum_frames)
+            quality_states = _curation_states(curation_document, source_count)
+            intervals = [(0, source_count - 1)] if keep_all_frames else _selected_intervals(curation_document, source_count, minimum_frames)
             if not intervals:
                 continue
             task_name = str(task or annotation_task or episode_root.name).strip() or episode_root.name
@@ -663,7 +741,7 @@ def convert_nexus_to_lerobot(
                 staged: list[tuple[Path, Path]] = []
                 raw_sidecar = None
                 try:
-                    table = _episode_table(arrays, rows, labels, descriptions, episode_index, global_offset, task_index)
+                    table = _episode_table(arrays, rows, labels, descriptions, quality_states, episode_index, global_offset, task_index)
                     _write_parquet_atomic(data_path, table)
                     if parquet.ParquetFile(data_path).metadata.num_rows != count:
                         raise RuntimeError(f"LeRobot Parquet row count mismatch: {data_path}")
@@ -754,7 +832,12 @@ def convert_nexus_to_lerobot(
             "features": features,
             "source_format": "nexus_v4",
             "master_timeline": "meta/sync.parquet at 30Hz",
-            "skeleton_policy": "Preserve the source 20-node order; never pad or reinterpret it as MANO 21.",
+            "skeleton_policy": "Preserve the source 20x7 stream and additionally emit an experimental canonical MANO21 position view; source values are never overwritten.",
+            "hand_geometry_schema": NEXUS_MANO21_SCHEMA,
+            "hand_geometry_revision": NEXUS_MANO21_REVISION,
+            "hand_geometry_source_finger_order": list(NEXUS_ASSUMED_FINGER_ORDER),
+            "hand_geometry_node_order_assumed": True,
+            "mano0_policy": "Reconstruct from non-thumb proximal nodes, palm width, proximal finger direction, and wrist_quat; confidence is exported per frame.",
             "tactile_policy": "Preserve 225 zero-corrected taxels and add auxiliary contact statistics; tactile is not a hard deletion signal.",
             "imu_policy": "Mean acceleration and angular velocity inside each 30Hz master interval.",
             "action_policy": "No action feature is emitted unless a real robot action exists.",
@@ -773,6 +856,7 @@ def convert_nexus_to_lerobot(
             "fps": NEXUS_MASTER_FPS,
             "cameras": list(selected_cameras),
             "preserve_raw_sensors": preserve_raw_sensors,
+            "keep_all_frames": keep_all_frames,
             "curation_source": str(curation) if curation is not None else None,
             "annotation_source": str(annotations) if annotations is not None else None,
             "alice_sidecar": str(alice_sidecar) if alice_sidecar is not None else None,

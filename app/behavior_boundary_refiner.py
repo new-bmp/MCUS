@@ -37,17 +37,16 @@ def load_episode_joint_pose(
         # Keep these imports local: curation does not depend on behavior
         # annotation, and importing its private loader here avoids a cycle.
         from .curation_pipeline import _load_signal_bundle
-        from .sensor_alignment import scan_episode_sensor_alignment
+        from .sensor_alignment import get_valid_sensor_alignment
 
         target_count = int(frame_count if frame_count is not None else episode.get("frame_count") or 0)
         if target_count <= 0:
             return None
         resolved_alignment = alignment
         if resolved_alignment is None:
-            resolved_alignment = scan_episode_sensor_alignment(
+            resolved_alignment = get_valid_sensor_alignment(
                 manifest,
                 episode,
-                force=False,
                 reference_media_file_id=reference_media_file_id,
             )
         bundle = _load_signal_bundle(manifest, episode, resolved_alignment or {}, frame_count=target_count)
@@ -157,6 +156,23 @@ def _motion_change_score(pose: np.ndarray, fps: float) -> np.ndarray | None:
     return score
 
 
+def joint_motion_change_score(joint_pose: Any | None, fps: float, frame_count: int) -> np.ndarray | None:
+    """Return a video-aligned motion-change score for adaptive VLM sampling."""
+
+    try:
+        total = int(frame_count)
+        rate = float(fps)
+    except (TypeError, ValueError):
+        return None
+    if total <= 0 or not np.isfinite(rate) or rate <= 0:
+        return None
+    pose = _coerce_pose(joint_pose, total)
+    if pose is None:
+        return None
+    score = _motion_change_score(pose, rate)
+    return score if score is not None and score.shape == (total,) else None
+
+
 def _original_splits(segments: list[dict], first: int, last: int) -> list[int]:
     count = len(segments)
     splits: list[int] = []
@@ -205,11 +221,8 @@ def refine_behavior_boundaries(
     last = max(first, min(int(fallback[-1].get("end_frame", total - 1) or 0), total - 1))
     if last - first + 1 < count:
         return fallback
-    pose = _coerce_pose(joint_pose, total)
-    if pose is None:
-        return fallback
-    score = _motion_change_score(pose, rate)
-    if score is None or len(score) != total:
+    score = joint_motion_change_score(joint_pose, rate, total)
+    if score is None:
         return fallback
 
     original = _original_splits(fallback, first, last)
@@ -256,4 +269,3 @@ def refine_behavior_boundaries(
             output[index]["boundary_source"] = "joint_refined"
             output[index + 1]["boundary_source"] = "joint_refined"
     return output
-

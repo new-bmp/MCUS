@@ -11,6 +11,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .dataset_modes import dataset_mode
 from .egodex_mano import (
     direct_mano21_transforms,
     egodex_mano_source_names,
@@ -23,10 +24,18 @@ from .egodex_mano import (
 from .file_preview import preview_file_frame
 from .lerobot_export import HAND_21_JOINT_NAMES, scaled_egodex_camera_intrinsic
 from .mano21 import MANO21_LAYOUT_VERSION, mano21_local_index, select_mano21_points, side_hand_joint_names
+from .nexus_mano import read_nexus20_hdf5_series
+from .openxr_mano import (
+    detect_openxr_schema,
+    mano21_labels as openxr_mano21_labels,
+    mano21_points_from_openxr_value,
+    read_openxr_hdf5_series,
+)
 from .pose_recovery import load_recovered_points
 from .projection_correction import review_projection_source
 from .sensor_alignment import map_video_frame_to_sensor
 from .storage import change_is_applied
+from .video_smoothing import target_stabilization_matrices
 
 
 _JOINT_HINTS = (
@@ -64,9 +73,17 @@ def _stream_source_id(source_id: str) -> tuple[str | None, str | None]:
 
 
 def _episode_records(manifest: dict, episode: dict) -> list[dict]:
+    episode_id = str(episode.get("id") or "")
+    episode_key = str(episode.get("episode_key") or "")
+    assignments = (manifest.get("episode_resolution") or {}).get("file_episode_assignments") or {}
     return [
         item for item in manifest.get("files", [])
-        if item.get("episode_id") == episode.get("id")
+        if str(assignments.get(str(item.get("id") or "")) or item.get("episode_id") or "") == episode_id
+        or (
+            not assignments.get(str(item.get("id") or ""))
+            and not item.get("episode_id")
+            and str(item.get("episode_key") or "") == episode_key
+        )
     ]
 
 
@@ -260,6 +277,34 @@ def _cached_h5_mano_frame(
     return (tuple(labels), np.concatenate(hands, axis=0)) if hands else (tuple(), None)
 
 
+@lru_cache(maxsize=64)
+def _cached_h5_openxr_points(
+    path_string: str,
+    modified_ns: int,
+    size_bytes: int,
+) -> tuple[tuple[str, ...], np.ndarray | None]:
+    del modified_ns, size_bytes
+    import h5py
+
+    with h5py.File(path_string, "r") as handle:
+        series = read_openxr_hdf5_series(handle, source_path=path_string)
+    return (series.labels, series.points) if series is not None else (tuple(), None)
+
+
+@lru_cache(maxsize=64)
+def _cached_h5_nexus20_points(
+    path_string: str,
+    modified_ns: int,
+    size_bytes: int,
+) -> tuple[tuple[str, ...], np.ndarray | None]:
+    del modified_ns, size_bytes
+    import h5py
+
+    with h5py.File(path_string, "r") as handle:
+        series = read_nexus20_hdf5_series(handle, source_path=path_string)
+    return (series.labels, series.points) if series is not None else (tuple(), None)
+
+
 def _explicit_h5_joint_order(handle: Any, labels: list[str]) -> list[str] | None:
     transforms = handle.get("/transforms")
     if transforms is None or "joint_order" not in transforms.attrs:
@@ -347,7 +392,11 @@ def _cached_h5_projection_calibration(
     return cameras, intrinsics
 
 
-def _h5_points(path: Path, index: int) -> tuple[np.ndarray, list[str], np.ndarray | None, np.ndarray | None, str]:
+def _h5_points(
+    path: Path,
+    index: int,
+    mode: str | None = None,
+) -> tuple[np.ndarray, list[str], np.ndarray | None, np.ndarray | None, str]:
     import h5py
 
     stat = path.stat()
@@ -358,8 +407,25 @@ def _h5_points(path: Path, index: int) -> tuple[np.ndarray, list[str], np.ndarra
         camera_ext = cached_cameras[min(index, len(cached_cameras) - 1)]
     if cached_intrinsics is not None:
         intrinsic = cached_intrinsics[min(index, len(cached_intrinsics) - 1)] if cached_intrinsics.ndim == 3 else cached_intrinsics
+    normalized_mode = str(mode or "").strip().casefold()
+    if normalized_mode in {"", "openxr"}:
+        openxr_labels, openxr_points = _cached_h5_openxr_points(
+            str(path), stat.st_mtime_ns, stat.st_size,
+        )
+        if openxr_points is not None and len(openxr_points):
+            frame_index = min(max(0, int(index)), len(openxr_points) - 1)
+            return openxr_points[frame_index], list(openxr_labels), camera_ext, intrinsic, "world"
+    if normalized_mode in {"", "nexus_multimodal"}:
+        nexus_labels, nexus_points = _cached_h5_nexus20_points(
+            str(path), stat.st_mtime_ns, stat.st_size,
+        )
+        if nexus_points is not None and len(nexus_points):
+            frame_index = min(max(0, int(index)), len(nexus_points) - 1)
+            return nexus_points[frame_index], list(nexus_labels), camera_ext, intrinsic, "tracking"
+    if normalized_mode in {"openxr", "nexus_multimodal"}:
+        return np.empty((0, 3)), [], camera_ext, intrinsic, "unknown"
     dataset_leaf_names = {name.rsplit("/", 1)[-1] for name in _h5_dataset_names(path)}
-    has_complete_egodex_hand = any(
+    has_complete_egodex_hand = normalized_mode in {"", "egodex"} and any(
         all(name in dataset_leaf_names for name in required_egodex_mano_names(side))
         for side in ("left", "right")
     )
@@ -569,7 +635,10 @@ def _lerobot_points(
 
 def _coerce_points(value: Any) -> np.ndarray | None:
     if isinstance(value, dict):
-        for key in ("points", "keypoints", "joints", "skeleton", "positions", "xyz"):
+        for key in (
+            "joint_locations", "hand_joints", "poses", "transforms",
+            "points", "keypoints", "joints", "skeleton", "positions", "xyz",
+        ):
             if key in value:
                 return _coerce_points(value[key])
         return None
@@ -600,9 +669,42 @@ def _structured_points(path: Path, field: str | None, index: int) -> tuple[np.nd
     if payload.get("mode") == "error":
         return np.empty((0, 3)), [], None, None, "unknown"
     value = payload.get("value")
-    points = _coerce_points(value)
+    source_value = value
+    if isinstance(value, dict):
+        for key in (
+            "joint_locations", "hand_joints", "poses", "transforms",
+            "points", "keypoints", "joints", "skeleton", "positions", "xyz",
+        ):
+            if key in value:
+                source_value = value[key]
+                break
+    points = _coerce_points(source_value)
     if points is None:
         return np.empty((0, 3)), [], None, None, "unknown"
+    metadata = value if isinstance(value, dict) else None
+    labels = None
+    validity = None
+    if isinstance(value, dict):
+        labels = value.get("joint_names")
+        if labels is None:
+            labels = value.get("labels")
+        for key in ("location_flags", "flags", "validity", "valid", "tracked"):
+            if key in value and value[key] is not None:
+                validity = value[key]
+                if key in {"validity", "valid", "tracked"}:
+                    validity = np.asarray(validity, dtype=bool)
+                break
+    detection = detect_openxr_schema(
+        metadata=metadata,
+        labels=labels if isinstance(labels, (list, tuple)) else None,
+        shape=points.shape,
+        source_path=str(path),
+        field=str(field or payload.get("field") or ""),
+    )
+    if detection["detected"]:
+        converted, _ = mano21_points_from_openxr_value(source_value, validity=validity)
+        side = _side(f"{path.as_posix()}/{field or ''}")
+        return converted, list(openxr_mano21_labels(side if side != "unknown" else None)), None, None, "world"
     labels = [f"joint_{i:02d}" for i in range(len(points))]
     return points, labels, None, None, "pixel" if points.shape[1] == 2 else "world"
 
@@ -765,6 +867,13 @@ def _semantic_point_indices(labels: list[str], edges: list[tuple[int, int]] | No
 
 def joint_overlay_status(manifest: dict, episode: dict, mode: str = "auto") -> dict:
     overlay_mode = _normalize_overlay_mode(mode)
+    mode_contract = dataset_mode(manifest)
+    dataset_family = mode_contract["family"]
+    allow_legacy_h5_fallback = (
+        mode_contract["resolved_from"] == "unresolved"
+        and not mode_contract["explicit_family_present"]
+        and not mode_contract["conflict"]
+    )
     root = Path(manifest["root_path"]).resolve()
     has_joint_state = False
     missing_initial_position = False
@@ -795,7 +904,11 @@ def joint_overlay_status(manifest: dict, episode: dict, mode: str = "auto") -> d
                 if not len(points):
                     missing_initial_position = True
             elif path.suffix.lower() in {".h5", ".hdf5", ".h5df"}:
-                points, labels, _, _, coordinate = _h5_points(path, 0)
+                points, labels, _, _, coordinate = (
+                    _h5_points(path, 0, dataset_family)
+                    if dataset_family in {"egodex", "openxr", "nexus_multimodal"}
+                    else _h5_points(path, 0) if allow_legacy_h5_fallback else (np.empty((0, 3)), [], None, None, "unknown")
+                )
                 if not len(points) and recovery_applied and candidate.get("source") != "projection_correction":
                     recovered = load_recovered_points(manifest["id"], episode["id"], candidate["path"], 0)
                     if recovered is not None:
@@ -871,6 +984,13 @@ def joint_overlay_geometry(
     mode: str = "auto",
 ) -> dict:
     overlay_mode = _normalize_overlay_mode(mode)
+    mode_contract = dataset_mode(manifest)
+    dataset_family = mode_contract["family"]
+    allow_legacy_h5_fallback = (
+        mode_contract["resolved_from"] == "unresolved"
+        and not mode_contract["explicit_family_present"]
+        and not mode_contract["conflict"]
+    )
     status = joint_overlay_status(manifest, episode, overlay_mode)
     if not status.get("available"):
         raise ValueError(status.get("reason") or "Joint overlay requires a valid initial position")
@@ -886,6 +1006,9 @@ def joint_overlay_geometry(
             continue
         try:
             media_fps = float((media or {}).get("fps") or episode.get("fps") or 30.0)
+            source_positions = np.asarray((media or {}).get("source_frame_positions") or [], dtype=np.float64).reshape(-1)
+            source_frame_position = float(source_positions[index]) if 0 <= index < len(source_positions) else float(index)
+            alignment_frame_index = int(round(source_frame_position))
             try:
                 if candidate.get("source") == "projection_correction":
                     # Corrected snapshots are deliberately stored one row per
@@ -896,15 +1019,18 @@ def joint_overlay_geometry(
                             manifest,
                             episode,
                             candidate["path"],
-                            index,
+                            alignment_frame_index,
                             media_fps,
                             reference_media_file_id=str((media or {}).get("file_id") or "") or None,
+                            field=candidate.get("field"),
                         )
                     except KeyError:
                         source_alignment = {}
-                    sensor_index, alignment = index, {
+                    sensor_index, alignment = alignment_frame_index, {
                         "video_frame": index,
-                        "sensor_index": index,
+                        "source_video_frame": alignment_frame_index,
+                        "source_video_position": source_frame_position,
+                        "sensor_index": alignment_frame_index,
                         "valid": True,
                         "mode": "applied_projection_video_aligned",
                         "alignment_multiplier": 1.0,
@@ -916,17 +1042,19 @@ def joint_overlay_geometry(
                         manifest,
                         episode,
                         candidate["path"],
-                        index,
+                        alignment_frame_index,
                         media_fps,
                         reference_media_file_id=str((media or {}).get("file_id") or "") or None,
+                        field=candidate.get("field"),
                     )
             except KeyError:
-                sensor_index, alignment = index, {
+                sensor_index, alignment = None, {
                     "video_frame": index,
-                    "sensor_index": index,
-                    "valid": True,
-                    "mode": "unindexed_identity",
-                    "alignment_multiplier": 1.0,
+                    "sensor_index": None,
+                    "valid": False,
+                    "invalid_reason": "unmapped_source",
+                    "mode": "unmapped",
+                    "alignment_multiplier": None,
                     "sensor_hz": None,
                     "physical_hz": None,
                 }
@@ -957,7 +1085,11 @@ def joint_overlay_geometry(
             if candidate.get("source") == "lerobot":
                 points, labels, camera_ext, intrinsic, coordinate = _lerobot_points(root, path, sensor_index)
             elif path.suffix.lower() in {".h5", ".hdf5", ".h5df"}:
-                points, labels, camera_ext, intrinsic, coordinate = _h5_points(path, sensor_index)
+                points, labels, camera_ext, intrinsic, coordinate = (
+                    _h5_points(path, sensor_index, dataset_family)
+                    if dataset_family in {"egodex", "openxr", "nexus_multimodal"}
+                    else _h5_points(path, sensor_index) if allow_legacy_h5_fallback else (np.empty((0, 3)), [], None, None, "unknown")
+                )
                 if not len(points) and recovery_applied is None:
                     recovery_applied = change_is_applied(manifest["id"], "pose_recovery", episode["id"])
                 if not len(points) and recovery_applied and candidate.get("source") != "projection_correction":
@@ -971,6 +1103,12 @@ def joint_overlay_geometry(
                 continue
             points, labels, source_indices, mano_sides = select_mano21_points(points, labels)
             projected = _project(points, coordinate, camera_ext, intrinsic, (height, width, 3))
+            pixel_transforms = target_stabilization_matrices(media or {}, int((media or {}).get("frame_count") or 0) or None)
+            if pixel_transforms is not None and 0 <= index < len(pixel_transforms):
+                homogeneous = np.concatenate((projected, np.ones((len(projected), 1), dtype=np.float64)), axis=1)
+                stabilized = (pixel_transforms[index] @ homogeneous.T).T
+                safe_scale = np.where(np.abs(stabilized[:, 2]) > 1e-9, stabilized[:, 2], np.nan)
+                projected = stabilized[:, :2] / safe_scale[:, None]
             valid = np.isfinite(projected).all(axis=1)
             semantic_edges = _edges(labels)
             semantic_point_indices = _semantic_point_indices(labels, semantic_edges)
@@ -1011,6 +1149,8 @@ def joint_overlay_geometry(
                 "coordinate_system": coordinate,
                 "frame_index": index,
                 "sensor_index": sensor_index,
+                "source_video_position": source_frame_position,
+                "eis_pixel_transform_applied": pixel_transforms is not None,
                 "alignment_valid": bool(alignment.get("valid", True)),
                 "alignment_mode": alignment.get("mode"),
                 "alignment_multiplier": alignment.get("alignment_multiplier"),

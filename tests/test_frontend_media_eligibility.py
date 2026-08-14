@@ -70,6 +70,16 @@ class FrontendMediaEligibilityContractTests(unittest.TestCase):
         self.assertIn('family === "nexus_multimodal"', self.app)
         self.assertIn("源视频 ${sourceLabel} · 同步处理 ${syncFps.toFixed(2)} FPS", self.app)
 
+    def test_video_smoothing_exposes_high_rate_eis_30_mode(self) -> None:
+        self.assertIn('id = "videoSmoothingSettings"', self.app)
+        self.assertIn('value="eis_30" selected', self.app)
+        self.assertIn('id="videoSmoothingMotionCompensation" checked', self.app)
+        self.assertIn('smoothing_mode:', self.app)
+        self.assertIn('smoothing_target_fps:', self.app)
+        self.assertIn('smoothing_motion_compensation:', self.app)
+        self.assertIn('["video_smoothing", "full_pipeline"].includes(state.analysisOperation)', self.app)
+        self.assertIn('...(full ? trimConfig : {})', self.app)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,19 @@ def _artifact_path(dataset_id: str, episode_id: str) -> Path:
 
 
 def _episode_records(manifest: dict, episode: dict) -> list[dict]:
-    return [item for item in manifest.get("files", []) if item.get("episode_id") == episode.get("id")]
+    episode_id = str(episode.get("id") or "")
+    episode_key = str(episode.get("episode_key") or "")
+    assignments = (manifest.get("episode_resolution") or {}).get("file_episode_assignments") or {}
+    return [
+        item
+        for item in manifest.get("files", [])
+        if str(assignments.get(str(item.get("id") or "")) or item.get("episode_id") or "") == episode_id
+        or (
+            not assignments.get(str(item.get("id") or ""))
+            and not item.get("episode_id")
+            and str(item.get("episode_key") or "") == episode_key
+        )
+    ]
 
 
 def _side_sources(manifest: dict, episode: dict) -> list[dict[str, Any]]:

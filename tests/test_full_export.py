@@ -13,17 +13,36 @@ import numpy as np
 import pyarrow.parquet as parquet
 
 from app import storage as storage_module
-from app.full_export import MANO_44_JOINT_NAMES, SUBTASK_JSON_SCHEMA, classify_behavior, export_episode, filtered_intervals, write_dataset_index
+from app.full_export import MANO_44_JOINT_NAMES, SUBTASK_JSON_SCHEMA, _aligned_positions, classify_behavior, export_episode, filtered_intervals, write_dataset_index
 from app.lerobot_export import HAND_21_JOINT_NAMES
 from app.s1_repair import S1_REPAIR_SCHEMA
 
 
 class FullExportTests(unittest.TestCase):
+    def test_projection_source_uses_analysis_positions_in_corrected_timeline(self) -> None:
+        corrected = Path("corrected.hdf5").resolve()
+        positions = [0.0, 1.5, 3.0, 4.0]
+        with (
+            patch("app.projection_correction.active_projection_source", return_value={"path": corrected}),
+            patch("app.full_export._find_transform_source", return_value=(corrected, "source.hdf5", 5)),
+            patch("app.full_export.aligned_sensor_positions", side_effect=AssertionError("raw T0 must not remap corrected rows")),
+        ):
+            result = _aligned_positions(
+                {"root_path": str(Path.cwd())},
+                {"id": "ep"},
+                "source.hdf5",
+                5,
+                4,
+                {"source_frame_positions": positions},
+            )
+
+        np.testing.assert_array_equal(np.asarray(positions), result)
+
     @staticmethod
     def _write_video(path: Path, frame_count: int) -> None:
         writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (64, 48))
         for index in range(frame_count):
-            writer.write(np.full((48, 64, 3), index * 10, dtype=np.uint8))
+            writer.write(np.full((48, 64, 3), (index * 10) % 256, dtype=np.uint8))
         writer.release()
 
     @staticmethod
@@ -44,6 +63,30 @@ class FullExportTests(unittest.TestCase):
             head[:, 0, 3] = np.arange(frame_count, dtype=np.float32) + 1000
             output.create_dataset("transforms/head", data=head)
             output.create_dataset("confidences/head", data=np.ones(frame_count, dtype=np.float32))
+
+    @staticmethod
+    def _action_report(horizon_frames: int = 3) -> dict:
+        fields = [
+            *[f"left_{name}" for name in ("dx", "dy", "dz", "drot_x", "drot_y", "drot_z", "grip")],
+            *[f"right_{name}" for name in ("dx", "dy", "dz", "drot_x", "drot_y", "drot_z", "grip")],
+        ]
+        return {
+            "profile": {
+                "id": "generic_bimanual_delta",
+                "robot_family": "generic_bimanual",
+                "representation": "delta_pose_axis_angle",
+                "control_space": "cartesian_delta",
+                "sides": 2,
+                "action_dim": 14,
+                "fields": fields,
+            },
+            "config": {
+                "profile_id": "generic_bimanual_delta",
+                "source_hand": "right",
+                "coordinate_frame": "camera",
+                "horizon_frames": horizon_frames,
+            },
+        }
 
     def test_format_capability_blocks_unsafe_fixed_hand_export(self) -> None:
         manifest = {
@@ -125,7 +168,7 @@ class FullExportTests(unittest.TestCase):
                     lambda _value, _message: None,
                 )
 
-            self.assertEqual([(4, 13)], [(item["start_frame"], item["end_frame"]) for item in result["pairs"]])
+            self.assertEqual([(4, 19)], [(item["start_frame"], item["end_frame"]) for item in result["pairs"]])
             pair = result["pairs"][0]
             self.assertEqual("lerobot", pair["output_format"])
             self.assertEqual("episode_000000", pair["id"])
@@ -142,23 +185,24 @@ class FullExportTests(unittest.TestCase):
                 Path(pair["mp4"]).relative_to(output_root),
             )
             data = parquet.read_table(pair["data"])
-            self.assertEqual(10, data.num_rows)
+            self.assertEqual(16, data.num_rows)
             self.assertEqual(21 * 4 * 4, data.schema.field("observation.left_hand.transforms").type.list_size)
             self.assertEqual(21 * 4 * 4, data.schema.field("observation.right_hand.transforms").type.list_size)
-            left = np.asarray(data["observation.left_hand.transforms"].combine_chunks().values).reshape(10, 21, 4, 4)
-            self.assertEqual([float(value) for value in range(5, 15)], left[:, 0, 0, 3].tolist())
-            self.assertEqual(list(range(4, 14)), data["source.frame_index"].to_pylist())
-            self.assertEqual(["grasp"] * 10, data["annotation.phase_label"].to_pylist())
+            left = np.asarray(data["observation.left_hand.transforms"].combine_chunks().values).reshape(16, 21, 4, 4)
+            self.assertEqual([float(value) for value in range(5, 21)], left[:, 0, 0, 3].tolist())
+            self.assertEqual(list(range(4, 20)), data["source.frame_index"].to_pylist())
+            self.assertEqual(["grasp"] * 10 + ["reach"] * 6, data["annotation.phase_label"].to_pylist())
+            self.assertEqual(["valid"] * 16, data["quality.state"].to_pylist())
 
             self.assertEqual(["head", "leftForearm", "rightForearm"], pair["body_joint_names"])
             body = parquet.read_table(pair["body"])
-            self.assertEqual(10, body.num_rows)
-            body_values = np.asarray(body["observation.body.transforms"].combine_chunks().values).reshape(10, 3, 4, 4)
-            self.assertEqual([float(value) for value in range(1004, 1014)], body_values[:, 0, 0, 3].tolist())
-            self.assertEqual([float(value) for value in range(4, 14)], body_values[:, 1, 0, 3].tolist())
+            self.assertEqual(16, body.num_rows)
+            body_values = np.asarray(body["observation.body.transforms"].combine_chunks().values).reshape(16, 3, 4, 4)
+            self.assertEqual([float(value) for value in range(1004, 1020)], body_values[:, 0, 0, 3].tolist())
+            self.assertEqual([float(value) for value in range(4, 20)], body_values[:, 1, 0, 3].tolist())
             capture = cv2.VideoCapture(pair["mp4"])
             try:
-                self.assertEqual(10, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+                self.assertEqual(16, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
             finally:
                 capture.release()
             index = write_dataset_index(output_root, manifest, result["pairs"], [])
@@ -170,7 +214,7 @@ class FullExportTests(unittest.TestCase):
             self.assertEqual([[40.0, 0.0, 32.0], [0.0, 40.0, 24.0], [0.0, 0.0, 1.0]], info["camera_intrinsic"])
             self.assertEqual(info["camera_intrinsic"], pair["camera_intrinsic"])
             self.assertEqual(1, info["total_episodes"])
-            self.assertEqual(10, info["total_frames"])
+            self.assertEqual(16, info["total_frames"])
             self.assertIn("annotation.phase_label", info["features"])
             self.assertTrue((output_root / "meta" / "tasks.parquet").is_file())
             self.assertTrue((output_root / "meta" / "episodes" / "chunk-000" / "file-000.parquet").is_file())
@@ -230,10 +274,10 @@ class FullExportTests(unittest.TestCase):
             self.assertEqual("video.mp4", Path(pair["mp4"]).name)
             self.assertEqual("data.hdf5", Path(pair["hdf5"]).name)
             with h5py.File(pair["hdf5"], "r") as output:
-                self.assertEqual((10, 44, 4, 4), output["mano/transforms"].shape)
-                self.assertEqual((10, 4, 4), output["camera/transform"].shape)
-                self.assertEqual((10, 9), output["wrist/left_xyz_rot6d"].shape)
-                self.assertEqual([float(value) for value in range(5, 15)], output["wrist/left_xyz_rot6d"][:, 0].tolist())
+                self.assertEqual((16, 44, 4, 4), output["mano/transforms"].shape)
+                self.assertEqual((16, 4, 4), output["camera/transform"].shape)
+                self.assertEqual((16, 9), output["wrist/left_xyz_rot6d"].shape)
+                self.assertEqual([float(value) for value in range(5, 21)], output["wrist/left_xyz_rot6d"][:, 0].tolist())
 
             index = write_dataset_index(output_root, manifest, result["pairs"], [], output_format="hdf5_mp4")
             second_pair = {**pair, "id": "insert_usb/ep2", "export_episode": "ep2"}
@@ -241,6 +285,261 @@ class FullExportTests(unittest.TestCase):
             combined = json.loads(index.read_text(encoding="utf-8"))
             self.assertEqual(2, combined["pair_count"])
             self.assertEqual({"insert_usb/ep1", "insert_usb/ep2"}, {item["id"] for item in combined["pairs"]})
+
+    def test_lerobot_exports_action_on_the_frozen_analysis_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "full"
+            self._write_video(source_video, 20)
+            self._write_transforms(source_hdf5, 20)
+            manifest = {
+                "id": "dataset",
+                "name": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep", "episode_key": "episode"}],
+            }
+            episode = {"id": "ep", "name": "pick", "episode_key": "episode", "frame_count": 20, "fps": 10.0}
+            behavior = {"task_label": "pick", "segments": [{"start_frame": 0, "end_frame": 19, "phase_label": "grasp"}]}
+            curation = {"segments": [{"start_frame": 0, "end_frame": 19, "state": "valid"}]}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output_root,
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 20, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda *_: None,
+                    action_report=self._action_report(horizon_frames=3),
+                )
+
+            pair = result["pairs"][0]
+            data = parquet.read_table(pair["data"])
+            self.assertEqual(17, data.num_rows)
+            self.assertEqual(20, data.schema.field("observation.state").type.list_size)
+            self.assertEqual(14, data.schema.field("action").type.list_size)
+            self.assertEqual(list(range(3, 20)), data["action.target_source_frame_index"].to_pylist())
+            self.assertTrue(all(data["quality.action_valid"].to_pylist()))
+            self.assertEqual(3, result["filtering"]["action_tail_removed_frame_count"])
+            info = json.loads(write_dataset_index(output_root, manifest, result["pairs"], []).read_text(encoding="utf-8"))
+            self.assertEqual([14], info["features"]["action"]["shape"])
+            self.assertEqual("generic_bimanual_delta", info["action_policy"]["profile_id"])
+
+    def test_hdf5_mp4_exports_action_on_the_same_filtered_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "full"
+            self._write_video(source_video, 20)
+            self._write_transforms(source_hdf5, 20)
+            manifest = {
+                "id": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep", "episode_key": "episode"}],
+            }
+            episode = {"id": "ep", "name": "pick", "episode_key": "episode", "frame_count": 20, "fps": 10.0}
+            behavior = {"task_label": "pick", "segments": [{"start_frame": 0, "end_frame": 19, "phase_label": "grasp"}]}
+            curation = {"segments": [{"start_frame": 0, "end_frame": 19, "state": "valid"}]}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output_root,
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 20, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda *_: None,
+                    output_format="hdf5_mp4",
+                    action_report=self._action_report(horizon_frames=3),
+                )
+
+            pair = result["pairs"][0]
+            self.assertEqual(17, pair["frame_count"])
+            self.assertEqual(17, pair["action_valid_frame_count"])
+            with h5py.File(pair["hdf5"], "r") as output:
+                self.assertEqual((17, 20), output["observation/state"].shape)
+                self.assertEqual((17, 14), output["action"].shape)
+                self.assertEqual(list(range(3, 20)), output["action_target_source_frame_index"][:].tolist())
+                self.assertTrue(output["action_valid"][:].all())
+                self.assertEqual("generic_bimanual_delta", output.attrs["action_profile_id"])
+
+    def test_action_never_crosses_bad_frames_or_output_segment_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "full"
+            self._write_video(source_video, 30)
+            self._write_transforms(source_hdf5, 30)
+            manifest = {
+                "id": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep", "episode_key": "episode"}],
+            }
+            episode = {"id": "ep", "name": "pick", "episode_key": "episode", "frame_count": 30, "fps": 10.0}
+            behavior = {"task_label": "pick", "segments": [{"start_frame": 0, "end_frame": 29, "phase_label": "grasp"}]}
+            curation = {"segments": [
+                {"start_frame": 0, "end_frame": 9, "state": "valid"},
+                {"start_frame": 10, "end_frame": 10, "state": "invalid"},
+                {"start_frame": 11, "end_frame": 29, "state": "valid"},
+            ]}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output_root,
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 30, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda *_: None,
+                    action_report=self._action_report(horizon_frames=3),
+                )
+
+            self.assertEqual([(11, 26)], [(pair["start_frame"], pair["end_frame"]) for pair in result["pairs"]])
+            data = parquet.read_table(result["pairs"][0]["data"])
+            self.assertEqual(list(range(14, 30)), data["action.target_source_frame_index"].to_pylist())
+            self.assertTrue(all(data["quality.action_valid"].to_pylist()))
+            self.assertEqual(6, result["filtering"]["action_tail_removed_frame_count"])
+            self.assertEqual(7, result["filtering"]["action_short_fragment_removed_frame_count"])
+
+    def test_complete_episode_action_is_invalid_when_horizon_crosses_quality_problem(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "full"
+            self._write_video(source_video, 10)
+            self._write_transforms(source_hdf5, 10)
+            manifest = {
+                "id": "dataset",
+                "name": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep", "episode_key": "episode"}],
+            }
+            episode = {"id": "ep", "name": "package", "episode_key": "episode", "frame_count": 10, "fps": 10.0}
+            behavior = {"task_label": "pick", "segments": [{"start_frame": 0, "end_frame": 9, "phase_label": "grasp"}]}
+            curation = {"segments": [
+                {"start_frame": 0, "end_frame": 1, "state": "valid"},
+                {"start_frame": 2, "end_frame": 2, "state": "invalid"},
+                {"start_frame": 3, "end_frame": 6, "state": "valid"},
+                {"start_frame": 7, "end_frame": 7, "state": "uncertain"},
+                {"start_frame": 8, "end_frame": 9, "state": "valid"},
+            ]}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output_root,
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 10, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda *_: None,
+                    output_format="episode_lerobot_json",
+                    action_report=self._action_report(horizon_frames=3),
+                )
+
+            data = parquet.read_table(result["pairs"][0]["data"])
+            self.assertEqual([False, False, False, True, False, False, False, False, False, False], data["quality.action_valid"].to_pylist())
+            self.assertEqual(1, result["pairs"][0]["action_valid_frame_count"])
+
+    def test_episode_lerobot_json_writes_quality_state_per_parquet_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "full"
+            self._write_video(source_video, 10)
+            self._write_transforms(source_hdf5, 10)
+            manifest = {
+                "id": "dataset",
+                "name": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep", "episode_key": "episode"}],
+            }
+            episode = {"id": "ep", "name": "package", "episode_key": "episode", "frame_count": 10, "fps": 10.0}
+            behavior = {"task_label": "pick", "segments": [{"start_frame": 0, "end_frame": 9, "phase_label": "grasp"}]}
+            curation = {"segments": [
+                {"start_frame": 0, "end_frame": 2, "state": "valid"},
+                {"start_frame": 3, "end_frame": 4, "state": "invalid"},
+                {"start_frame": 5, "end_frame": 5, "state": "uncertain"},
+                {"start_frame": 6, "end_frame": 9, "state": "valid"},
+            ]}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output_root,
+                    manifest,
+                    episode,
+                    {"path": str(source_video), "frame_count": 10, "fps": 10.0},
+                    curation,
+                    behavior,
+                    lambda *_: None,
+                    output_format="episode_lerobot_json",
+                    run_id="run",
+                    timeline_id="timeline",
+                )
+
+            pair = result["pairs"][0]
+            data = parquet.read_table(pair["data"])
+            self.assertEqual(["valid", "valid", "valid", "invalid", "invalid", "review", "valid", "valid", "valid", "valid"], data["quality.state"].to_pylist())
+            self.assertEqual([False, False, False, True, True, False, False, False, False, False], data["quality.is_bad"].to_pylist())
+            self.assertEqual([False, False, False, False, False, True, False, False, False, False], data["quality.needs_review"].to_pylist())
+            self.assertEqual(2, pair["bad_frame_count"])
+            self.assertEqual(1, pair["review_frame_count"])
+            self.assertEqual("keep_all_frames_mark_quality_in_parquet_and_json", result["filtering"]["policy"])
+
+    def test_lerobot_export_interpolates_fractional_rows_and_writes_eis_camera_geometry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_video = root / "smoothed.mp4"
+            source_hdf5 = root / "episode.hdf5"
+            output_root = root / "full"
+            writer = cv2.VideoWriter(str(source_video), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (64, 48))
+            for index in range(3):
+                writer.write(np.full((48, 64, 3), index * 20, dtype=np.uint8))
+            writer.release()
+            self._write_transforms(source_hdf5, 4)
+            manifest = {
+                "id": "dataset",
+                "name": "dataset",
+                "root_path": str(root),
+                "files": [{"id": "h5", "relative_path": "episode.hdf5", "episode_id": "ep", "episode_key": "episode"}],
+            }
+            episode = {"id": "ep", "name": "pick", "episode_key": "episode", "frame_count": 4, "fps": 60.0}
+            positions = np.asarray([0.0, 0.5, 2.0], dtype=np.float64)
+            image_transforms = np.repeat(np.eye(3, dtype=np.float64)[None], 3, axis=0)
+            image_transforms[1, 0, 2] = 5.0
+            media = {
+                "path": str(source_video),
+                "frame_count": 3,
+                "fps": 3.0,
+                "source_frame_positions": positions.tolist(),
+                "target_stabilization_matrices": image_transforms,
+            }
+            curation = {"segments": [{"start_frame": 0, "end_frame": 2, "state": "valid"}]}
+            behavior = {"task_label": "pick", "segments": [{"start_frame": 0, "end_frame": 2, "phase_label": "grasp"}]}
+
+            with (
+                patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}),
+                patch("app.full_export._aligned_positions", return_value=positions),
+            ):
+                result = export_episode(output_root, manifest, episode, media, curation, behavior, lambda *_: None)
+
+            data = parquet.read_table(result["pairs"][0]["data"])
+            left = np.asarray(data["observation.left_hand.transforms"].combine_chunks().values).reshape(3, 21, 4, 4)
+            intrinsics = np.asarray(data["observation.camera.intrinsic"].combine_chunks().values).reshape(3, 3, 3)
+            self.assertEqual([1.0, 1.5, 3.0], left[:, 0, 0, 3].tolist())
+            self.assertEqual([0.0, 0.5, 2.0], data["source.hdf5_position"].to_pylist())
+            self.assertEqual([0.0, 0.5, 2.0], data["source.video_frame_position"].to_pylist())
+            self.assertAlmostEqual(37.0, float(intrinsics[1, 0, 2]), places=5)
+            self.assertEqual("per_frame_eis_corrected", result["pairs"][0]["camera_intrinsic_mode"])
 
     def test_subtask_json_writes_one_document_per_source_episode_with_bad_frames(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -311,6 +610,47 @@ class FullExportTests(unittest.TestCase):
             index = write_dataset_index(output_root, manifest, result["pairs"], [], output_format="subtask_json")
             combined = json.loads(index.read_text(encoding="utf-8"))
             self.assertEqual({"subtask_json": 1}, combined["output_formats"])
+
+    def test_subtask_json_uses_full_analysis_timeline_after_eis_retiming(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output_root = root / "full"
+            manifest = {"id": "dataset", "name": "dataset", "root_path": str(root), "files": []}
+            episode = {"id": "ep", "name": "retimed", "frame_count": 120, "fps": 60.0}
+            source_positions = [float(index * 2) for index in range(60)]
+            curation = {
+                "source_video": {
+                    "frame_count": 60,
+                    "fps": 30.0,
+                    "source_frame_positions": source_positions,
+                },
+                "summary": {"frame_count": 60},
+                "segments": [
+                    {"start_frame": 0, "end_frame": 29, "state": "valid"},
+                    {"start_frame": 30, "end_frame": 30, "state": "invalid"},
+                    {"start_frame": 31, "end_frame": 59, "state": "valid"},
+                ],
+            }
+
+            result = export_episode(
+                output_root,
+                manifest,
+                episode,
+                {"frame_count": 60, "fps": 30.0},
+                curation,
+                {"task_label": "retimed", "segments": []},
+                lambda *_: None,
+                output_format="subtask_json",
+                run_id="run-retimed",
+                timeline_id="timeline-retimed",
+            )
+
+            payload = json.loads(Path(result["pairs"][0]["subtasks_json"]).read_text(encoding="utf-8"))
+            self.assertEqual(60, payload["frame_count"])
+            self.assertEqual(30.0, payload["fps"])
+            self.assertEqual("full_analysis_video", payload["frame_index_space"])
+            self.assertEqual(source_positions, payload["source_frame_positions"])
+            self.assertEqual([30], payload["bad_frames"])
 
     def test_lerobot_export_applies_s1_patch_without_modifying_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -419,7 +759,7 @@ class FullExportTests(unittest.TestCase):
             self.assertEqual([], pair["body_joint_names"])
             self.assertFalse((output_root / "body").exists())
 
-    def test_idle_and_reach_are_removed_but_other_vlm_phases_remain(self) -> None:
+    def test_idle_is_removed_but_reach_and_other_vlm_phases_remain(self) -> None:
         intervals, summary = filtered_intervals(
             8,
             {"segments": [{"start_frame": 0, "end_frame": 7, "state": "valid"}]},
@@ -430,16 +770,19 @@ class FullExportTests(unittest.TestCase):
             ]},
         )
 
-        self.assertEqual([(4, 7)], intervals)
-        self.assertEqual(4, summary["removed_vlm_frame_count"])
+        self.assertEqual([(2, 7)], intervals)
+        self.assertEqual(2, summary["removed_vlm_frame_count"])
 
-    def test_short_quality_gaps_are_joined_and_tiny_islands_are_dropped(self) -> None:
+    def test_short_quality_gaps_are_never_reintroduced_and_tiny_islands_are_dropped(self) -> None:
         intervals, summary = filtered_intervals(
             50,
             {"segments": [
                 {"start_frame": 0, "end_frame": 19, "state": "valid"},
+                {"start_frame": 20, "end_frame": 21, "state": "invalid"},
                 {"start_frame": 22, "end_frame": 41, "state": "valid"},
+                {"start_frame": 42, "end_frame": 44, "state": "uncertain"},
                 {"start_frame": 45, "end_frame": 47, "state": "valid"},
+                {"start_frame": 48, "end_frame": 49, "state": "invalid"},
             ]},
             {"segments": [{"start_frame": 0, "end_frame": 49, "phase_label": "manipulate"}]},
             fps=10.0,
@@ -447,11 +790,11 @@ class FullExportTests(unittest.TestCase):
             min_clip_seconds=0.75,
         )
 
-        self.assertEqual([(0, 41)], intervals)
-        self.assertEqual(2, summary["merged_gap_frame_count"])
+        self.assertEqual([(0, 19), (22, 41)], intervals)
+        self.assertEqual(0, summary["merged_gap_frame_count"])
         self.assertEqual(3, summary["dropped_short_fragment_frame_count"])
-        self.assertEqual(2, summary["raw_interval_count"])
-        self.assertEqual(1, summary["final_interval_count"])
+        self.assertEqual(3, summary["raw_interval_count"])
+        self.assertEqual(2, summary["final_interval_count"])
 
     def test_vlm_removed_gap_is_never_filled_again(self) -> None:
         intervals, summary = filtered_intervals(
@@ -459,7 +802,7 @@ class FullExportTests(unittest.TestCase):
             {"segments": [{"start_frame": 0, "end_frame": 23, "state": "valid"}]},
             {"segments": [
                 {"start_frame": 0, "end_frame": 9, "phase_label": "grasp"},
-                {"start_frame": 10, "end_frame": 11, "phase_label": "reach"},
+                {"start_frame": 10, "end_frame": 11, "phase_label": "idle"},
                 {"start_frame": 12, "end_frame": 23, "phase_label": "place"},
             ]},
             fps=10.0,

@@ -12,8 +12,11 @@ from app.behavior_annotator import (
     BEHAVIOR_ARTIFACT_VERSION,
     PHASE_LABELS,
     _apply_dataset_task_fallback,
+    _adaptive_window_indices,
     _constrain_segments_to_ranges,
+    _merge_window_segments,
     _normalize_phase_label,
+    _plan_behavior_windows,
     _sample_indices_in_ranges,
     _segments_follow_phase_protocol,
     _validate_result,
@@ -39,6 +42,81 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
         self.assertTrue(all(10 <= index <= 19 or 50 <= index <= 59 for index in indices))
         self.assertIn(10, indices)
         self.assertIn(59, indices)
+
+    def test_window_planner_never_crosses_bad_frame_gaps(self) -> None:
+        windows = _plan_behavior_windows(1300, 30.0, [(0, 600), (800, 1299)])
+
+        self.assertEqual((0, 600), (windows[0]["start_frame"], windows[0]["end_frame"]))
+        self.assertTrue(all(
+            0 <= item["start_frame"] <= item["end_frame"] <= 600
+            or 800 <= item["start_frame"] <= item["end_frame"] <= 1299
+            for item in windows
+        ))
+        self.assertFalse(any(item["start_frame"] < 800 <= item["end_frame"] for item in windows))
+
+    def test_adaptive_window_sampling_respects_budget_and_keeps_joint_event(self) -> None:
+        window = {
+            "window_id": "window-1",
+            "start_frame": 0,
+            "end_frame": 199,
+        }
+        joint_score = np.zeros(200, dtype=np.float64)
+        joint_score[100] = 20.0
+        cache = {}
+
+        indices, metrics = _adaptive_window_indices(
+            window,
+            10.0,
+            24,
+            cache,
+            lambda _index: np.zeros((16, 16, 3), dtype=np.uint8),
+            joint_score=joint_score,
+        )
+
+        self.assertLessEqual(len(indices), 24)
+        self.assertGreaterEqual(len(indices), 12)
+        self.assertIn(0, indices)
+        self.assertIn(199, indices)
+        self.assertIn(100, indices)
+        self.assertEqual([100], metrics["joint_event_frames"])
+
+    def test_overlapping_window_results_merge_by_confidence_and_window_center(self) -> None:
+        first = {
+            "window_id": "w1",
+            "start_frame": 0,
+            "end_frame": 99,
+            "segments": [{
+                "start_frame": 0,
+                "end_frame": 99,
+                "phase_label": "grasp",
+                "skill": "Grasp",
+                "confidence": 0.8,
+                "primary_targets": ["book"],
+                "target_instance": "book#1",
+            }],
+        }
+        second = {
+            "window_id": "w2",
+            "start_frame": 80,
+            "end_frame": 179,
+            "segments": [{
+                "start_frame": 80,
+                "end_frame": 179,
+                "phase_label": "manipulate",
+                "skill": "Insert",
+                "confidence": 0.8,
+                "primary_targets": ["book"],
+                "target_instance": "book#1",
+            }],
+        }
+
+        merged = _merge_window_segments([first, second], 180, 10.0, [(0, 179)])
+
+        self.assertEqual(0, merged[0]["start_frame"])
+        self.assertEqual(179, merged[-1]["end_frame"])
+        self.assertEqual("Grasp", merged[0]["skill"])
+        self.assertEqual("Insert", merged[-1]["skill"])
+        self.assertTrue(all(left["end_frame"] + 1 == right["start_frame"] for left, right in zip(merged, merged[1:])))
 
     def test_segments_outside_precheck_ranges_become_unknown(self) -> None:
         constrained = _constrain_segments_to_ranges(
@@ -132,7 +210,7 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
         self.assertEqual(["cup#1", "lid#1", "cup#2"], [item["target_instance"] for item in result["segments"]])
         self.assertEqual([["cup"], ["lid"], ["cup"]], [item["primary_targets"] for item in result["segments"]])
 
-    def test_qwen_prompt_uses_tri_level_v3_meta_action_protocol(self) -> None:
+    def test_qwen_prompt_uses_windowed_multi_image_v4_protocol(self) -> None:
         model = ModelRegistry()
         model._vlm = SimpleNamespace(configured=True, endpoint="https://example.invalid/v1", model="fixture")
         model._vlm_key = "fixture-key"
@@ -149,13 +227,14 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
 
         system_prompt = request.call_args.kwargs["system_prompt"]
         user_prompt = request.call_args.kwargs["content"][0]["text"]
-        self.assertIn("三级粒度", system_prompt)
-        self.assertIn("原视频总帧数 = 100", system_prompt)
-        self.assertIn("每个 Fine 片段原则上至少覆盖 5 秒", system_prompt)
+        self.assertIn("局部时间窗口", system_prompt)
+        self.assertIn("Episode 总帧数 = 100", system_prompt)
+        self.assertIn("短暂的 Reach、Touch、Release、Withdraw 必须保留", system_prompt)
         self.assertIn('"coarse"', system_prompt)
         self.assertIn('"medium"', system_prompt)
         self.assertIn('"fine"', system_prompt)
         self.assertIn("0->0, 1->9", user_prompt)
+        self.assertIn('"label":"pick"', user_prompt)
         for label, translation in META_ACTION_TRANSLATIONS.items():
             self.assertIn(f"- {label}: {translation}", system_prompt)
 
@@ -321,6 +400,107 @@ class BehaviorPhaseProtocolTests(unittest.TestCase):
             reference_media_file_id="wrist-left",
         )
         refiner.assert_called_once()
+
+    def test_annotation_runs_windowed_multi_image_requests_and_global_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "episode.mp4"
+            source.write_bytes(b"windowed-video-fixture" * 4096)
+            media = {
+                "file_id": "rgb",
+                "stream_name": "episode.mp4",
+                "path": str(source),
+                "relative_path": "episode.mp4",
+                "fps": 10.0,
+                "frame_count": 450,
+                "modality": "rgb",
+                "vlm_eligible": True,
+            }
+            episode = {
+                "id": "ep-windowed",
+                "name": "EP windowed",
+                "relative_path": "episode.mp4",
+                "fps": 10.0,
+                "frame_count": 450,
+                "primary_media_file_id": "rgb",
+                "media_streams": [media],
+            }
+            manifest = {"id": "fixture", "root_path": str(root), "files": [], "schema_profile": {}}
+            ontology = {
+                "source": "builtin",
+                "root": "builtin:test",
+                "category_count": 1,
+                "fingerprint": "fixture",
+                "categories": self.ontology["categories"],
+            }
+            calls = []
+            summaries = []
+
+            def annotate(_frames, _ontology, _context, **kwargs):
+                calls.append(kwargs)
+                start = kwargs["window_start"]
+                end = kwargs["window_end"]
+                return {
+                    "window_summary": "move books on a shelf",
+                    "fine": [{
+                        "start_frame": start,
+                        "end_frame": end,
+                        "description": "manipulate a book",
+                        "skill": "Insert",
+                        "confidence": 0.75,
+                        "object_nouns": ["book"],
+                        "primary_targets": ["book"],
+                        "target_instance": "book#1",
+                    }],
+                    "object_nouns": ["book"],
+                }
+
+            def summarize(window_results, _ontology, _context, **_kwargs):
+                summaries.append(window_results)
+                return {
+                    "coarse": {"summary": "organize bookshelf"},
+                    "medium": [{"start_frame": 0, "end_frame": 449, "description": "insert books into shelf"}],
+                    "confidence": 0.8,
+                }
+
+            def artifact_dir(_dataset_id: str, category: str) -> Path:
+                path = root / ".alicePD" / category
+                path.mkdir(parents=True, exist_ok=True)
+                return path
+
+            registry = SimpleNamespace(
+                has_vlm=True,
+                annotate_behavior=annotate,
+                summarize_behavior_windows=summarize,
+                status=lambda: {"vlm": {"model": "fixture"}},
+            )
+            with (
+                patch("app.behavior_annotator.registry", registry),
+                patch("app.behavior_annotator.load_behavior_ontology", return_value=ontology),
+                patch("app.behavior_annotator.episode_media", return_value=media),
+                patch("app.behavior_annotator.read_frame", return_value=np.zeros((16, 16, 3), dtype=np.uint8)),
+                patch("app.behavior_annotator.load_episode_joint_pose", return_value=None),
+                patch("app.behavior_annotator.dataset_artifact_dir", side_effect=artifact_dir),
+                patch("app.behavior_annotator.record_change", return_value={"id": "change", "status": "pending", "revision": 1}),
+            ):
+                result = annotate_episode_behavior(
+                    "fixture",
+                    manifest,
+                    episode,
+                    BehaviorAnnotationRequest(sample_count=24, force=True),
+                    lambda _progress, _message: None,
+                    analysis_media_override=media,
+                )
+
+        self.assertEqual(3, len(calls))
+        self.assertEqual(1, len(summaries))
+        self.assertEqual("windowed_adaptive_multi_image_v1", result["sampling"]["strategy"])
+        self.assertEqual(3, len(result["sampling"]["windows"]))
+        self.assertLessEqual(result["sampling"]["total_image_count"], 72)
+        self.assertIn(0, result["sampling"]["frames"])
+        self.assertIn(449, result["sampling"]["frames"])
+        self.assertEqual("organize bookshelf", result["coarse"]["summary"])
+        self.assertEqual(["book"], result["object_nouns"])
 
 
 if __name__ == "__main__":

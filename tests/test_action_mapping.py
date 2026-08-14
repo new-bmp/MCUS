@@ -9,7 +9,13 @@ from unittest.mock import patch
 import h5py
 import numpy as np
 
-from app.action_mapping import ACTION_MAPPING_PROFILES, build_action_arrays, generate_episode_action, validate_episode_action_mapping
+from app.action_mapping import (
+    ACTION_MAPPING_PROFILES,
+    _reference_media_timing,
+    build_action_arrays,
+    generate_episode_action,
+    validate_episode_action_mapping,
+)
 from app.full_export import MANO_44_JOINT_NAMES
 from app.main import app
 from app.schemas import ActionMappingRequest
@@ -37,6 +43,19 @@ def _transforms(frame_count: int = 8) -> dict[str, np.ndarray]:
 
 
 class ActionMappingTests(unittest.TestCase):
+    def test_reference_media_timing_uses_selected_stream(self) -> None:
+        episode = {
+            "primary_media_file_id": "head",
+            "frame_count": 30,
+            "fps": 30.0,
+            "media_streams": [
+                {"file_id": "head", "frame_count": 30, "fps": 30.0},
+                {"file_id": "wrist", "frame_count": 60, "fps": 60.0},
+            ],
+        }
+
+        self.assertEqual(("wrist", 60.0, 60), _reference_media_timing(episode, "wrist"))
+
     def test_builds_absolute_and_delta_robot_actions(self) -> None:
         transforms = _transforms()
         observation, absolute, grips = build_action_arrays(

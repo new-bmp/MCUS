@@ -16,7 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+import cv2
+
 from .camera_profiles import NEXUS_OAKD_PRO_W9_PROFILE_ID, nexus_camera_profile, nexus_camera_profiles
+from .dataset_modes import mode_contract_for_family
+from .openxr_mano import detect_openxr_schema
 
 
 FORMAT_MAP_SCHEMA = "alice/dataset-format-map/v1"
@@ -113,14 +117,21 @@ def is_self_describing_dataset_root(path: str | Path) -> bool:
         return True
     if (root / "meta" / "metadata.json").is_file() or (root / "metadata.json").is_file():
         return True
+    try:
+        if any(
+            item.is_file() and item.suffix.casefold() in (_VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS)
+            for item in root.iterdir()
+        ):
+            return True
+    except OSError:
+        pass
     children = _visible_directories(root)
     if not children:
         return False
     episode_children = [child for child in children if _looks_like_episode_directory(child)]
     if episode_children and len(episode_children) >= max(1, round(len(children) * 0.7)):
         return True
-    modality_count = sum(child.name.casefold() in _MODALITY_DIRECTORIES for child in children)
-    return modality_count >= max(2, round(len(children) * 0.7))
+    return bool(children) and all(child.name.casefold() in _MODALITY_DIRECTORIES for child in children)
 
 
 def _even_sample(values: list[Path], limit: int) -> list[Path]:
@@ -150,6 +161,54 @@ def _bounded_files(root: Path, episode_directories: list[Path], limit: int = 500
                         break
                 elif item.is_dir() and depth < 3:
                     stack.append((item, depth + 1))
+    return result
+
+
+def _video_codec(capture: cv2.VideoCapture) -> str | None:
+    value = int(capture.get(cv2.CAP_PROP_FOURCC) or 0)
+    if not value:
+        return None
+    codec = "".join(chr((value >> (8 * index)) & 0xFF) for index in range(4)).strip("\x00 ")
+    return codec or None
+
+
+def _representative_media_probe(root: Path, sampled_files: list[Path]) -> dict:
+    """Decode at most one representative video and one representative image."""
+    result: dict[str, dict] = {}
+    video = next((item for item in sampled_files if item.suffix.casefold() in _VIDEO_EXTENSIONS), None)
+    image = next((item for item in sampled_files if item.suffix.casefold() in _IMAGE_EXTENSIONS), None)
+    if video is None:
+        result["video"] = {"status": "not_probed", "reason": "no_sampled_video"}
+    else:
+        relative = video.relative_to(root).as_posix()
+        capture = cv2.VideoCapture(str(video))
+        try:
+            opened = capture.isOpened()
+            ok, frame = capture.read() if opened else (False, None)
+            result["video"] = {
+                "status": "readable" if ok and frame is not None else "unreadable",
+                "relative_path": relative,
+                "codec": _video_codec(capture) if opened else None,
+                "width": int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0) or None,
+                "height": int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0) or None,
+                "fps": round(float(capture.get(cv2.CAP_PROP_FPS) or 0.0), 4) or None,
+                "failure_reason": None if ok and frame is not None else "video_open_or_first_frame_decode_failed",
+            }
+        finally:
+            capture.release()
+    if image is None:
+        result["image"] = {"status": "not_probed", "reason": "no_sampled_image"}
+    else:
+        relative = image.relative_to(root).as_posix()
+        frame = cv2.imread(str(image), cv2.IMREAD_UNCHANGED)
+        result["image"] = {
+            "status": "readable" if frame is not None else "unreadable",
+            "relative_path": relative,
+            "width": int(frame.shape[1]) if frame is not None and frame.ndim >= 2 else None,
+            "height": int(frame.shape[0]) if frame is not None and frame.ndim >= 2 else None,
+            "channels": int(frame.shape[2]) if frame is not None and frame.ndim >= 3 else (1 if frame is not None else None),
+            "failure_reason": None if frame is not None else "image_decode_failed",
+        }
     return result
 
 
@@ -336,6 +395,72 @@ def _has_egodex_transform_file(files: list[Path]) -> bool:
     return False
 
 
+def _has_openxr_hand_file(files: list[Path]) -> bool:
+    """Detect an explicitly named OpenXR 26-joint stream in sampled files.
+
+    OpenXR is an API/schema rather than a container.  This probe deliberately
+    requires both a semantic path/metadata hint and the canonical 26-joint
+    tensor shape, so an unrelated 26-point array is not reclassified.
+    """
+    candidates = [path for path in files if path.suffix.casefold() in {".h5", ".hdf5", ".h5df"}]
+    for path in candidates[:16]:
+        try:
+            import h5py
+
+            with h5py.File(path, "r") as source:
+                file_metadata = {}
+                for key in source.attrs.keys():
+                    value = source.attrs[key]
+                    if hasattr(value, "tolist"):
+                        value = value.tolist()
+                    file_metadata[str(key)] = value
+                detected = False
+
+                def visitor(name: str, obj: Any) -> bool | None:
+                    nonlocal detected
+                    if detected:
+                        return True
+                    if not hasattr(obj, "shape"):
+                        return
+                    shape = tuple(int(value) for value in (obj.shape or ()))
+                    metadata = dict(file_metadata)
+                    for owner in (getattr(obj, "parent", None), obj):
+                        for key in getattr(owner, "attrs", {}).keys():
+                            value = owner.attrs[key]
+                            if hasattr(value, "tolist"):
+                                value = value.tolist()
+                            metadata[str(key)] = value
+                    labels = None
+                    for key in ("joint_names", "joints", "joint_order"):
+                        candidate = metadata.get(key)
+                        if isinstance(candidate, bytes):
+                            candidate = candidate.decode("utf-8", errors="replace")
+                        if isinstance(candidate, str):
+                            try:
+                                candidate = json.loads(candidate)
+                            except json.JSONDecodeError:
+                                candidate = [item.strip() for item in candidate.split(",") if item.strip()]
+                        if isinstance(candidate, (list, tuple)):
+                            labels = candidate
+                            break
+                    result = detect_openxr_schema(
+                        metadata=metadata,
+                        labels=labels,
+                        shape=shape,
+                        source_path=str(path),
+                        field=name,
+                    )
+                    detected = bool(result.get("detected"))
+                    return True if detected else None
+
+                source.visititems(visitor)
+                if detected:
+                    return True
+        except Exception:
+            continue
+    return False
+
+
 def _has_embedded_camera_intrinsics(files: list[Path]) -> bool:
     """Detect camera intrinsics stored inside an EgoDex HDF5 episode."""
     candidates = [path for path in files if path.suffix.casefold() in {".h5", ".hdf5", ".h5df"}]
@@ -376,6 +501,27 @@ def processing_strategy_for_family(
     has_timestamps: bool,
 ) -> dict:
     """Return the explicit processing policy for a recognized dataset family."""
+    if family == "openxr":
+        return {
+            "id": "openxr_hand_tracking_v1",
+            "label": "OpenXR 26 点手部适配策略",
+            "description": "读取 XR_EXT_hand_tracking 的标准 26 关节，删除 palm 与非拇指掌指关节并转换为 canonical MANO21；OpenXR baseSpace 不等同于相机坐标系。",
+            "motion_sources": ["joint", "video"],
+            "joint_overlay": True,
+            "pose_recovery": False,
+            "sensor_alignment": "when_available" if has_timestamps else "frame_index_fallback",
+            "canonical_adapter": "openxr_hand_26_to_mano21",
+            "output_schema": "mano21_kinematic_positions",
+            "requires_camera_extrinsics_for_projection": True,
+            "pressure": {
+                "enabled": bool(has_contact_sensor),
+                "role": "auxiliary_interaction_evidence",
+                "preferred_variant": "synchronized",
+                "raw_variant_role": "sensor_quality_only",
+                "baseline": "per_episode_adaptive",
+                "hard_reject": False,
+            },
+        }
     if family == "egodex":
         return {
             "id": "egodex_joint_centric_v1",
@@ -403,6 +549,10 @@ def processing_strategy_for_family(
             "joint_overlay": False,
             "pose_recovery": False,
             "sensor_alignment": "required",
+            "canonical_adapter": "nexus_dexweaveg1_20_to_mano21",
+            "output_schema": "mano21_kinematic_positions",
+            "experimental_node_order": True,
+            "requires_camera_extrinsics_for_projection": True,
             "pressure": {
                 "enabled": bool(has_contact_sensor),
                 "role": "auxiliary_interaction_evidence",
@@ -451,6 +601,7 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
     metadata_samples = [item for item in metadata_samples if item]
     representative = metadata_samples[0] if metadata_samples else {}
     sampled_files = _bounded_files(root, episode_directories)
+    media_probe = _representative_media_probe(root, sampled_files)
 
     if _is_lerobot_root(root):
         family, confidence = "lerobot", 0.99
@@ -462,6 +613,8 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         and isinstance(representative.get("files"), dict)
     ):
         family, confidence = "nexus_multimodal", 0.99
+    elif _has_openxr_hand_file(sampled_files):
+        family, confidence = "openxr", 0.98
     elif _has_egodex_transform_file(sampled_files):
         family, confidence = "egodex", 0.98
     elif any(item.suffix.casefold() in _VIDEO_EXTENSIONS for item in sampled_files) and any(
@@ -514,7 +667,7 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         for item in declared_streams
     )
     has_reviewable_visual = has_rgb or has_infrared or decodable_depth
-    has_joint = kind_counts.get("joint", 0) > 0 or family == "egodex"
+    has_joint = kind_counts.get("joint", 0) > 0 or family in {"egodex", "openxr"}
     has_sensor = kind_counts.get("sensor", 0) > 0
     has_action = kind_counts.get("action", 0) > 0
     has_timestamps = kind_counts.get("timestamp", 0) > 0 or any("sync" in _normal(item.name) or "timestamp" in _normal(item.name) for item in sampled_files)
@@ -532,8 +685,37 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
     has_intrinsics = any("camera_" in item.name.casefold() and item.suffix.casefold() == ".json" for item in sampled_files)
     if family == "egodex" and not has_intrinsics:
         has_intrinsics = _has_embedded_camera_intrinsics(sampled_files)
-    extrinsics_payloads = [_safe_json(path.parent / "camera_extrinsics.json") for path in metadata_paths]
-    source_extrinsics_applied = any(bool(item.get("applied")) for item in extrinsics_payloads if item)
+    extrinsics_paths = list(dict.fromkeys([
+        *(path.parent / "camera_extrinsics.json" for path in metadata_paths),
+        *(path for path in sampled_files if path.name.casefold() == "camera_extrinsics.json"),
+    ]))
+    extrinsics_records = [
+        (path, payload)
+        for path in extrinsics_paths
+        if (payload := _safe_json(path))
+    ]
+    extrinsics_payloads = [payload for _, payload in extrinsics_records]
+    explicit_hand_projection: dict | None = None
+    explicit_hand_projection_path: Path | None = None
+    for path, payload in extrinsics_records:
+        candidate = payload.get("hand_projection")
+        if isinstance(candidate, dict):
+            explicit_hand_projection = dict(candidate)
+            explicit_hand_projection_path = path
+            break
+    if explicit_hand_projection is not None:
+        projection_intrinsics = explicit_hand_projection.get("intrinsics") or {}
+        has_intrinsics = bool(
+            has_intrinsics
+            or _has_transform(projection_intrinsics.get("K"))
+            or _has_transform(projection_intrinsics.get("matrix"))
+        )
+    source_extrinsics_applied = any(
+        bool(item.get("applied"))
+        or bool((item.get("hand_projection") or {}).get("applied"))
+        for item in extrinsics_payloads
+        if item
+    )
     source_rgb_depth_extrinsics = any(
         _has_transform(item.get("T_head_rgb__head_depth"))
         for item in extrinsics_payloads
@@ -543,10 +725,35 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
     if selected_camera_profile and family != "nexus_multimodal":
         raise ValueError("Camera fallback profiles are only available for Nexus datasets")
     effective_rgb_depth_extrinsics = bool(source_rgb_depth_extrinsics or selected_camera_profile)
-    hand_projection_requires_extrinsics = family == "nexus_multimodal"
+    # EgoDex embeds its camera transform. Nexus and OpenXR joint locations are
+    # expressed in an external tracking/base space and need an explicit
+    # hand-to-camera transform before any 2D visibility claim is safe.
+    hand_projection_requires_extrinsics = family in {"nexus_multimodal", "openxr"}
+    expected_hand_transform = {
+        "nexus_multimodal": ("mocap_tracking", "T_rgb__mocap_tracking"),
+        "openxr": ("openxr_base_space", "T_rgb__openxr_base"),
+    }.get(family)
+    explicit_hand_projection_ready = False
+    if expected_hand_transform and explicit_hand_projection is not None:
+        expected_source_space, expected_transform_key = expected_hand_transform
+        projection_intrinsics = explicit_hand_projection.get("intrinsics") or {}
+        explicit_hand_projection_ready = bool(
+            source_extrinsics_applied
+            and explicit_hand_projection.get("applied") is True
+            and explicit_hand_projection.get("source_space") == expected_source_space
+            and explicit_hand_projection.get("target_space") in {"rgb_camera", "head_rgb_camera", "rgb_optical"}
+            and explicit_hand_projection.get("transform_direction") == "source_to_rgb_camera"
+            and str(explicit_hand_projection.get("unit") or "").casefold() in {"m", "meter", "meters"}
+            and _has_transform(explicit_hand_projection.get(expected_transform_key))
+            and (_has_transform(projection_intrinsics.get("K")) or _has_transform(projection_intrinsics.get("matrix")))
+            and (explicit_hand_projection.get("target_media_file_id") or explicit_hand_projection.get("target_stream_name"))
+        )
     hand_projection_ready = bool(
         has_intrinsics
-        and (not hand_projection_requires_extrinsics or source_extrinsics_applied)
+        and (
+            not hand_projection_requires_extrinsics
+            or explicit_hand_projection_ready
+        )
     )
     available_camera_profiles = (
         nexus_camera_profiles()
@@ -568,6 +775,13 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         "hand_projection_ready": hand_projection_ready,
         "intrinsics_available": has_intrinsics,
     }
+    if explicit_hand_projection is not None:
+        if explicit_hand_projection_path is not None:
+            try:
+                explicit_hand_projection["source_relative_path"] = explicit_hand_projection_path.relative_to(root).as_posix()
+            except ValueError:
+                pass
+        camera_calibration["hand_projection"] = explicit_hand_projection
     node_counts: set[int] = set()
     for metadata in metadata_samples or ([representative] if representative else []):
         mocap_configs = (metadata.get("sensors") or {}).get("mocap") if isinstance(metadata.get("sensors"), dict) else {}
@@ -578,6 +792,13 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         )
 
     issues: list[dict] = []
+    for media_type, probe in media_probe.items():
+        if probe.get("status") == "unreadable":
+            issues.append(_issue(
+                "warning",
+                f"representative_{media_type}_unreadable",
+                f"代表{('视频' if media_type == 'video' else '图片')}无法解码：{probe.get('relative_path')}。请检查文件完整性与本机媒体解码环境；正式导入只会保留实际可读的媒体。",
+            ))
     if not has_reviewable_visual:
         issues.append(_issue("error", "no_visual_stream", "未识别到可用的 RGB、Depth 或图像流，无法建立可审阅 Episode。"))
     if has_depth:
@@ -589,13 +810,29 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
             else:
                 severity = "warning" if has_rgb else "error"
                 issues.append(_issue(severity, "raw_depth_geometry_unknown", "发现原始深度文件，但缺少可靠的分辨率或 dtype，深度只会索引而不会猜测解码。"))
-    if has_joint and has_rgb and hand_projection_requires_extrinsics and not source_extrinsics_applied:
-        issues.append(_issue("warning", "camera_extrinsics_missing", "手部/关节轨迹存在，但相机外参未应用；可做时序质量检查，不能宣称 2D 投影或整手可见性准确。"))
+    if has_joint and has_rgb and hand_projection_requires_extrinsics and not hand_projection_ready:
+        issues.append(_issue(
+            "warning",
+            "camera_extrinsics_missing",
+            "手部/关节轨迹存在，但缺少严格完整并绑定当前 RGB 的手部空间外参；可做时序质量检查，不能宣称 2D 投影或整手可见性准确。",
+        ))
+    if family == "openxr":
+        issues.append(_issue(
+            "info",
+            "openxr_mano21_adapter_ready",
+            "OpenXR XR_EXT_hand_tracking 26 点适配器已启用：输出 canonical MANO21 运动学位置；不拟合 MANO 778 网格，也不自动猜测单位、baseSpace 或相机外参。",
+        ))
     if has_joint and not has_action:
         issues.append(_issue("info", "action_missing", "未发现原生 Action；S2 需要先生成 Action，其他可用检查不受影响。"))
-    if node_counts and node_counts != {21}:
+    if node_counts and node_counts != {21} and not (family == "nexus_multimodal" and node_counts == {20}):
         issues.append(_issue("warning", "noncanonical_hand_nodes", f"源手部骨架节点数为 {sorted(node_counts)}，不会补零冒充 21 点 MANO；固定 21 点 Full 导出将被能力检查阻止。"))
     if family == "nexus_multimodal":
+        if node_counts == {20}:
+            issues.append(_issue(
+                "warning",
+                "nexus20_mano21_experimental",
+                "已启用 Nexus/DexWeaveG1 20→MANO21 实验适配：假设源节点为拇指到小指、每指4点连续排列；MANO0 由掌宽、近端指向和 wrist_quat 重建。厂商节点表确认前保留实验标记。",
+            ))
         issues.append(_issue("info", "nexus_sensor_fusion_strategy", "Nexus 使用独立的多传感器融合策略；Mocap 保留用于时序与运动分析，但不会启用 Joint 画面叠加。"))
         if has_rgb and has_depth:
             if selected_camera_profile:
@@ -632,6 +869,8 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         "can_depth_arm_localization": bool(has_depth and has_intrinsics and effective_rgb_depth_extrinsics),
         "can_pose_recovery": bool(processing_strategy["pose_recovery"]),
         "can_pressure_analysis": has_contact_sensor,
+        "can_openxr_mano21_adapter": family == "openxr" and has_joint,
+        "can_nexus_mano21_adapter": family == "nexus_multimodal" and node_counts == {20},
         "can_full_export": can_full_export,
     }
     severities = {item["severity"] for item in issues}
@@ -647,6 +886,7 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         sampled_signatures.append(f"{relative}:{stat.st_size}:{stat.st_mtime_ns}")
     signature_parts = [
         str(root).casefold(), family, str(len(episode_directories)),
+        str((selected_camera_profile or {}).get("id") or "<no-camera-profile>"),
         *sorted(set(sampled_signatures)),
         *[child.name for child in children[:64]],
     ]
@@ -672,12 +912,19 @@ def inspect_dataset_format(path: str | Path, camera_profile_id: str | None = Non
         "metadata_samples": [path.relative_to(root).as_posix() for path in metadata_paths],
         "sampled_file_count": len(sampled_files),
         "sampled_extension_counts": extension_counts,
+        "media_probe": media_probe,
         "declared_streams": declared_streams,
         "modality_counts": modality_counts,
         "kind_counts": kind_counts,
         "processing_strategy": processing_strategy,
+        "processing_mode": mode_contract_for_family(family, processing_strategy),
         "camera_calibration": camera_calibration,
         "capabilities": capabilities,
+        "canonical_adapters": (
+            ["openxr_hand_26_to_mano21"] if family == "openxr"
+            else ["nexus_dexweaveg1_20_to_mano21"] if family == "nexus_multimodal" and node_counts == {20}
+            else []
+        ),
         "issues": issues,
         "mapping_rules": [
             "RGB、Depth、Joint、Action、Tactile/Pressure、IMU 与 Timestamp 保持独立流，不按数组形状互相猜测。",
@@ -764,10 +1011,10 @@ def describe_source(
             kind, modality, role = "sensor", "imu", "inertial_sensor"
         elif any(token in text for token in ("action", "command", "control", "target_qpos", "target_joint")):
             kind, modality, role = "action", "command", "robot_action"
-        elif any(token in text for token in ("skeleton", "keypoint", "mocap", "joint_pos", "joint_position", "joint_angle", "qpos", "wrist_quat", "endpose", "end_pose", "eef_pose", "tcp_pose")):
+        elif any(token in text for token in ("openxr", "xr_hand", "xrhand", "joint_locations", "hand_joints", "skeleton", "keypoint", "mocap", "joint_pos", "joint_position", "joint_angle", "qpos", "wrist_quat", "endpose", "end_pose", "eef_pose", "tcp_pose")):
             kind = "joint"
-            modality = "pose" if any(token in text for token in ("skeleton", "keypoint", "mocap", "quat", "pose")) else "position"
-            role = "hand_skeleton" if any(token in text for token in ("skeleton", "hand", "mocap")) else "joint_state"
+            modality = "pose" if any(token in text for token in ("openxr", "xr_hand", "xrhand", "joint_locations", "hand_joints", "skeleton", "keypoint", "mocap", "quat", "pose")) else "position"
+            role = "hand_skeleton" if any(token in text for token in ("openxr", "xr_hand", "xrhand", "joint_locations", "hand_joints", "skeleton", "hand", "mocap")) else "joint_state"
         elif field_text and shape and len(shape) >= 3 and any(token in text for token in ("depth", "image", "rgb")):
             kind, modality, role = "vision", "depth" if "depth" in text else "rgb", "embedded_image_tensor"
         elif any(token in text for token in ("sync.parquet", "video_timestamps", "arrival_timestamps")):
@@ -824,8 +1071,30 @@ def build_local_schema_profile(inventory: dict, report: dict) -> dict:
         if kind not in _SUPPORTED_STREAM_KINDS:
             continue
         modality = descriptor["modality"] if descriptor["modality"] != "unknown" else str(candidate.get("modality") or "unknown")
-        extraction = "skeleton_xyz" if descriptor.get("role") == "hand_skeleton" and len(shape) == 3 and shape[-1] >= 3 else ""
+        openxr_detection = detect_openxr_schema(
+            shape=shape,
+            source_path=source_path,
+            field=str(field or ""),
+        )
+        is_openxr = bool(openxr_detection.get("detected"))
+        is_nexus20 = bool(
+            report.get("format_family") == "nexus_multimodal"
+            and len(shape) >= 3
+            and shape[-2] == 20
+            and shape[-1] in {3, 7}
+            and descriptor.get("role") == "hand_skeleton"
+        )
+        extraction = (
+            "openxr_hand_26_to_mano21" if is_openxr
+            else "nexus_dexweaveg1_20_to_mano21" if is_nexus20
+            else "skeleton_xyz" if descriptor.get("role") == "hand_skeleton" and len(shape) == 3 and shape[-1] >= 3
+            else ""
+        )
         representation = "absolute" if kind == "joint" and modality == "pose" else "unknown"
+        dimension_names = (
+            [f"mano21_{node:02d}.{axis}" for node in range(21) for axis in ("x", "y", "z")]
+            if is_openxr or is_nexus20 else _dimension_names(descriptor, str(field) if field is not None else None, shape)
+        )
         streams.append({
             "source_id": str(candidate.get("id") or ""),
             "kind": kind,
@@ -833,9 +1102,13 @@ def build_local_schema_profile(inventory: dict, report: dict) -> dict:
             "side": descriptor["side"] if descriptor["side"] != "unknown" else str(candidate.get("side_hint") or "unknown"),
             "role": descriptor["role"],
             "representation": representation,
-            "dimension_names": _dimension_names(descriptor, str(field) if field is not None else None, shape),
+            "dimension_names": dimension_names,
             "gripper_indices": [],
-            "embodiment_id": "dexweaveg1" if report.get("format_family") == "nexus_multimodal" and kind == "joint" else None,
+            "embodiment_id": (
+                "openxr-hand-26" if is_openxr
+                else "dexweaveg1" if report.get("format_family") == "nexus_multimodal" and kind == "joint"
+                else None
+            ),
             "confidence": descriptor["confidence"],
             "evidence": descriptor["evidence"],
             "source_path": source_path,
@@ -845,6 +1118,9 @@ def build_local_schema_profile(inventory: dict, report: dict) -> dict:
             "variant": descriptor["variant"],
             "synchronized": descriptor["synchronized"],
             "extraction": extraction,
+            "source_schema": "openxr_hand_26" if is_openxr else "nexus_dexweaveg1_20" if is_nexus20 else None,
+            "canonical_schema": "mano21" if is_openxr or is_nexus20 else None,
+            "experimental_node_order": True if is_nexus20 else None,
         })
 
     by_id = {item["source_id"]: item for item in streams if item.get("source_id")}

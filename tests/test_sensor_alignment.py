@@ -11,10 +11,12 @@ import numpy as np
 from app.sensor_alignment import (
     _episode_records,
     ensure_episode_time_sync,
+    find_sensor_alignment_stream,
     _nearest_timestamp_lookup,
     _reference_timestamps,
     load_sensor_alignment,
     map_video_frame_to_sensor,
+    retime_sensor_alignment,
     scan_episode_sensor_alignment,
     SensorAlignmentJobManager,
     sensor_alignment_path,
@@ -98,6 +100,19 @@ class SensorAlignmentTests(unittest.TestCase):
         self.assertEqual("ready", document["gate"]["status"])
         self.assertEqual(30.0, document["gate"]["reference_fps"])
         self.assertEqual(1, len(document["streams"]))
+
+    def test_t0_counts_discovered_repairs_when_cached_file_kind_is_other(self) -> None:
+        path = self.root / "legacy_other.h5"
+        with h5py.File(path, "w") as handle:
+            handle.create_dataset("values", data=np.zeros((300, 4), dtype=np.float32))
+        manifest = self._manifest(path.name)
+        manifest["files"][0]["canonical_kind"] = "other"
+
+        document = ensure_episode_time_sync(manifest, self.episode, force=True)
+
+        self.assertTrue(document["streams"][0]["repair_applied"])
+        self.assertEqual("ready_with_repairs", document["gate"]["quality_status"])
+        self.assertEqual(1, document["gate"]["repaired_stream_count"])
 
     def test_t0_time_sync_gate_blocks_a_missing_critical_sensor(self) -> None:
         manifest = self._manifest("missing.h5")
@@ -407,6 +422,84 @@ class SensorAlignmentTests(unittest.TestCase):
             "wrist-left",
             load_sensor_alignment(manifest, self.episode["id"], "wrist-left")["reference_media_file_id"],
         )
+
+    def test_hdf5_fields_with_different_rates_get_independent_streams(self) -> None:
+        path = self.root / "mixed.h5"
+        with h5py.File(path, "w") as handle:
+            handle.create_dataset("joint/values", data=np.zeros((30, 63), dtype=np.float32))
+            handle.create_dataset("joint/timestamps", data=np.arange(30, dtype=np.float64) / 30.0)
+            handle.create_dataset("tactile/values", data=np.zeros((100, 8), dtype=np.float32))
+            handle.create_dataset("tactile/timestamps", data=np.arange(100, dtype=np.float64) / 100.0)
+        manifest = self._manifest(path.name)
+        manifest["files"][0]["canonical_kind"] = "sensor"
+
+        document = scan_episode_sensor_alignment(manifest, self.episode, force=True)
+        streams = {str(item.get("field")): item for item in document["streams"]}
+
+        self.assertEqual({"joint/values", "tactile/values"}, set(streams))
+        self.assertEqual(30, streams["joint/values"]["data_count"])
+        self.assertEqual(100, streams["tactile/values"]["data_count"])
+        self.assertEqual("timestamp_nearest", streams["joint/values"]["mode"])
+        self.assertEqual("timestamp_nearest", streams["tactile/values"]["mode"])
+
+    def test_source_signature_includes_csv_numpy_and_npz(self) -> None:
+        csv_path = self.root / "joint.csv"
+        csv_path.write_text("timestamp,joint_x\n0,1\n0.033333,2\n0.066667,3\n", encoding="utf-8")
+        npy_path = self.root / "joint.npy"
+        np.save(npy_path, np.zeros((4, 3), dtype=np.float32))
+        npz_path = self.root / "tactile.npz"
+        np.savez(npz_path, values=np.zeros((4, 2), dtype=np.float32))
+        manifest = {
+            **self._manifest(csv_path.name),
+            "files": [
+                {"id": "csv", "relative_path": csv_path.name, "extension": ".csv", "episode_id": self.episode["id"], "canonical_kind": "joint"},
+                {"id": "npy", "relative_path": npy_path.name, "extension": ".npy", "episode_id": self.episode["id"], "canonical_kind": "joint"},
+                {"id": "npz", "relative_path": npz_path.name, "extension": ".npz", "episode_id": self.episode["id"], "canonical_kind": "sensor"},
+            ],
+        }
+
+        document = scan_episode_sensor_alignment(manifest, self.episode, force=True)
+        signature_paths = {str(item.get("relative_path")) for item in document["source_signature"]["files"]}
+
+        self.assertEqual({csv_path.name, npy_path.name, npz_path.name}, signature_paths)
+
+    def test_field_stream_lookup_rejects_wrong_source_count(self) -> None:
+        document = {
+            "streams": [
+                {"relative_path": "mixed.h5", "field": "joint/values", "data_count": 30, "kind": "joint"},
+                {"relative_path": "mixed.h5", "field": "tactile/values", "data_count": 100, "kind": "sensor"},
+            ]
+        }
+        self.assertEqual(
+            "joint/values",
+            find_sensor_alignment_stream(document, "mixed.h5", field="joint/values", source_count=30)["field"],
+        )
+        self.assertIsNone(
+            find_sensor_alignment_stream(document, "mixed.h5", field="joint/values", source_count=100),
+        )
+
+    def test_retime_sensor_alignment_preserves_fractional_source_positions(self) -> None:
+        document = {
+            "reference_video": {"file_id": "video-1", "fps": 60.0, "frame_count": 4},
+            "streams": [{
+                "relative_path": "joint.hdf5",
+                "data_count": 7,
+                "frame_to_sensor_index": [0, 2, 4, 6],
+            }],
+        }
+
+        output = retime_sensor_alignment(document, {
+            "file_id": "video-1",
+            "frame_count": 4,
+            "fps": 30.0,
+            "source_frame_count": 4,
+            "source_frame_positions": [0.0, 0.5, 1.5, 3.0],
+            "smoothing_mode": "eis_motion_compensated_30",
+        })
+
+        self.assertEqual([0.0, 1.0, 3.0, 6.0], output["streams"][0]["frame_to_sensor_position"])
+        self.assertEqual("eis_motion_compensated_30", output["retiming"]["mode"])
+        self.assertEqual(2, output["retiming"]["fractional_source_frame_count"])
 
 
 if __name__ == "__main__":

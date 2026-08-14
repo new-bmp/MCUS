@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 import pyarrow.parquet as parquet
 
+from app.full_export import export_episode
 from app.nexus_lerobot_export import (
     NEXUS_SKELETON_NODE_NAMES,
     convert_nexus_to_lerobot,
@@ -106,6 +107,8 @@ class NexusLeRobotExportTests(unittest.TestCase):
             data = parquet.read_table(data_path)
             self.assertEqual(6, data.num_rows)
             self.assertEqual(20 * 7, data.schema.field("observation.left_hand.skeleton").type.list_size)
+            self.assertEqual(21 * 3, data.schema.field("observation.left_hand.mano21_positions").type.list_size)
+            self.assertEqual(21, data.schema.field("quality.left_hand.mano21_valid").type.list_size)
             self.assertEqual(225, data.schema.field("observation.left_hand.tactile").type.list_size)
             self.assertNotIn("action", data.column_names)
             self.assertEqual([0, 1, 2, 3, 4, 5], data["source.master_frame_index"].to_pylist())
@@ -125,6 +128,9 @@ class NexusLeRobotExportTests(unittest.TestCase):
             info = json.loads((output / "meta" / "info.json").read_text(encoding="utf-8"))
             self.assertEqual("nexus_dexweaveg1_bimanual_multimodal", info["robot_type"])
             self.assertEqual(list(NEXUS_SKELETON_NODE_NAMES), info["features"]["observation.left_hand.skeleton"]["names"])
+            self.assertEqual([21, 3], info["features"]["observation.left_hand.mano21_positions"]["shape"])
+            self.assertTrue(info["hand_geometry_node_order_assumed"])
+            self.assertIn("wrist_quat", info["mano0_policy"])
             self.assertIn("observation.images.head", info["features"])
             self.assertNotIn("action", info["features"])
             tasks = parquet.read_table(output / "meta" / "tasks.parquet")
@@ -179,6 +185,170 @@ class NexusLeRobotExportTests(unittest.TestCase):
             )
             tasks = parquet.read_table(output / "meta" / "tasks.parquet")
             self.assertEqual(["sort cups"], tasks["task"].to_pylist())
+
+    def test_all_invalid_curation_never_falls_back_to_full_episode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "nexus"
+            output = root / "lerobot"
+            episode = self._write_episode(source)
+            curation = root / "curation.alice"
+            curation.write_text(json.dumps({
+                "episode_id": episode.name,
+                "segments": [{"start_frame": 0, "end_frame": 5, "state": "invalid"}],
+            }), encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "No Nexus frames remained"):
+                convert_nexus_to_lerobot(
+                    source,
+                    output,
+                    cameras=("head",),
+                    curation=curation,
+                )
+
+            self.assertFalse((output / "data").exists())
+
+    def test_keep_all_frames_exports_curation_quality_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "nexus"
+            output = root / "lerobot"
+            episode = self._write_episode(source)
+            curation = root / "curation.alice"
+            curation.write_text(json.dumps({
+                "episode_id": episode.name,
+                "segments": [
+                    {"start_frame": 0, "end_frame": 1, "state": "valid"},
+                    {"start_frame": 2, "end_frame": 3, "state": "invalid"},
+                    {"start_frame": 4, "end_frame": 4, "state": "uncertain"},
+                    {"start_frame": 5, "end_frame": 5, "state": "valid"},
+                ],
+            }), encoding="utf-8")
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = convert_nexus_to_lerobot(
+                    source,
+                    output,
+                    cameras=("head",),
+                    curation=curation,
+                    keep_all_frames=True,
+                )
+
+            self.assertEqual(6, result["frame_count"])
+            data = parquet.read_table(output / "data" / "chunk-000" / "episode_000000.parquet")
+            self.assertEqual(["valid", "valid", "invalid", "invalid", "review", "valid"], data["quality.curation_state"].to_pylist())
+            self.assertEqual([False, False, True, True, False, False], data["quality.is_bad"].to_pylist())
+            self.assertEqual([False, False, False, False, True, False], data["quality.needs_review"].to_pylist())
+
+    def test_full_episode_package_routes_nexus_to_multimodal_exporter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "nexus"
+            output = root / "full"
+            source_episode = self._write_episode(source)
+            curation_path = root / "curation.alice"
+            curation = {
+                "episode_id": "ep",
+                "source_video": {"frame_count": 6, "fps": 30.0},
+                "segments": [
+                    {"start_frame": 0, "end_frame": 1, "state": "valid"},
+                    {"start_frame": 2, "end_frame": 3, "state": "invalid"},
+                    {"start_frame": 4, "end_frame": 5, "state": "valid"},
+                ],
+                "artifact_path": str(curation_path),
+            }
+            curation_path.write_text(json.dumps(curation), encoding="utf-8")
+            behavior_path = root / "behavior.alice"
+            behavior = {
+                "task_label": "sort_cups",
+                "fine": [{"start_frame": 0, "end_frame": 5, "skill": "Grasp", "description": "Grasp the cup."}],
+                "segments": [{"start_frame": 0, "end_frame": 5, "phase_label": "grasp", "skill": "Grasp"}],
+                "artifacts": {"behavior": str(behavior_path)},
+            }
+            behavior_path.write_text(json.dumps(behavior), encoding="utf-8")
+            manifest = {
+                "id": "dataset",
+                "root_path": str(source),
+                "format_family": "nexus_multimodal",
+                "format_map": {
+                    "format_family": "nexus_multimodal",
+                    "processing_strategy": {"id": "nexus_sensor_fusion_v1"},
+                    "capabilities": {"can_full_export": False, "can_nexus_mano21_adapter": True},
+                },
+                "files": [{
+                    "id": "sync",
+                    "relative_path": f"{source_episode.name}/meta/sync.parquet",
+                    "episode_id": "ep",
+                }],
+            }
+            episode = {"id": "ep", "name": source_episode.name, "frame_count": 6, "fps": 30.0}
+
+            with patch.dict(os.environ, {"ALICE_VIDEO_ENCODER": "opencv"}):
+                result = export_episode(
+                    output,
+                    manifest,
+                    episode,
+                    {"frame_count": 6, "fps": 30.0},
+                    curation,
+                    behavior,
+                    lambda *_: None,
+                    output_format="episode_lerobot_json",
+                    run_id="run",
+                    timeline_id="timeline",
+                )
+
+            self.assertTrue(result["nexus_multimodal"])
+            pair = result["pairs"][0]
+            data = parquet.read_table(pair["data"])
+            self.assertEqual(6, data.num_rows)
+            self.assertEqual(["valid", "valid", "invalid", "invalid", "valid", "valid"], data["quality.curation_state"].to_pylist())
+            self.assertTrue(Path(pair["subtasks_json"]).is_file())
+
+    def test_full_episode_package_rejects_nexus_timeline_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "nexus"
+            output = root / "full"
+            source_episode = self._write_episode(source)
+            manifest = {
+                "id": "dataset",
+                "root_path": str(source),
+                "format_family": "nexus_multimodal",
+                "format_map": {
+                    "format_family": "nexus_multimodal",
+                    "capabilities": {"can_full_export": False, "can_nexus_mano21_adapter": True},
+                },
+                "files": [{
+                    "id": "sync",
+                    "relative_path": f"{source_episode.name}/meta/sync.parquet",
+                    "episode_id": "ep",
+                }],
+            }
+            episode = {"id": "ep", "name": source_episode.name, "frame_count": 6, "fps": 30.0}
+            curation = {
+                "source_video": {"frame_count": 6, "fps": 30.0},
+                "segments": [{"start_frame": 0, "end_frame": 5, "state": "valid"}],
+            }
+
+            with (
+                patch(
+                    "app.nexus_lerobot_export.convert_nexus_to_lerobot",
+                    return_value={"frame_count": 5, "fps": 30.0, "episodes": []},
+                ) as convert,
+                self.assertRaisesRegex(RuntimeError, "时间轴与清洗报告不一致"),
+            ):
+                export_episode(
+                    output,
+                    manifest,
+                    episode,
+                    {"frame_count": 6, "fps": 30.0},
+                    curation,
+                    {"task_label": "sort_cups", "segments": []},
+                    lambda *_: None,
+                    output_format="episode_lerobot_json",
+                )
+
+            self.assertTrue(convert.call_args.kwargs["keep_all_frames"])
 
 
 if __name__ == "__main__":

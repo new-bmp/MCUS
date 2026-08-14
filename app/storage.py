@@ -12,6 +12,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -956,6 +957,50 @@ def _file_id(relative_path: str) -> str:
     return hashlib.sha1(relative_path.encode("utf-8")).hexdigest()[:16]
 
 
+def _canonical_root_key(path: str | Path) -> str:
+    resolved = str(Path(path).expanduser().resolve())
+    return os.path.normcase(resolved).replace("\\", "/")
+
+
+def _existing_manifest_for_root(root: Path) -> dict | None:
+    """Return the newest registered manifest for a source root, if any."""
+    target = _canonical_root_key(root)
+    matches: list[dict] = []
+    if not MANIFESTS.is_dir():
+        return None
+    for registry_path in MANIFESTS.glob("*.json"):
+        try:
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            manifest_path = registry.get("manifest_path")
+            manifest = (
+                json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+                if manifest_path and Path(manifest_path).is_file()
+                else registry
+            )
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+        if _canonical_root_key(str(manifest.get("root_path") or "")) == target and manifest.get("id"):
+            matches.append(manifest)
+    if not matches:
+        return None
+    return max(matches, key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""))
+
+
+def _stable_dataset_id(root: Path, name: str | None) -> str:
+    digest = hashlib.sha1(_canonical_root_key(root).encode("utf-8")).hexdigest()[:10]
+    return f"{slugify(name or root.name)}-{digest}"
+
+
+def _image_episode_key(path: Path, root: Path) -> str:
+    """Keep an image directory on one Episode boundary, honoring ep_* parents."""
+    relative = path.relative_to(root)
+    for index, part in enumerate(relative.parts[:-1]):
+        if re.fullmatch(r"(?:ep|episode)[_-]?\d+(?:[_-].*)?", part, re.IGNORECASE):
+            return Path(*relative.parts[: index + 1]).as_posix()
+    parent = relative.parent.as_posix()
+    return parent if parent not in {"", "."} else root.name
+
+
 def _file_kind(path: Path) -> tuple[str, str]:
     suffix = path.suffix.lower()
     if suffix in VIDEO_EXTENSIONS:
@@ -1279,11 +1324,20 @@ def scan_dataset(
     name: str | None = None,
     dataset_id: str | None = None,
     camera_profile_id: str | None = None,
+    progress: Callable[[float, str, dict], None] | None = None,
+    check_cancelled: Callable[[], None] | None = None,
 ) -> dict:
+    def report(value: float, message: str, **metrics) -> None:
+        if check_cancelled is not None:
+            check_cancelled()
+        if progress is not None:
+            progress(float(value), message, metrics)
+
     ensure_runtime()
     root = Path(path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise ValueError(f"数据集目录不存在: {root}")
+    report(2, "正在确认数据集身份")
     existing_sidecar = None
     existing_manifest = None
     if dataset_id:
@@ -1292,15 +1346,20 @@ def scan_dataset(
             existing_sidecar = _manifest_sidecar_path(existing_manifest)
         except KeyError:
             existing_sidecar = None
+    else:
+        existing_manifest = _existing_manifest_for_root(root)
+        if existing_manifest:
+            dataset_id = str(existing_manifest["id"])
+            existing_sidecar = _manifest_sidecar_path(existing_manifest)
     if camera_profile_id is None and existing_manifest:
         camera_profile_id = str(
             (existing_manifest.get("camera_calibration") or {}).get("selected_profile_id") or ""
         ) or None
+    report(5, "正在复核数据格式")
     format_report = inspect_dataset_format(root, camera_profile_id=camera_profile_id)
-    dataset_id = dataset_id or f"{slugify(name or root.name)}-{uuid.uuid4().hex[:8]}"
+    dataset_id = dataset_id or _stable_dataset_id(root, name)
     sidecar_root = existing_sidecar or dataset_sidecar_root(root, dataset_id)
-    _ensure_sidecar_layout(sidecar_root)
-    format_map_path = write_format_report(sidecar_root / "format-map.json", format_report)
+    format_map_path = sidecar_root / "format-map.json"
     episodes: list[dict] = []
     indexed_files: list[dict] = []
     auxiliary_files: list[dict] = []
@@ -1308,7 +1367,11 @@ def scan_dataset(
     image_groups: dict[Path, list[Path]] = {}
     image_group_records: dict[Path, list[dict]] = {}
     raw_depth_groups: dict[str, list[dict]] = {}
+    scanned_count = 0
     for item, stat in _iter_dataset_files(root):
+        scanned_count += 1
+        if scanned_count == 1 or scanned_count % 500 == 0:
+            report(12, f"正在建立文件索引 · 已发现 {scanned_count} 个文件", file_count=scanned_count)
         if RUNTIME in item.parents or _is_sidecar_member(item, root):
             continue
         if _is_auxiliary_source_file(item):
@@ -1318,8 +1381,7 @@ def scan_dataset(
         relative = item.relative_to(root).as_posix()
         kind, category = _file_kind(item)
         descriptor = describe_source(relative, report=format_report)
-        image_sequence = suffix in IMAGE_EXTENSIONS and item.stem.isdigit()
-        group_key = item.parent.relative_to(root).as_posix() if image_sequence else episode_key(item, root)
+        group_key = _image_episode_key(item, root) if suffix in IMAGE_EXTENSIONS else episode_key(item, root)
         if not group_key or group_key == ".":
             group_key = root.name
         record = {
@@ -1362,8 +1424,16 @@ def scan_dataset(
     except ValueError:
         configured_workers = min(8, os.cpu_count() or 4)
     worker_count = max(1, min(8, configured_workers))
+    report(35, f"正在探测媒体信息 · {len(probe_payloads)} 条视频", file_count=len(indexed_files), video_count=len(probe_payloads))
     with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="alice-media-probe") as executor:
-        for group_key, record, stream in executor.map(probe_video_record, probe_payloads):
+        for position, (group_key, record, stream) in enumerate(executor.map(probe_video_record, probe_payloads), start=1):
+            report(
+                35 + 25 * position / max(1, len(probe_payloads)),
+                f"正在探测视频 · {position}/{len(probe_payloads)}",
+                file_count=len(indexed_files),
+                video_count=len(probe_payloads),
+                probed_video_count=position,
+            )
             if stream:
                 video_results.setdefault(group_key, []).append((record, stream))
 
@@ -1394,29 +1464,41 @@ def scan_dataset(
         episode["media_streams"] = media_streams
         episodes.append(episode)
 
+    episodes_by_key = {episode["episode_key"]: episode for episode in episodes}
     for parent, paths in image_groups.items():
-        group_key = parent.relative_to(root).as_posix() or parent.name
+        records = image_group_records.get(parent, [])
+        group_key = str(records[0]["episode_key"]) if records else (parent.relative_to(root).as_posix() or parent.name)
         episode = _probe_images(paths, root, group_key)
         if episode:
-            records = image_group_records.get(parent, [])
             representative_record = records[0] if records else None
-            episode["media_files"] = [path.relative_to(root).as_posix() for path in sorted(paths)]
-            episode["primary_media_file_id"] = None
+            image_files = [path.relative_to(root).as_posix() for path in sorted(paths)]
             image_stream = {
                 key: value for key, value in episode.items()
                 if key in {"type", "path", "relative_path", "frames", "fps", "frame_count", "duration", "width", "height"}
             }
             if representative_record:
                 image_stream.update(_media_canonical_fields(representative_record))
+                image_stream["file_id"] = representative_record["id"]
                 image_stream["file_ids"] = [record["id"] for record in records]
+                image_stream["stream_name"] = parent.relative_to(root).as_posix() or parent.name
                 image_stream["is_depth_map"] = representative_record.get("modality") == "depth"
+                image_stream["previewable"] = True
                 image_stream["analysis_eligible"] = representative_record.get("modality") == "rgb"
                 image_stream["vlm_eligible"] = representative_record.get("modality") == "rgb"
                 image_stream["smoothing_eligible"] = False
                 episode.update(_media_canonical_fields(representative_record))
-            episode["media_streams"] = [image_stream]
-            episodes.append(episode)
+            existing = episodes_by_key.get(group_key)
+            if existing is not None:
+                existing.setdefault("media_streams", []).append(image_stream)
+                existing["media_files"] = list(dict.fromkeys([*existing.get("media_files", []), *image_files]))
+            else:
+                episode["media_files"] = image_files
+                episode["primary_media_file_id"] = image_stream.get("file_id")
+                episode["media_streams"] = [image_stream]
+                episodes.append(episode)
+                episodes_by_key[group_key] = episode
 
+    report(68, f"媒体探测完成 · 已建立 {len(episodes)} 个 Episode", file_count=len(indexed_files), episode_count=len(episodes))
     episodes_by_key = {episode["episode_key"]: episode for episode in episodes}
     for group_key, records in raw_depth_groups.items():
         existing = episodes_by_key.get(group_key)
@@ -1527,12 +1609,17 @@ def scan_dataset(
     indexed_files.sort(key=lambda item: item["relative_path"].lower())
 
     episode_resolution = build_local_episode_plan(indexed_files, episodes)
+    report(76, "正在建立结构化字段清单", file_count=len(indexed_files), episode_count=len(episodes))
     inventory = _canonicalize_inventory(
         build_inventory(root, episodes, {item["relative_path"] for item in indexed_files}),
         format_report,
     )
     schema_profile = build_local_schema_profile(inventory, format_report)
+    report(90, "正在持久化数据集索引", file_count=len(indexed_files), episode_count=len(episodes))
+    _ensure_sidecar_layout(sidecar_root)
+    format_map_path = write_format_report(format_map_path, format_report)
     persisted_format_report = {**format_report, "artifact_path": str(format_map_path)}
+    now = datetime.now(timezone.utc).isoformat()
     manifest = {
         "id": dataset_id,
         "name": name or root.name,
@@ -1549,7 +1636,8 @@ def scan_dataset(
             "invalid_frame_indices": "indices/invalid",
             "format_map": "format-map.json",
         },
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": (existing_manifest or {}).get("created_at") or now,
+        "updated_at": now,
         "episode_count": len(episodes),
         "frame_count": sum(item["frame_count"] for item in episodes),
         "file_count": len(indexed_files),
@@ -1580,6 +1668,7 @@ def scan_dataset(
         "files": sorted(auxiliary_files, key=lambda item: item["relative_path"].lower()),
     })
     save_manifest(manifest)
+    report(100, "数据集索引已建立", file_count=len(indexed_files), episode_count=len(episodes))
     return manifest
 
 

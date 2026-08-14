@@ -204,7 +204,11 @@ def write_full_timeline_lock(
         "logical_frame_count": int(analysis_media.get("frame_count") or 0),
         "fps": float(analysis_media.get("fps") or 0.0),
         "projection_application_id": (projection or {}).get("application_id"),
-        "projection_retimed": bool((projection or {}).get("retiming")),
+        "projection_enabled": projection is not None,
+        "projection_backend": ((projection or {}).get("model") or {}).get("backend"),
+        "projection_adjustment_rate": ((projection or {}).get("summary") or {}).get("adjustment_rate"),
+        "projection_activation_scope": (projection or {}).get("activation_scope"),
+        "projection_retimed": int(((projection or {}).get("retiming") or {}).get("inserted_frame_count") or 0) > 0,
         "smoothing_artifact": str((smoothing or {}).get("artifact_path") or "") or None,
     }
     serialized = json.dumps(core, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -340,6 +344,10 @@ def load_full_run_episode_bundle(
     smoothing_record = artifacts.get("smoothing") or {}
     smoothing_document = load_document("smoothing")
     smoothing_video = _resolve_artifact_path(dataset_id, resolved_run_id, smoothing_record.get("video"))
+    projection_record = artifacts.get("projection") or {}
+    projection_document = load_document("projection") if projection_record else None
+    projection_hdf5 = _resolve_artifact_path(dataset_id, resolved_run_id, projection_record.get("hdf5"))
+    projection_video = _resolve_artifact_path(dataset_id, resolved_run_id, projection_record.get("video"))
     curation_document = load_document("curation")
     if smoothing_document is None or smoothing_video is None or curation_document is None:
         return None
@@ -353,6 +361,9 @@ def load_full_run_episode_bundle(
         "timeline": timeline,
         "smoothing": smoothing_document,
         "smoothing_video": str(smoothing_video) if smoothing_video is not None else None,
+        "projection": projection_document,
+        "projection_hdf5": str(projection_hdf5) if projection_hdf5 is not None else None,
+        "projection_video": str(projection_video) if projection_video is not None else None,
         "curation": curation_document,
         "behavior": load_document("behavior"),
         "export": deepcopy(entry.get("export") or artifacts.get("export") or {}),

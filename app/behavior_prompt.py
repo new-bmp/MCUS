@@ -1,30 +1,37 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
-TRI_LEVEL_PROTOCOL_VERSION = "v3"
+TRI_LEVEL_PROTOCOL_VERSION = "v4"
 TRI_LEVEL_PROTOCOL_SCHEMA = "tri_level_v1"
 
 META_ACTION_TRANSLATIONS = {
-    "Move": "移动",
+    "Idle": "空闲",
+    "Observe": "观察",
+    "Reach": "接近目标",
+    "Withdraw": "撤回手臂",
+    "Align": "对齐",
+    "Inspect": "检查",
+    "Move": "整体移动",
     "TurnWheel": "转动轮子",
     "Turn": "转向",
     "Transport": "运输",
     "Carry": "携带",
-    "Raise height": "升高高度",
-    "Lower height": "降低高度",
+    "Raise height": "升高",
+    "Lower height": "降低",
     "Arch waist backward": "腰部后仰",
     "Bend waist forward": "腰部前倾",
     "Turn head": "转头",
     "Grasp": "抓取",
-    "Hold": "握持",
+    "Hold": "保持抓取",
     "Place": "放置",
     "Release": "释放",
     "Drop": "掉落",
     "Lift": "举起",
-    "Push": "推",
-    "Pull": "拉",
+    "Push": "推动",
+    "Pull": "拉动",
     "Press": "按压",
     "Tap": "轻敲",
     "Touch": "触摸",
@@ -46,16 +53,16 @@ META_ACTION_TRANSLATIONS = {
     "Squeeze": "挤压",
     "Pinch": "捏取",
     "Wipe": "擦拭",
-    "Brush": "刷",
-    "Sweep": "扫地",
-    "Mop": "拖地",
+    "Brush": "刷动",
+    "Sweep": "扫动",
+    "Mop": "拖动清洁",
     "Vacuum": "吸尘",
     "Rinse": "冲洗",
     "Hammer": "锤击",
-    "Screw": "拧螺丝",
+    "Screw": "拧紧螺丝",
     "Unscrew": "拧松螺丝",
     "Cut": "切割",
-    "Chop": "剁碎",
+    "Chop": "剁切",
     "Peel": "削皮",
     "Iron": "熨烫",
     "Stamp": "盖章",
@@ -65,7 +72,7 @@ META_ACTION_TRANSLATIONS = {
     "Unzip": "拉开拉链",
     "Tie": "系紧",
     "Untie": "解开",
-    "Plug": "插插头",
+    "Plug": "插接",
     "Toggle": "拨动",
     "Pour": "倾倒",
     "Scoop": "舀取",
@@ -82,126 +89,13 @@ META_ACTION_TRANSLATIONS = {
     "PullOut": "拔出",
     "Scan": "扫描",
     "Suction": "吸附",
-    "Pipette": "吸取液体",
+    "Pipette": "移液",
     "Clip": "夹取",
     "HandOver": "递交",
     "TakeOver": "接过",
     "KeepPumping": "持续泵送",
     "Other": "其他",
 }
-
-SYSTEM_PROMPT_TEMPLATE = """## 角色定义
-你是一位专业的机器人动作分析与时序分割专家。你能够对机器人操作视频进行精确的时序分割，识别动作边界，并使用标准化的动作标签进行标注。
-
-## 任务说明
-你将收到一段机器人操作视频（你看到的是从原视频均匀抽样的一组关键帧 / 采样视频）。请仔细观察连续帧之间机器人的运动变化，对视频进行**三级粒度**的时序分割与动作标注。
-
-### 帧索引约定（非常重要）
-- **原视频总帧数 = {video_length} frames（时长约 {duration} 秒）**
-- 你**看到的是抽样版本**（约 {n_sampled} 帧 / 帧索引 0..{n_sampled_minus_1}），但 `start_frame` / `end_frame` 必须输出在**原视频帧空间**上，范围 `[0, {video_length_minus_1}]`。
-- 第一个片段必须从 `0` 开始，最后一个片段必须以 `{video_length_minus_1}` 结束。
-- 抽样帧 `i`（0-indexed）大致对应原视频帧 `round(i × ({video_length_minus_1} / {n_sampled_minus_1}))`；输出时按原视频帧标号。
-
----
-
-### 第一级：粗粒度（Coarse）
-**目标**：用一个短语概括机器人在整段视频中执行的任务。
-- 不需要帧区间
-- 描述任务目标而非具体动作
-- 示例："调制饮品"、"整理货架"、"桌面物品分拣"、"厨房清洁"、"零件装配"
-
----
-
-### 第二级：中间粒度（Medium）
-**目标**：将视频切分为若干**语义完整的子任务段**，每段对应一个有明确目的的操作流程。
-- 切分依据：当机器人的**操作目标**发生切换时，划分新片段
-- 片段首尾严格相接，无空隙、无重叠
-- 第一个片段从 frame 0 开始，最后一个片段结束于 {video_length_minus_1}
-- 通常 3~8 个片段为宜
-- 描述要求：一句话说明操作内容："[哪只臂/双臂] + 做了什么 + 对什么物体 + 从哪里到哪里"
-- 需要包含物体名称和空间位置信息
-
----
-
-### 第三级：细粒度（Fine）
-**目标**：将视频切分为**原子级动作段**，每段对应一个 meta_action 标签。
-- 切分依据：当机器人执行的**动作类型**（skill）发生变化时，划分新片段
-- 片段首尾严格相接，无空隙、无重叠
-- 第一个片段从 frame 0 开始，最后一个片段结束于 {video_length_minus_1}
-- **时间长度约束：每个 Fine 片段原则上至少覆盖 5 秒视频内容**；不要输出 1~2 秒的碎片段
-- 若某个动作真实持续不足 5 秒，应优先与前后语义连续、目标一致的动作合并，skill 选择主要动作
-- 只有视频开头/结尾残段，或确实无法合并且对任务理解关键的动作，才允许短于 5 秒
-- 准备动作（如伸手靠近）与主动作（如抓取）无缝衔接时需合并
-- 每个片段只对应一个主要 skill 标签
-- 描述要求：包含动作主体（左臂/右臂/双臂/机器人整体）+ 具体动作内容
-- skill 标签必须从下方的 meta_action 列表中选取
-
-## Meta Action 标签字典（必须从中选取 skill）
-{meta_actions_formatted}
-
-## 动作类型判定规则
-
-### 身体动作 vs 手臂动作
-- 身体动作：机器人整体发生位移或姿态变化，视频表现为背景整体移动/旋转
-- 仅以下标签可用于身体动作：Move, TurnWheel, Turn, Raise height, Lower height, Arch waist backward, Bend waist forward, Turn head
-- 手臂动作：机器人左/右/双臂运动，背景静止，仅肢体和末端执行器移动
-- 除上述身体动作标签外的所有标签均用于手臂动作
-- 手臂动作描述中必须写明是左臂、右臂还是双臂
-
-### 动作合并规则
-- 准备动作（伸手靠近目标）+ 主动作（抓取）→ 合并为一个片段，skill 取主动作
-- 同一动作的持续执行（如持续倾倒 2 秒）→ 不拆分
-- 同一手臂连续对同一物体的操作序列中，动作类型未变 → 不拆分
-- 为保证时间边界稳定，Fine 片段不要过度切分；相邻短动作如果服务于同一操作目标，应合并成不少于 5 秒的片段
-- 合并后的片段仍只填写一个主要 skill，选择最能代表该片段目的的动作标签
-
-### 常见易混淆场景
-- 手臂移动靠近物体 → skill 应为 Grasp（准备+抓取合并），不是 Move
-- 手臂携带物体移动到目标位置 → skill 应为 Carry 或 Transport（取决于是否已到达目标）
-- 机器人整体前进/后退/转向 → 才用 Move / TurnWheel / Turn
-- 夹持器夹取小物体（如叶子、纸片）→ skill 应为 Clip，不是 Grasp
-- 将物体从手中递给另一只手 → skill 应为 HandOver
-
-## 正确示例
-Frames 0-5: 机器人向前移动靠近货架（背景发生移动）-> Skill: Move
-Frames 6-10: 机器人右臂抓取桌面上的水瓶 -> Skill: Grasp
-Frames 11-30: 机器人双臂协同将水瓶的瓶盖拧紧 -> Skill: Screw
-Frames 31-35: 机器人左臂将水瓶传递至右臂 -> Skill: HandOver
-Frames 36-40: 机器人右臂将水瓶放到桌面上 -> Skill: Place
-Frames 41-45: 机器人向右转转向桌子（背景发生旋转）-> Skill: TurnWheel
-
-## 错误示例
-Frames 0-5: 机器人右臂将勺子移向货架 -> Skill: Move
-错误原因：手臂移动不是身体动作，Move 只用于机器人整体位移
-Frames 6-10: 机器人将左臂移向绿色瓶子 -> Skill: Move
-错误原因：手臂靠近物体是 Grasp 的准备阶段，应合并为 Grasp
-
-## 输出格式
-请严格按照以下 JSON 格式输出，用 ```json ... ``` 包裹，不要有额外文字：
-```json
-{
-  "coarse": {
-    "summary": "机器人执行的整体任务描述"
-  },
-  "medium": [
-    {
-      "start_frame": 0,
-      "end_frame": 10,
-      "description": "子任务描述（含物体和位置信息）"
-    }
-  ],
-  "fine": [
-    {
-      "start_frame": 0,
-      "end_frame": 3,
-      "description": "[左臂/右臂/双臂/机器人] + 动作内容描述",
-      "skill": "从meta_action字典中选取的标签（英文）"
-    }
-  ]
-}
-```"""
-
-USER_PROMPT_TEMPLATE = """请基于视频内容进行机器人动作三级粒度时序分割。重点保证 Fine 片段时间边界稳定，每段原则上至少 5 秒；短动作优先合并到相邻主动作。输出必须是 ```json ... ``` 包裹的有效 JSON。"""
 
 
 def canonical_meta_action(value: Any) -> str:
@@ -210,30 +104,138 @@ def canonical_meta_action(value: Any) -> str:
     return lookup.get(text.casefold(), "Other")
 
 
+def _ontology_text(ontology: list[dict] | None) -> str:
+    compact = []
+    for item in ontology or []:
+        if not isinstance(item, dict):
+            continue
+        compact.append({
+            "label": str(item.get("label") or "")[:120],
+            "task": str(item.get("task") or "")[:240],
+            "verbs": [str(value)[:80] for value in (item.get("verbs") or [])[:12]],
+            "objects": [str(value)[:120] for value in (item.get("objects") or [])[:12]],
+            "descriptions": [str(value)[:300] for value in (item.get("descriptions") or [])[:4]],
+        })
+    return json.dumps(compact[:80], ensure_ascii=False, separators=(",", ":"))
+
+
 def build_tri_level_prompts(
     *,
     video_length: int,
     duration: float,
     sampled_frames: list[int],
     context: str = "",
+    ontology: list[dict] | None = None,
+    window_start: int | None = None,
+    window_end: int | None = None,
+    window_index: int = 0,
+    window_count: int = 1,
 ) -> tuple[str, str]:
     frame_count = max(1, int(video_length))
-    sample_count = max(1, len(sampled_frames))
-    replacements = {
-        "{video_length}": str(frame_count),
-        "{duration}": f"{max(0.0, float(duration)):.3f}",
-        "{n_sampled}": str(sample_count),
-        "{n_sampled_minus_1}": str(max(0, sample_count - 1)),
-        "{video_length_minus_1}": str(max(0, frame_count - 1)),
-        "{meta_actions_formatted}": "\n".join(f"- {key}: {value}" for key, value in META_ACTION_TRANSLATIONS.items()),
-    }
-    system_prompt = SYSTEM_PROMPT_TEMPLATE
-    for placeholder, value in replacements.items():
-        system_prompt = system_prompt.replace(placeholder, value)
+    start = max(0, min(frame_count - 1, int(window_start if window_start is not None else 0)))
+    end = max(start, min(frame_count - 1, int(window_end if window_end is not None else frame_count - 1)))
+    meta_actions = "\n".join(f"- {name}: {translation}" for name, translation in META_ACTION_TRANSLATIONS.items())
+    system_prompt = f"""你是机器人操作数据的时序标注专家。
+
+当前请求只分析一个局部时间窗口。输入是按时间顺序排列的独立图片，不是均匀覆盖整个 Episode 的缩略图。每张图前都给出准确的绝对帧号和时间戳。
+
+Episode 总帧数 = {frame_count}，总时长约 {max(0.0, float(duration)):.3f} 秒。
+当前窗口 = [{start}, {end}]，窗口编号 {window_index + 1}/{max(1, int(window_count))}。
+
+要求：
+1. 只描述当前窗口中图片能够支持的动作，不得推测窗口外内容。
+2. start_frame、end_frame、evidence_frames 必须使用 Episode 的绝对帧坐标，并限制在 [{start}, {end}]。
+3. Fine 表示原子动作。短暂的 Reach、Touch、Release、Withdraw 必须保留，不得为了凑时长强行合并。
+4. 每个 Fine 动作必须输出 confidence、object_nouns、primary_targets、target_instance 和 evidence_frames。
+5. evidence_frames 只能选择本次实际提供的采样帧。
+6. 若证据不足，使用 Other 或降低 confidence；不要伪造精确边界。
+7. 左右手、双手和目标物体发生变化时，应拆分动作。
+
+可用 meta_action：
+{meta_actions}
+
+返回严格 JSON，不要 Markdown：
+{{
+  "window_summary": "当前窗口的简短行为概述",
+  "coarse": {{"summary": "对当前窗口所属总体任务的判断"}},
+  "medium": [
+    {{"start_frame": {start}, "end_frame": {end}, "description": "当前窗口中的中层子任务"}}
+  ],
+  "fine": [
+    {{
+      "start_frame": {start},
+      "end_frame": {end},
+      "description": "动作主体、动作、目标物体和位置",
+      "skill": "从 meta_action 中选择",
+      "confidence": 0.0,
+      "object_nouns": ["可检测的物体名词"],
+      "primary_targets": ["主要操作目标"],
+      "target_instance": "用于区分同类目标的实例名",
+      "evidence_frames": [{start}]
+    }}
+  ],
+  "object_nouns": ["窗口内出现的主要操作物体"],
+  "primary_targets": [
+    {{"name": "目标名称", "role": "behavior_target", "confidence": 0.0, "visible_evidence_frames": [{start}], "evidence": "可见证据"}}
+  ],
+  "warnings": []
+}}"""
     exact_mapping = ", ".join(f"{index}->{frame}" for index, frame in enumerate(sampled_frames))
     user_prompt = (
-        USER_PROMPT_TEMPLATE
-        + f"\n抽样帧到原视频帧的精确映射为：{exact_mapping}。若与均匀抽样近似值冲突，以该精确映射为准。"
+        f"请分析当前窗口。采样图序号到 Episode 绝对帧号的精确映射为：{exact_mapping}。"
+        f"\n行为 ontology（用于约束任务名称和物体词，不代表画面事实）：{_ontology_text(ontology)}"
         + (f"\n数据集上下文：{context}" if context else "")
     )
     return system_prompt, user_prompt
+
+
+def build_window_summary_prompt(
+    *,
+    video_length: int,
+    duration: float,
+    allowed_ranges: list[tuple[int, int]],
+    window_results: list[dict],
+    ontology: list[dict] | None = None,
+    context: str = "",
+) -> str:
+    compact_windows = []
+    for item in window_results:
+        compact_windows.append({
+            "window_id": item.get("window_id"),
+            "start_frame": item.get("start_frame"),
+            "end_frame": item.get("end_frame"),
+            "summary": item.get("summary"),
+            "fine": [
+                {
+                    "start_frame": segment.get("start_frame"),
+                    "end_frame": segment.get("end_frame"),
+                    "skill": segment.get("skill"),
+                    "description": segment.get("description"),
+                    "primary_targets": segment.get("primary_targets"),
+                    "confidence": segment.get("confidence"),
+                }
+                for segment in (item.get("segments") or [])
+            ],
+        })
+    evidence = json.dumps(compact_windows, ensure_ascii=False, separators=(",", ":"))[:90000]
+    return f"""你是机器人操作数据的全局任务归纳专家。下面是多个重叠时间窗口已经完成的局部视觉标注。
+
+Episode 总帧数={max(1, int(video_length))}，时长约={max(0.0, float(duration)):.3f}秒。
+允许分析的有效帧区间={allowed_ranges}。区间外是坏帧或质量预检查排除区域，不得根据相邻窗口补写动作。
+
+请完成两件事：
+1. 输出一个 Coarse 总任务摘要。
+2. 输出多个 Medium 中层子任务及绝对帧边界。Medium 应描述目标切换或完整操作阶段，不要把每个 Fine 都复制成 Medium。
+
+优先使用 ontology 中存在的任务概念，但只能在局部视觉证据支持时使用。
+ontology={_ontology_text(ontology)}
+上下文={context}
+局部窗口结果={evidence}
+
+返回严格 JSON，不要 Markdown：
+{{
+  "coarse": {{"summary": "总体任务"}},
+  "medium": [{{"start_frame": 0, "end_frame": {max(0, int(video_length) - 1)}, "description": "中层子任务"}}],
+  "confidence": 0.0,
+  "warnings": []
+}}"""
