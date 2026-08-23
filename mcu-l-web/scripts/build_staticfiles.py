@@ -74,7 +74,7 @@ def main() -> int:
 
     index = index_path.read_text(encoding="utf-8")
     index = re.sub(
-        r'\s*<script src="catalog\.js"></script>\s*<script src="app\.js"></script>',
+        r'\s*<script src="catalog\.js(?:\?[^\"]*)?"></script>\s*<script src="app\.js(?:\?[^\"]*)?"></script>',
         "\n" + "\n".join(scripts),
         index,
         count=1,

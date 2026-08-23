@@ -26,6 +26,12 @@ ARCHITECTURE_NO_FPU = {
     "cortex-m0", "cortex-m0+", "cortex-m1", "cortex-m3", "cortex-m23",
 }
 
+EXACT_DEVICE_SOURCE_KINDS = {
+    "cubemx_device_db", "microchip_atdf", "puya_device_header",
+    "infineon_device_db", "espressif_idf_soc_caps",
+    "hpmicro_product_selector",
+}
+
 
 def read_csv(path: Path) -> list[dict[str, str]]:
     if not path.exists():
@@ -84,7 +90,7 @@ def sum_features(
     # the register superset for several package/memory variants.
     exact_device_features = [
         item for item in matched_features
-        if item.get("source_kind") in {"cubemx_device_db", "microchip_atdf", "puya_device_header", "infineon_device_db", "espressif_idf_soc_caps"}
+        if item.get("source_kind") in EXACT_DEVICE_SOURCE_KINDS
     ]
     if exact_device_features:
         matched_features = exact_device_features
@@ -142,7 +148,12 @@ def processor_core_count(processors: list[dict[str, str]]) -> int | str:
         return ""
     explicit = [number(item.get("DcoreCount")) for item in processors]
     explicit = [value for value in explicit if value is not None and value > 0]
-    return int(sum(explicit)) if explicit else len(processors)
+    if explicit:
+        return int(sum(explicit))
+    descriptions = " ".join(item.get("DsourceDescription", "").lower() for item in processors)
+    if "exact core count not stated" in descriptions:
+        return ""
+    return len(processors)
 
 
 def core_rank(core_names: list[str]) -> float | None:
@@ -196,10 +207,11 @@ def auto_features(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     accelerators: list[dict[str, Any]] = []
     special: list[dict[str, Any]] = []
-    accelerator_types = {"npu", "crypto"}
+    accelerator_types = {"npu", "crypto", "accelerator"}
     accelerator_phrases = (
         "accelerator", "neural", "chrom-art",
-        "dma2d", "graphics", "trigonometric", "math unit", "jpeg codec",
+        "dma2d", "graphics", "gpu", "openvg", "trigonometric", "math unit",
+        "jpeg codec", "fft", "filter accelerator",
     )
     accelerator_token_pattern = re.compile(
         r"(?<![a-z0-9])(?:npu|tmu|cordic|fmac|crc|aes|sha|hash|pka)\d*(?![a-z0-9])",
@@ -239,15 +251,17 @@ PERIPHERAL_CATEGORIES = {
     "i2c": "connectivity", "spi": "connectivity", "i2s": "connectivity",
     "uart": "connectivity", "usart": "connectivity", "lin": "connectivity",
     "can": "connectivity", "usbd": "connectivity", "usbh": "connectivity",
-    "usbotg": "connectivity", "eth": "connectivity", "sdio": "connectivity",
+    "usbotg": "connectivity", "usb": "connectivity", "eth": "connectivity", "sdio": "connectivity",
+    "ethphy": "connectivity",
     "sdiohost": "connectivity", "sdioslave": "connectivity", "i3c": "connectivity",
     "wifi": "wireless", "wifi6": "wireless", "bluetooth": "wireless",
     "ieee802154": "wireless",
     "mipi": "connectivity", "mpserial": "connectivity", "com": "connectivity",
-    "comother": "connectivity",
+    "comother": "connectivity", "audio": "display_multimedia",
     "camera": "display_multimedia", "lcd": "display_multimedia", "glcd": "display_multimedia",
     "extbus": "memory_bus", "dma": "memory_bus",
-    "crypto": "security", "security": "security", "rng": "security", "npu": "accelerator", "coreother": "accelerator",
+    "crypto": "security", "security": "security", "rng": "security", "npu": "accelerator",
+    "coreother": "accelerator", "accelerator": "accelerator", "vendorcapability": "other",
     "rmt": "timing", "ledpwm": "timing", "mcpwm": "timing",
     "psram": "memory_bus", "rtc_ram": "memory_bus", "hall": "analog", "tof": "connectivity",
     "nvic": "system", "extint": "system", "pll": "clock", "xtal": "clock",
@@ -311,7 +325,7 @@ def feature_present(
     ]
     exact = [
         feature for feature in matched
-        if feature.get("source_kind") in {"cubemx_device_db", "microchip_atdf", "puya_device_header", "infineon_device_db", "espressif_idf_soc_caps"}
+        if feature.get("source_kind") in EXACT_DEVICE_SOURCE_KINDS
     ]
     if exact:
         matched = exact
@@ -359,6 +373,7 @@ def main() -> int:
         uart_count = sum_features(features, types={"UART"}, name_tokens=("uart interface",))
         can_count = sum_features(features, types={"CAN"}, name_tokens=("can interface",))
         dma_count = sum_features(features, types={"DMA"}, name_tokens=("direct memory access",))
+        usb_count = sum_features(features, types={"USB"})
         usb_device_count = sum_features(features, types={"USBD", "USBOTG"})
         usb_host_count = sum_features(features, types={"USBH", "USBOTG"})
         ethernet_count = sum_features(features, types={"ETH"})
@@ -438,7 +453,7 @@ def main() -> int:
         adc_channel_values: list[float] = []
         exact_adc_units = [
             item for item in adc_unit_features
-            if item.get("source_kind") in {"cubemx_device_db", "microchip_atdf", "puya_device_header", "infineon_device_db", "espressif_idf_soc_caps"}
+            if item.get("source_kind") in EXACT_DEVICE_SOURCE_KINDS
         ]
         unit_input = exact_adc_units or adc_unit_features
         explicit_channel_features = [
@@ -541,6 +556,7 @@ def main() -> int:
             "uart_count": compact_number(uart_count),
             "can_count": compact_number(can_count),
             "can_fd_present": "yes" if any(item.get("type") == "CAN" and "fd" in item.get("name", "").lower() for item in features) else ("no" if can_count is not None else "unknown"),
+            "usb_count": compact_number(usb_count),
             "usb_device_count": compact_number(usb_device_count),
             "usb_host_count": compact_number(usb_host_count),
             "ethernet_count": compact_number(ethernet_count),
@@ -595,8 +611,8 @@ def main() -> int:
             peripheral_pieces.append(min(20, serial_total / 12 * 20))
         if can_count is not None:
             peripheral_pieces.append(10 if can_count > 0 else 0)
-        if usb_device_count is not None or usb_host_count is not None:
-            peripheral_pieces.append(10 if (usb_device_count or 0) + (usb_host_count or 0) > 0 else 0)
+        if usb_count is not None or usb_device_count is not None or usb_host_count is not None:
+            peripheral_pieces.append(10 if (usb_count or 0) + (usb_device_count or 0) + (usb_host_count or 0) > 0 else 0)
         if ethernet_count is not None:
             peripheral_pieces.append(8 if ethernet_count > 0 else 0)
         if gpio_count is not None:
@@ -655,7 +671,7 @@ def main() -> int:
         "adc_unit_count", "adc_channel_count",
         "adc_resolution_bits", "dac_source_quantity", "dac_resolution_bits", "gpio_count",
         "spi_count", "i2c_count", "usart_count", "uart_count", "can_count",
-        "can_fd_present", "usb_device_count", "usb_host_count", "ethernet_count",
+        "can_fd_present", "usb_count", "usb_device_count", "usb_host_count", "ethernet_count",
         "dma_source_quantity", "rng_count", "i2s_count", "lin_count", "configurable_serial_count", "usb_otg_count",
         "sdio_count", "watchdog_count", "rtc_present", "comparator_count", "opamp_count",
         "touch_source_quantity", "camera_interface_count", "display_controller_count",

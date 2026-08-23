@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#f3f3f3">
   <title>MCUS</title>
-  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="app.css?v=1.0.0">
+  <link rel="stylesheet" href="assistant.css?v=1.0.0">
 </head>
 <body>
   <div id="splash">
@@ -25,6 +26,7 @@
     <nav class="bottom-nav" id="bottom-nav">
       <button data-tab="catalog"><span>▦</span><b>目录</b></button>
       <button data-tab="search"><span>⌕</span><b>搜索</b></button>
+      <button data-tab="assistant"><span>✦</span><b>助手</b></button>
       <button data-tab="compare"><span>⇄</span><b>对比</b><i id="compare-badge"></i></button>
       <button data-tab="data"><span>●</span><b>数据</b></button>
       <button data-tab="author"><span>A</span><b>作者</b></button>
@@ -32,7 +34,8 @@
     <div id="detail-layer"></div>
     <div id="toast"></div>
   </div>
-  <script src="catalog.js"></script>
-  <script src="app.js"></script>
+  <script src="assistant-model.js?v=1.0.0"></script>
+  <script src="catalog.js?v=1.0.0"></script>
+  <script src="app.js?v=1.0.0"></script>
 </body>
 </html>

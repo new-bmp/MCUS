@@ -1,0 +1,71 @@
+{
+  "status": "ok",
+  "adapter": "import_allwinner_official.py",
+  "manufacturer": "Allwinner",
+  "device_variants": 8,
+  "orderable_parts": 8,
+  "series": [
+    "XR series"
+  ],
+  "product_lines": [
+    "XR806",
+    "XR808",
+    "XR809",
+    "XR871",
+    "XR872"
+  ],
+  "exact_models": [
+    "XR806AF2L",
+    "XR808CT0",
+    "XR808CT2",
+    "XR809",
+    "XR871ET",
+    "XR871GT",
+    "XR872AT",
+    "XR872ET"
+  ],
+  "product_type_counts": {
+    "wireless_mcu": 8
+  },
+  "source_snapshot_sha256": {
+    "xr806": "8f5a3d8d97cb4f815541869543c36ab33a67bf299fb3f4834c7f3eee84b12d62",
+    "xr808": "20b9cde8debde9ef0f8e35dda969605c4aa572962dd8082c6952a9d1e6aac8c2",
+    "xr809": "3a2868a735e805f38625ec78d17e90d6075e7ba16b849c2afa17e31e8cdbd6ff",
+    "xr871": "7db8be99090346f3063ecbcc20bf89bea061fd28937666361858c3d128d59483",
+    "xr872": "0878f303022f6a1a17f7abcc5d821afb8e1a7feac589b5f4d698cedea671895c",
+    "a733": "aed85038b26fd3d808793b311a9dbdbf42e68a580e5fc8c08850aec8bbc48b6a",
+    "a537": "553dd502c1e1891c4b8e3a496c353f6c9238258efb0d597a20646b56a44afadc",
+    "a333": "56d62ff46617e1c25ed710de7d1e616ec1a912fabec9730f9344a57ed6b6661a",
+    "a527": "e0e320197aaa3489c29e6e483a85831ae8225357a7fcd31ecebfd084b0c3eec0",
+    "a523": "c6c661cdfd81dce45ccbdf4c7e04bf3e96503d4b211c24cb1b4105a907fe795d",
+    "t736": "dd6ffa9f589bd270d65bba84cf400f98c4753ea7499a494d497dc239fb6f8f0d",
+    "t527": "5ac0b025992f6a2aee8af6a68faa59a7be489b141952ed53854b80290731861d",
+    "t536": "6d72948e4709548e8f7d719fa73655bf876742d198ef3b2ff3505d045b9e4236",
+    "t153": "abb569f1dbe50d63da5457bd61ade30a6e721b09cc30e9a011b1802e95988e65",
+    "mr153": "5522f1be69ef936cf5af93572effe5a6cac55d8b2bf4e6a05394128e53a30be7",
+    "mr527": "3e0ddc8f365d95205ecc625c5bc6d0c4b686bb078339c299ada92ea3983dbe93",
+    "mr536": "95686d4f2106b588f25c4a2615b2d341a9d9935d8c1d3e13805221aa834b7891",
+    "v881": "209fb43d44a0ff2bdb2a09e49050416b506698649131645d7e4740323f0fa8b1",
+    "v861": "03fc83c37a78f24203f4361b943f2a2f71bda60a6745e9ae528879fd72d972ad",
+    "v838": "8293dc800904ec423504b4384442c9312159934e740093ebe8086bb80435a038",
+    "v821": "5622e52d514fb25d062c0a26ac271635ff015908c8172ce4209d65a679351847",
+    "v853": "d05fa2cac01913b06ce495b8398b0b81b6faf65b52c9c911ab8fb9191ba8c4ad",
+    "v851s": "add3afb346780232ae8047606bed8b9b7c017977f83c24dec39b5f0063872f58",
+    "v837s": "bdee757cbe3393dd491fbe0726abfbd0d9213e5ca11e43f8c566a501b953129a",
+    "r128": "353c9b548399790673a33a38cd869c3f558f045d321957068f5e31b778c116bd",
+    "xr_connectivity": "d949c633401ccdb135dedb08682e9823045ee05d9823efa2983af9703d1bec46"
+  },
+  "excluded_non_mcu_examples": [
+    "A/T/MR/V application and real-time SoCs",
+    "R128 wireless-audio SoC",
+    "XR819/XR819s/XR829 connectivity chips",
+    "D1",
+    "T113",
+    "F1C",
+    "A133",
+    "MR813",
+    "V316-H",
+    "V3s"
+  ],
+  "completeness_claim": "Standalone XRadio wireless MCU datasheets only. Allwinner A/T/MR/V/R128 SoCs and XR connectivity chips are intentionally excluded from the MCU directory; wildcard suffixes and unknown fields are not inferred."
+}

@@ -165,12 +165,16 @@ def main() -> int:
                 "device_coverage_status": (
                     "official_product_selector_api_snapshot"
                     if manufacturer == "Espressif"
-                    else "official_cmsis_pack_scope_snapshot"
+                    else ("official_product_selector_page_snapshot" if manufacturer == "HPMicro"
+                    else ("official_product_page_and_datasheet_snapshot" if manufacturer == "Allwinner"
+                    else "official_cmsis_pack_scope_snapshot")
+                    )
                 ) if adapter_report else "indexed_from_available_cmsis_packs",
                 "orderable_coverage_status": (
                     "official_selector_api_scope"
                     if manufacturer == "Espressif"
-                    else ("partial_official_sources" if part_counts[manufacturer] else "not_imported")
+                    else ("official_exact_model_scope" if manufacturer == "Allwinner"
+                    else ("partial_official_sources" if part_counts[manufacturer] else "not_imported"))
                 ),
                 "notes": (
                     adapter_report.get("completeness_claim")

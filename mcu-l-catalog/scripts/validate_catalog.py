@@ -93,6 +93,7 @@ def main() -> int:
             "manufacturer_product_selector_api",
             "manufacturer_catalog_api",
             "manufacturer_device_database",
+            "manufacturer_datasheet",
         }:
             warnings.append(f"part {number} is not manufacturer-page verified")
         if not part.get("source_url"):
@@ -105,7 +106,7 @@ def main() -> int:
             "core_count", "max_clock_hz", "timer_count", "pwm_source_quantity",
             "adc_source_quantity", "adc_unit_count", "adc_channel_count",
             "dac_source_quantity", "gpio_count", "spi_count",
-            "i2c_count", "usart_count", "uart_count", "can_count", "usb_device_count",
+            "i2c_count", "usart_count", "uart_count", "can_count", "usb_count", "usb_device_count",
             "usb_host_count", "ethernet_count", "dma_source_quantity", "rng_count",
             "i2s_count", "lin_count", "configurable_serial_count", "usb_otg_count", "sdio_count", "watchdog_count",
             "comparator_count", "opamp_count", "touch_source_quantity",

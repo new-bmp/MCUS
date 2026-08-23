@@ -1,18 +1,18 @@
 {
   "status": "ok",
   "counts": {
-    "manufacturers": 12,
-    "families": 156,
-    "series": 275,
-    "product_lines": 881,
-    "device_variants": 7603,
-    "orderable_parts": 4534,
-    "sources": 359,
-    "capability_records": 7603,
-    "score_records": 7603,
-    "average_score_coverage_percent": 98.48,
-    "devices_at_or_above_90_percent": 7169,
-    "fpu_verified_records": 7463
+    "manufacturers": 15,
+    "families": 161,
+    "series": 287,
+    "product_lines": 933,
+    "device_variants": 7694,
+    "orderable_parts": 4589,
+    "sources": 464,
+    "capability_records": 7694,
+    "score_records": 7694,
+    "average_score_coverage_percent": 98.57,
+    "devices_at_or_above_90_percent": 7260,
+    "fpu_verified_records": 7548
   },
   "errors": [],
   "warnings": []

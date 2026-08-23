@@ -81,6 +81,29 @@ def fetch(url: str, path: Path, refresh: bool) -> tuple[bytes, str]:
     return payload, hashlib.sha256(payload).hexdigest()
 
 
+def list_chip_files(cache_dir: Path, refresh: bool) -> list[str]:
+    """Discover every exact chip definition published by ch32-rs/ch32-data.
+
+    The repository grows faster than a hand-maintained allow-list.  We still
+    exclude wildcard/template names so no orderable part is invented.
+    """
+    api_url = "https://api.github.com/repos/ch32-rs/ch32-data/contents/data/chips"
+    cache_path = cache_dir / "chips-index.json"
+    try:
+        payload, _ = fetch(api_url, cache_path, refresh)
+        items = json.loads(payload.decode("utf-8"))
+        names = [str(item.get("name", "")) for item in items if item.get("type") == "file"]
+    except Exception:
+        names = []
+    exact = [
+        name for name in names
+        if name.lower().endswith(".yaml")
+        and not name.startswith("_")
+        and not re.search(r"[xX*?]", name)
+    ]
+    return sorted(set(exact + [name for name in YAML_CHIPS if not re.search(r"[xX*?]", name)]))
+
+
 def text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -218,13 +241,31 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
     family = yaml_scalar(match.group(1)) if match else ""
     match = re.search(r"(?m)^product_type:\s*(.+)$", source)
     product_type = yaml_scalar(match.group(1)) if match else ""
+    subfamily_match = re.search(r"(?m)^subfamily:\s*(.+)$", source)
+    subfamily = yaml_scalar(subfamily_match.group(1)) if subfamily_match else ""
     docs_match = re.search(r"(?m)^\s+url:\s*([^\r\n]+)", source)
     docs_url = official_url(yaml_scalar(docs_match.group(1))) if docs_match else official_url(f"/products/{series_for(name)}.html")
+    packages_section = source[source.find("packages:"):]
+    packages = re.findall(r"(?m)^\s+- name:\s*([^\n]+)\n\s+package:\s*([^\n]+)", packages_section)
     memory_map: dict[str, int | None] = {}
     memory_match = re.search(r"(?m)^memory_sizes:\s*\{([^}]+)\}", source)
     if memory_match:
         for key, value in re.findall(r"([A-Za-z0-9_]+)\s*:\s*([^,]+)", memory_match.group(1)):
             memory_map[key.upper()] = memory_bytes(value)
+    if not memory_map:
+        for block in re.finditer(r"(?ms)^\s*- name:\s*([^\n]+).*?^\s+kind:\s*([^\n]+).*?^\s+size:\s*([^\n]+)", source):
+            kind = yaml_scalar(block.group(2)).lower()
+            size = memory_bytes(yaml_scalar(block.group(3)))
+            if size is None:
+                continue
+            key = "USR_1" if kind == "flash" and "USR_1" not in memory_map else kind.upper()
+            memory_map[key] = (memory_map.get(key) or 0) + size
+    flash_config = re.search(r"(?m)^\s+total_flash:\s*([^\n]+)", source)
+    if flash_config and "USR_1" not in memory_map:
+        memory_map["USR_1"] = memory_bytes(yaml_scalar(flash_config.group(1)))
+    default_ram = re.search(r"(?m)^\s+default:\s*[^\n]*r(\d+)\s*$", source)
+    if default_ram and "RAM" not in memory_map:
+        memory_map["RAM"] = int(default_ram.group(1)) * 1024
     raw: dict[str, str] = {}
     raw_match = re.search(r"(?ms)^_raw:\s*\n(.*?)(?=^\S|\Z)", source)
     if raw_match:
@@ -232,14 +273,61 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
             item = re.match(r"^\s{2}([^:]+):\s*(.+)$", line)
             if item:
                 raw[item.group(1).strip()] = yaml_scalar(item.group(2))
+    if not raw.get("Freq"):
+        freq_match = re.search(r"main frequency\s*(?:<=|≤|<)\s*(\d+)M", product_type + " " + subfamily + " " + source, re.I)
+        if freq_match:
+            raw["Freq"] = freq_match.group(1) + "MHz"
+    if not raw.get("Freq"):
+        freq_match = re.search(r"(?:max(?:imum)?[_ ]?frequency|frequency)\s*[:=]\s*(\d+)\s*MHz", source, re.I)
+        if freq_match:
+            raw["Freq"] = freq_match.group(1) + "MHz"
+    if not raw.get("GPIO"):
+        gpio_match = re.search(r"(?:GPIO|I/O|io_count|gpio_count)\s*[:=]\s*(\d+)", source, re.I)
+        if gpio_match:
+            raw["GPIO"] = gpio_match.group(1)
+    if not raw.get("Package") and packages:
+        raw["Package"] = "/".join(yaml_scalar(code) for _, code in packages if code)
+    include_paths = re.findall(r"(?m)^\s+- \"?(?:\.\./)+peripherals/([^\"\n]+)", source)
+    include_text = " ".join(include_paths)
+    keyword_text = " ".join(re.findall(r"(?m)^\s+-\s*([^\n]+)$", source[source.find("keywords:"):source.find("packages:")]))
+    inferred: dict[str, str] = {}
+    def infer_count(pattern: str) -> int:
+        return len(re.findall(pattern, include_text, re.I))
+    usart_tokens = re.findall(r"USART(\d+|678|8)", include_text, re.I)
+    if usart_tokens:
+        inferred["UART"] = str(7 if "678" in usart_tokens else len(usart_tokens))
+    for field, pattern in (("SPI", r"SPI\d+"), ("IIC", r"I2C\d+"), ("ADC", r"ADC\d+"), ("CAN", r"CAN\d+")):
+        count = infer_count(pattern)
+        if count:
+            inferred[field] = str(count)
+    timer_count = len(re.findall(r"(?:ADV_TIM|GP\d+_TIM|BASIC_TIM|TIM)\d*[A-Z0-9]*", include_text, re.I))
+    if timer_count:
+        inferred["Advanced TM"] = str(timer_count)
+    if re.search(r"USB_OTG|USBHS|USBFS|USBD", include_text, re.I):
+        inferred["USB_20"] = "D"
+    if re.search(r"USB_OTG|USBHS", include_text, re.I):
+        inferred["USB_20H"] = "H"
+    if re.search(r"RNG", include_text, re.I):
+        inferred["TRNG"] = "1"
+    if re.search(r"DAC", include_text, re.I):
+        inferred["DAC"] = str(infer_count(r"DAC\d+") or 1)
+    if re.search(r"SDIO", include_text, re.I):
+        inferred["SDIO"] = "1"
+    if re.search(r"\b(?:SDIO|SD/MMC)\b", keyword_text + " " + subfamily, re.I):
+        inferred["SDIO"] = inferred.get("SDIO", "1")
+    if re.search(r"\b(?:ETH|Ethernet)\b", keyword_text + " " + subfamily, re.I):
+        inferred["Ethernet"] = "1"
+    if re.search(r"USB", keyword_text + " " + subfamily, re.I):
+        inferred["Other Features"] = (inferred.get("Other Features", "") + " USB").strip()
+    extras = [label for label, pattern in (("I3C", r"I3C"), ("SAI", r"SAI"), ("USB PD", r"USBPD")) if re.search(pattern, include_text, re.I)]
+    if extras:
+        inferred["Other Features"] = " / ".join(extras)
     serial_parts = [part.strip() for part in raw.get("UART/SPI/IIC", "").split("/")]
     serial_parts += ["", "", ""]
     rtc_parts = [part.strip() for part in raw.get("RTC/WDOG", "").split("/")]
     rtc_parts += ["", ""]
     cores_section = source[source.find("cores:"):]
     cores = [yaml_scalar(value) for value in re.findall(r"(?m)^\s+- name:\s*([^\n]+)$", cores_section)]
-    packages_section = source[source.find("packages:"):]
-    packages = re.findall(r"(?m)^\s+- name:\s*([^\n]+)\n\s+package:\s*([^\n]+)", packages_section)
     if not packages and name and not re.search(r"[xX*?]", name):
         packages = [(name, "")]
     rows: list[dict[str, str]] = []
@@ -252,18 +340,18 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
             "Flash": raw.get("Flash", "") or str(memory_map.get("USR_1") or ""),
             "SRAM": raw.get("SRAM", "") or str(memory_map.get("RAM") or ""),
             "Package": yaml_scalar(package_code), "GPIO": raw.get("GPIO", ""),
-            "UART": raw.get("UART", raw.get("USART", serial_parts[0])),
-            "SPI": raw.get("SPI", serial_parts[1]),
-            "IIC": raw.get("IIC", raw.get("I2C", serial_parts[2])),
+            "UART": raw.get("UART") or raw.get("USART") or serial_parts[0] or inferred.get("UART", ""),
+            "SPI": raw.get("SPI") or serial_parts[1] or inferred.get("SPI", ""),
+            "IIC": raw.get("IIC") or raw.get("I2C") or serial_parts[2] or inferred.get("IIC", ""),
             "DAC": raw.get("DAC", ""), "OPA": raw.get("OPA", ""),
-            "ADC": raw.get("ADC", ""), "Touchkey": raw.get("TouchKey", ""),
-            "Advanced TM": raw.get("Advanced TM", raw.get("Timer", "")),
+            "ADC": raw.get("ADC") or inferred.get("ADC", ""), "Touchkey": raw.get("TouchKey", ""),
+            "Advanced TM": raw.get("Advanced TM") or raw.get("Timer") or inferred.get("Advanced TM", ""),
             "RTC": raw.get("RTC", rtc_parts[0]), "WDOG": raw.get("WDOG", rtc_parts[1]),
-            "USB_20": raw.get("USB", raw.get("USB_20", "")),
-            "USB_20H": raw.get("USB_20H", ""), "CAN": raw.get("CAN", ""), "Ethernet": raw.get("Ethernet", ""),
-            "TRNG": raw.get("TRNG", ""), "SDIO": raw.get("SDIO", ""), "BLE": raw.get("BLE", ""),
+            "USB_20": raw.get("USB") or raw.get("USB_20") or inferred.get("USB_20", ""),
+            "USB_20H": raw.get("USB_20H") or inferred.get("USB_20H", ""), "CAN": raw.get("CAN") or inferred.get("CAN", ""), "Ethernet": raw.get("Ethernet") or inferred.get("Ethernet", ""),
+            "TRNG": raw.get("TRNG") or inferred.get("TRNG", ""), "SDIO": raw.get("SDIO") or inferred.get("SDIO", ""), "BLE": raw.get("BLE", ""),
             "PWM": raw.get("PWM", ""), "LEDC": raw.get("LEDC", ""), "DataFlash": raw.get("DataFlash", ""),
-            "TouchKey/ADC": raw.get("TouchKey/ADC", ""), "Other Features": raw.get("Other Features", ""),
+            "TouchKey/ADC": raw.get("TouchKey/ADC", ""), "Other Features": raw.get("Other Features") or inferred.get("Other Features", ""),
             "CAP": raw.get("CAP", ""), "Encrypt": raw.get("Encrypt", ""),
             "USB": raw.get("USB", ""), "SERDES/HSPI/DVP": raw.get("SERDES/HSPI/DVP", ""),
             "ETH/SATA": raw.get("ETH/SATA", ""), "Timer": raw.get("Timer", ""), "Core": raw.get("Core", ""),
@@ -474,7 +562,8 @@ def main() -> int:
         for row in parts:
             all_parts.setdefault(row["orderable_part_id"], row)
         sources.append({"source_id": source_id, "source_type": "manufacturer_structured_snapshot", "publisher": "Nanjing Qinheng Microelectronics / openwch", "title": "WCH CH32 official structured device table", "url": url, "version": f"main;sha256:{digest}", "observed_at": observed, "verification_scope": "Exact part records and raw peripheral fields published from WCH/openwch documentation; no wildcard expansion."})
-    for filename in YAML_CHIPS:
+    yaml_files = list_chip_files(args.cache_dir, args.refresh)
+    for filename in yaml_files:
         payload, digest = fetch(CHIP_BASE + filename, args.cache_dir / filename, args.refresh)
         yaml_rows = parse_yaml_chip(payload)
         devices, parts = make_rows(

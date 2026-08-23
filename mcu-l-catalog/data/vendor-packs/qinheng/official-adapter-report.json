@@ -3,7 +3,7 @@
   "adapter": "import_qinheng_official.py",
   "manufacturer": "Qinheng",
   "device_variants": 90,
-  "orderable_parts": 98,
-  "sources": 24,
+  "orderable_parts": 97,
+  "sources": 63,
   "completeness_claim": "Exact records present in the selected WCH/openwch structured snapshot; not a claim about every unreleased or unpublished WCH part."
 }

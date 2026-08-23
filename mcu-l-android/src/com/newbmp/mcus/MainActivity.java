@@ -38,7 +38,9 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        // The catalog is bundled with the APK. Keep WebView's normal cache so
+        // returning to the app does not re-parse every stylesheet and script.
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(false);
         settings.setDefaultTextEncodingName("utf-8");
@@ -64,8 +66,7 @@ public class MainActivity extends Activity {
         });
         setContentView(webView);
         if (savedInstanceState == null) {
-            webView.clearCache(true);
-            webView.loadUrl("file:///android_asset/index.html?build=12");
+            webView.loadUrl("file:///android_asset/index.html?build=1.0.0");
         } else webView.restoreState(savedInstanceState);
     }
 

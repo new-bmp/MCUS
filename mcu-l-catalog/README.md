@@ -75,6 +75,8 @@ python scripts/import_gigadevice_official.py
 python scripts/import_qinheng_official.py
 python scripts/import_stc32_official.py
 python scripts/import_espressif_products.py
+python scripts/import_hpmicro_official.py
+python scripts/import_allwinner_official.py
 python scripts/augment_infineon_from_device_db.py
 python scripts/augment_espressif_from_idf_soc_caps.py
 ```
@@ -93,6 +95,30 @@ supports a local cache, retries, `--proxy`, and an optional pre-downloaded
 availability, parameterized peripherals, vendor capabilities, and published
 part numbers. Lowercase-`x` wildcard device patterns are never counted as
 orderable parts.
+
+The HPMicro adapter discovers every current official MCU selection table from
+the HPMicro sitemap. It imports exact selector model rows separately from exact
+purchase-card strings, and supplements only matching product lines with their
+own HPM SDK SoC IP header. Vendor blocks such as PLA, PLB, SEI, MMC, PSEC,
+Pixelmux, ESC, FFA, QEIv2/QEO and MTG retain their manufacturer names. The
+official 12-bit and 16-bit ADC columns are treated as converter units; they are
+not converted into ADC pins or guessed channel counts.
+
+The Allwinner adapter is MCU-only: it imports the eight standalone XRadio
+wireless MCU parts (XR806/XR808/XR809/XR871/XR872). A/T/MR/V application and
+real-time SoCs, R128, and XR819/XR829 connectivity chips remain in the source
+file as an audited reference but are excluded from the MCU directory. ADC
+converter units remain separate from ADC channels, and wildcard page examples
+never become orderable parts.
+
+The `import_micropy_mcu.py` adapter provides an independent `MicroPy MCU`
+ecosystem entry for chips with an official MicroPython/CanMV route or an
+explicitly requested ecosystem candidate. It contains Raspberry Pi RP2040,
+RP2350A/B, stacked-flash RP2354A/B, Kendryte K210 and CanMV K230/K230D. The
+K510 record is retained with only the resources confirmed by its public
+official SDK/CRB documentation; the importer does not claim an official K510
+MicroPython port. Package variants remain separate when GPIO, ADC or memory
+resources differ, and unknown chip-level values stay blank.
 
 The Espressif IDF augmenter reads each supported target's official
 `soc_caps.h`. It fills per-SoC capability/count macros and maps modules through

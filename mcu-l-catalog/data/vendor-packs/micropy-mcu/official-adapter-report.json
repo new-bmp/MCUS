@@ -1,0 +1,32 @@
+{
+  "status": "ok",
+  "adapter": "import_micropy_mcu.py",
+  "manufacturer": "MicroPy MCU",
+  "device_variants": 9,
+  "orderable_parts": 9,
+  "families": [
+    "Kendryte",
+    "Raspberry Pi"
+  ],
+  "product_lines": [
+    "K210",
+    "K230",
+    "K510",
+    "RP2040",
+    "RP2350",
+    "RP2354"
+  ],
+  "exact_models": [
+    "K210",
+    "K230",
+    "K230D",
+    "K510",
+    "RP2040",
+    "RP2350A",
+    "RP2350B",
+    "RP2354A",
+    "RP2354B"
+  ],
+  "source_fetch_errors": 0,
+  "completeness_claim": "MicroPython MCU ecosystem scope: Raspberry Pi RP2040/RP2350 and stacked-flash RP2354 variants, Kendryte K210, and CanMV K230/K230D. K510 is included as a requested ecosystem candidate, but its public official sources do not verify a MicroPython port; unknown chip-level fields remain blank and board memory is not attributed to the silicon."
+}

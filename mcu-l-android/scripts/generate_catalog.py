@@ -42,7 +42,9 @@ def feature_labels(value):
         if isinstance(item, str):
             label = item.strip()
         elif isinstance(item, dict):
-            label = str(item.get("name") or item.get("feature_id") or item.get("category") or "").strip()
+            source_feature = item.get("source_feature")
+            source_name = source_feature.get("name") if isinstance(source_feature, dict) else ""
+            label = str(source_name or item.get("name") or item.get("feature_id") or item.get("category") or "").strip()
         else:
             label = ""
         if label and label not in result:
@@ -75,7 +77,7 @@ INVENTORY_LABELS = {
     "Touch": "触摸感应", "IOs": "GPIO", "I/O": "GPIO", "ExtInt": "外部中断",
     "SPI": "SPI", "I2C": "I²C", "I2S": "I²S", "USART": "USART", "UART": "UART",
     "LIN": "LIN", "CAN": "CAN", "USBD": "USB Device", "USBH": "USB Host",
-    "USBOTG": "USB OTG", "ETH": "Ethernet", "SDIO": "SDIO / SDMMC",
+    "USBOTG": "USB OTG", "USB": "USB", "ETH": "Ethernet", "ETHPhy": "Ethernet PHY", "SDIO": "SDIO / SDMMC",
     "SDIOHost": "SDIO Host", "SDIOSlave": "SDIO Slave", "I3C": "I³C", "MIPI": "MIPI",
     "MPSerial": "多功能串行模块", "Com": "通信接口", "ComOther": "其他通信接口",
     "DMA": "DMA", "ExtBus": "外部存储总线", "Camera": "摄像头接口",
@@ -87,6 +89,8 @@ INVENTORY_LABELS = {
     "MCPWM": "电机控制 PWM", "WiFi": "Wi-Fi", "WiFi6": "Wi-Fi 6",
     "Bluetooth": "Bluetooth", "IEEE802154": "IEEE 802.15.4 / Thread / Zigbee",
     "PSRAM": "PSRAM", "RTC_RAM": "RTC SRAM", "Hall": "霍尔传感器", "TOF": "ToF 接口",
+    "Audio": "数字音频", "Accelerator": "硬件加速器",
+    "VendorCapability": "厂商专用能力",
 }
 
 
@@ -195,6 +199,7 @@ def main():
             "l": variant["product_line"],
             "n": variant["device_name"],
             "a": variant["architecture_class"],
+            "pt": variant.get("product_type") or "mcu",
         }
         put(record, "v", text(variant.get("manufacturer_variant_code")))
         put(record, "c", text(cap.get("primary_core")) or text(cap.get("core_names")))
@@ -228,6 +233,7 @@ def main():
         put(record, "uart", uart_count)
         put(record, "can", number(cap.get("can_count")))
         put(record, "cfd", text(cap.get("can_fd_present")))
+        put(record, "usb", number(cap.get("usb_count")))
         put(record, "usbd", number(cap.get("usb_device_count")))
         put(record, "usbh", number(cap.get("usb_host_count")))
         put(record, "eth", number(cap.get("ethernet_count")))
@@ -304,7 +310,7 @@ def main():
     )
     payload = {
         "meta": {
-            "version": "0.8.1",
+            "version": "1.0.0",
             "name": "MCUS",
             "author": "new.bmp",
             "repository": "https://github.com/new-bmp/MCUS",

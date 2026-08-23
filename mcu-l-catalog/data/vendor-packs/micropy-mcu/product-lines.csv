@@ -1,0 +1,7 @@
+﻿product_line_id,manufacturer,product_type,architecture_class,family,series,product_line,device_variant_count,source_ids,observed_at,verification_status
+micropy-mcu::kendryte-k::k210,MicroPy MCU,micropython_mcu,RISC-V RV64GC,Kendryte,Kendryte K,K210,1,kendryte:k210-datasheet;kendryte:k210-micropython;kendryte:k210-package,2026-08-23T05:04:03+00:00,manufacturer_datasheet
+micropy-mcu::kendryte-k::k230,MicroPy MCU,micropython_mcu,RISC-V RV64,Kendryte,Kendryte K,K230,2,kendryte:k230-canmv;kendryte:k230-datasheet,2026-08-23T05:04:03+00:00,manufacturer_datasheet
+micropy-mcu::kendryte-k::k510,MicroPy MCU,micropython_mcu,RISC-V,Kendryte,Kendryte K,K510,1,kendryte:k510-docs,2026-08-23T05:04:03+00:00,manufacturer_datasheet
+micropy-mcu::raspberry-pi-rp::rp2040,MicroPy MCU,micropython_mcu,ARMv6-M,Raspberry Pi,Raspberry Pi RP,RP2040,1,micropy:rp2-port;raspberrypi:rp2040-datasheet,2026-08-23T05:04:03+00:00,manufacturer_datasheet
+micropy-mcu::raspberry-pi-rp::rp2350,MicroPy MCU,micropython_mcu,ARMv8-M / RISC-V,Raspberry Pi,Raspberry Pi RP,RP2350,2,micropy:rp2-port;raspberrypi:rp2350-datasheet,2026-08-23T05:04:03+00:00,manufacturer_datasheet
+micropy-mcu::raspberry-pi-rp::rp2354,MicroPy MCU,micropython_mcu,ARMv8-M / RISC-V,Raspberry Pi,Raspberry Pi RP,RP2354,2,raspberrypi:rp2354-hardware;raspberrypi:rp2354-micropython,2026-08-23T05:04:03+00:00,manufacturer_datasheet

@@ -1,0 +1,3 @@
+.assistant-result.approximate{border-left:3px solid #d89020}
+.assistant-result.approximate .assistant-result-title span{color:var(--fl-amber)}
+.assistant-reasons i.warning{background:var(--fl-amber-soft);color:var(--fl-amber)}
