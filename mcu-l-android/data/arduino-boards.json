@@ -1,0 +1,17 @@
+{
+  "source": "Arduino official board platform definitions",
+  "sourceUrls": [
+    "https://github.com/arduino/ArduinoCore-avr/blob/master/boards.txt",
+    "https://github.com/arduino/ArduinoCore-megaavr/blob/master/boards.txt",
+    "https://github.com/arduino/ArduinoCore-samd/blob/master/boards.txt"
+  ],
+  "boards": {
+    "ATmega328P": ["Arduino Uno", "Arduino Uno R3", "Arduino Nano", "Arduino Mini", "Arduino Pro", "Arduino Pro Mini"],
+    "ATmega168": ["Arduino Mini (ATmega168)", "Arduino Pro (ATmega168)", "Arduino Pro Mini (ATmega168)", "Arduino Nano (ATmega168)"],
+    "ATmega2560": ["Arduino Mega", "Arduino Mega 2560"],
+    "ATmega32U4": ["Arduino Leonardo", "Arduino Micro", "Arduino Esplora", "Arduino Yun"],
+    "ATmega4809": ["Arduino Uno WiFi Rev2", "Arduino Nano Every"],
+    "ATSAMD21G18A": ["Arduino Zero", "Arduino MKR1000", "Arduino MKR WiFi 1010", "Arduino MKR Zero", "Arduino MKR FOX 1200", "Arduino MKR WAN 1300", "Arduino MKR WAN 1310", "Arduino MKR GSM 1400", "Arduino MKR NB 1500", "Arduino MKR Vidor 4000", "Arduino Nano 33 IoT"],
+    "ATSAM3X8E": ["Arduino Due"]
+  }
+}

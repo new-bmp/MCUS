@@ -1,0 +1,16 @@
+{
+  "status": "ok",
+  "input_devices": 157,
+  "exact_device_to_subfamily_matches": 157,
+  "records_with_parsed_features": 151,
+  "records_with_device_number_caveats": 24,
+  "unmatched_devices": [],
+  "observed_at": "2026-08-12T09:13:48+00:00",
+  "accuracy_policy": [
+    "Every device is mapped through its explicit enclosing PDSC subFamily element.",
+    "Only numeric counts written in the official description are imported.",
+    "ADC/DAC/comparator presence is retained without inventing a unit count.",
+    "Descriptions saying a capability depends on device number do not create an exact per-device count.",
+    "Timer and package-pin counts remain unknown because these PDSCs do not state them precisely."
+  ]
+}

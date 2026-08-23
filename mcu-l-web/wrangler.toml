@@ -1,0 +1,8 @@
+name = "mcus-web"
+main = "src/index.js"
+compatibility_date = "2026-08-13"
+
+[assets]
+directory = "./staticfiles"
+binding = "ASSETS"
+not_found_handling = "single-page-application"

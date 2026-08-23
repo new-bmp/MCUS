@@ -1,0 +1,3 @@
+﻿device_id,device_name,reason,candidate_headers
+puya::py32f001cx4,PY32F001Cx4,no_exact_header_match,
+puya::py32f002cx5,PY32F002Cx5,no_exact_header_match,

@@ -1,0 +1,36 @@
+{
+  "source_id": "st-cubemx-device-db:DB.6.0.181",
+  "source_version": "DB.6.0.181",
+  "source_url": "https://www.st.com/en/development-tools/stm32cubemx.html",
+  "cubemx_db": "C:\\Users\\confl\\AppData\\Local\\Programs\\STM32CubeMX\\db",
+  "families_entries": 2898,
+  "input_devices": 2778,
+  "matched_devices": 2562,
+  "unmatched_devices": 216,
+  "match_rules": {
+    "exact_refname": 2483,
+    "exact_rpn": 66,
+    "packing_suffix_removed:TR": 13
+  },
+  "field_updates": {
+    "features_json": 2562,
+    "flash_bytes": 673,
+    "max_clock_hz": 106,
+    "package_types": 2562,
+    "pin_counts": 465,
+    "ram_bytes": 965
+  },
+  "resolved_scalar_conflicts": 4735,
+  "ambiguous_matches_not_applied": 29,
+  "provenance_records": 14739,
+  "source_files_used": 1954,
+  "source_manifest_sha256": "1dc0a2a6e66d56ed08252715be59c4b5fca6d231f86c3152b370e947be6a316a",
+  "observed_at": "2026-08-12T08:28:46+00:00",
+  "accuracy_policy": [
+    "Only exact RefName, RPN, Name, or an explicitly recorded terminal TR packing suffix removal is accepted.",
+    "Ambiguous identifier matches are not enriched.",
+    "Peripheral counts come from the matched per-device MCU XML, never a family SVD.",
+    "ADC converter units and external ADC-capable package pins are stored as separate facts.",
+    "A blank remains unknown when the exact official database does not establish the value."
+  ]
+}

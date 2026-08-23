@@ -1,0 +1,46 @@
+{
+  "status": "ok",
+  "adapter": "import_gigadevice_official.py",
+  "manufacturer": "GigaDevice",
+  "scope": "all-dfp",
+  "output_dir": "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\gigadevice",
+  "official_source_ids": [
+    "cmsis:GigaDevice.GD32C10x_DFP@1.0.1",
+    "cmsis:GigaDevice.GD32E10x_DFP@1.2.1",
+    "cmsis:GigaDevice.GD32E23x_DFP@1.0.2",
+    "cmsis:GigaDevice.GD32E50x_DFP@1.3.2",
+    "cmsis:GigaDevice.GD32F10x_DFP@2.0.3",
+    "cmsis:GigaDevice.GD32F1x0_DFP@3.2.1",
+    "cmsis:GigaDevice.GD32F20x_DFP@2.2.3",
+    "cmsis:GigaDevice.GD32F30x_DFP@2.2.1",
+    "cmsis:GigaDevice.GD32F3x0_DFP@3.0.2",
+    "cmsis:GigaDevice.GD32F4xx_DFP@3.0.3",
+    "cmsis:GigaDevice.GD32L23x_DFP@1.0.3",
+    "cmsis:GigaDevice.GD32W51x_DFP@1.0.3"
+  ],
+  "official_https_hosts": [
+    "gd32mcu.com",
+    "www.keil.com"
+  ],
+  "device_variants": 388,
+  "sources": 12,
+  "import_errors": 0,
+  "source_errors": [],
+  "subprocess_exit_code": 0,
+  "snapshot_sha256": {
+    "index.pidx": "136ec2208d31b5d0e8697a806e40d5647799c8c097ae283f28712079dc7b2e81",
+    "pdsc\\GigaDevice.GD32C10x_DFP.pdsc": "fa4fdc8fc8cc75dd1bd011ad13d38a91c8993c3ea65245d892ea91fd7fd6e926",
+    "pdsc\\GigaDevice.GD32E10x_DFP.pdsc": "f47d28c7fd4362ce6a4bce61e1a71c5db797d64e8f230c92eb587c1af452273d",
+    "pdsc\\GigaDevice.GD32E23x_DFP.pdsc": "9f05864577668ee5c48c9fe1c3d906294f2ece1265694cf1c9ec14a112004411",
+    "pdsc\\GigaDevice.GD32E50x_DFP.pdsc": "3c213cad36497034cb2dc61fa82a4b681e3a141f2745fd9ea979bfc7ee094c05",
+    "pdsc\\GigaDevice.GD32F10x_DFP.pdsc": "9fa6546de167144d16fcf1cbfef6059cb21a05b651788b00222853edded91d73",
+    "pdsc\\GigaDevice.GD32F1x0_DFP.pdsc": "bd9dd4de467c6ff54d831d1f63562dc65898c9c65a5513aac88c1316135a8369",
+    "pdsc\\GigaDevice.GD32F20x_DFP.pdsc": "ac73f15881f0e352124dda35cda43c34e37086d004a594ffe7ed90eb440abecc",
+    "pdsc\\GigaDevice.GD32F30x_DFP.pdsc": "a12595bfd77742ef345a45d24b88d701d249b0c96bcb65beaf870871c052551a",
+    "pdsc\\GigaDevice.GD32F3x0_DFP.pdsc": "2c1a6d1145465ef4c449ac5884b737bb0e257bb9625bbf24a4ec5047cef7e5dc",
+    "pdsc\\GigaDevice.GD32F4xx_DFP.pdsc": "af935f9cb9b64fa8e3e9923fbc2361849a85d8ba78e9bbe8e974f782e2246c08",
+    "pdsc\\GigaDevice.GD32L23x_DFP.pdsc": "24a6d5cc44da3c687865c518430e870a20174be47ef015feaf1346be23e03926",
+    "pdsc\\GigaDevice.GD32W51x_DFP.pdsc": "7c81df061bdd7d6ba0d58d3b4a2e2c5b7ecd251a9e12c6180b7552cb5d61644c"
+  },
+  "completeness_claim": "All successfully parsed records from the selected official CMSIS-Pack scope at observation time; not a claim about unpublished products, non-Arm families, or orderable-code completeness."
+}

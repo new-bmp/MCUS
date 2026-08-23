@@ -1,0 +1,2 @@
+﻿manufacturer,source_scope,pack_count,family_count,series_count,product_line_count,device_variant_count,orderable_part_count,last_observed,device_coverage_status,orderable_coverage_status,notes
+Nuvoton,all-dfp,14,11,11,111,1058,0,2026-08-11T12:15:57+00:00,indexed_from_selected_cmsis_packs,not_imported,CMSIS metadata is not proof of complete manufacturer purchasing-code coverage.

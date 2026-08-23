@@ -1,0 +1,30 @@
+{
+  "status": "ok",
+  "selected_packs": 2,
+  "successful_packs": 2,
+  "failed_packs": 0,
+  "augmented_device_records": 24,
+  "unique_svd_payloads": 3,
+  "errors": 0,
+  "proxy_mode": "environment_or_direct",
+  "packs": [
+    {
+      "source_id": "cmsis:Geehy.APM32F445_446_DFP@1.0.0",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F445_446_DFP.1.0.0.pack",
+      "sha256": "f37f8c7a48bc4f078ed75e7168efa64f156871c709f96d1791b8d0eef9ce6535",
+      "archive_bytes": 1917248,
+      "devices": 8,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.G32R5xx_DFP@1.0.2",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.G32R5xx_DFP.1.0.2.pack",
+      "sha256": "7a756fdfce6601cd29487e08d52eeb7171bae7e2074c84fa447060d980d317cc",
+      "archive_bytes": 2009249,
+      "devices": 16,
+      "unique_svd_files": 1,
+      "status": "ok"
+    }
+  ]
+}

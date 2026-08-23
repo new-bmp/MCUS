@@ -1,0 +1,10 @@
+﻿vendor_pack,pack_vendor,pack_name,pdsc_url,error
+geehy,Geehy,G32F031_DFP,https://global.geehy.com/design/software/Geehy.G32F031_DFP.pdsc,"ParseError: mismatched tag: line 30, column 2"
+geehy,Geehy,G32M3101_DFP,https://global.geehy.com/design/software/Geehy.G32M3101_DFP.pdsc,"ParseError: mismatched tag: line 30, column 2"
+geehy,Geehy,APM32E030_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32E030_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+geehy,Geehy,APM32A4xx_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32A4xx_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+geehy,Geehy,APM32A0xx_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32A0xx_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+geehy,Geehy,APM32A10x_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32A10x_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+geehy,Geehy,APM32M35XX_DFP,https://www.geehy.com/uploads/tool/Geehy.APM32M35XX_DFP.pdsc,HTTPError: HTTP Error 405: Not Allowed
+infineon,Infineon,AIROC_DFP,https://github.com/Infineon/cmsis-packs/raw/master/AIROC_DFP/Infineon.AIROC_DFP.pdsc,URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>
+puya,Puya,PY32F3xx_DFP,https://www.puyasemi.com/uploadfiles/Puya.PY32F3xx_DFP.pdsc,HTTPError: HTTP Error 404: Not Found

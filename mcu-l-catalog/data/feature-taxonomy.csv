@@ -1,0 +1,12 @@
+category,examples,storage_rule
+core,"Arm Cortex-M3; Cortex-M33; RISC-V core; DSP/FPU/MPU/TrustZone",Store raw processor metadata and flattened query fields.
+timer,"TIM; GPTM; advanced-control timer; watchdog; RTC",Keep general-purpose/advanced timers separate from watchdog and RTC when the source permits.
+analog,"ADC; DAC; comparator; op-amp; touch sensing",Preserve source quantity semantics because n may mean units or channels.
+connectivity,"USART; UART; SPI; I2C; CAN FD; USB; Ethernet",Store counts only when explicitly present in a source feature.
+accelerator,"Chrom-ART/DMA2D; CORDIC; FMAC; TMU; NPU; Neural-ART",Store vendor name category quantity unit source and verification status.
+security,"AES; HASH; PKA; TRNG; secure boot; TrustZone",Do not infer an algorithm from a generic crypto flag.
+display_multimedia,"LCD-TFT; JPEG codec; camera interface; NeoChrom GPU",Separate controller/interface features from compute accelerators.
+motor_control,"high-resolution PWM; encoder; resolver; control law accelerator",Keep timer channel counts and branded accelerator names source-backed.
+safety_automotive,"ECC; lockstep; ASIL; ISO 26262; AUTOSAR",Store certification/safety claim and applicability level separately.
+benchmark,"CoreMark; Dhrystone/DMIPS; EEMBC ULPMark",Never calculate benchmark results from clock or core name; require a cited result.
+

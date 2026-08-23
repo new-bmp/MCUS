@@ -1,0 +1,32 @@
+{
+  "status": "ok",
+  "official_packs": 7,
+  "device_records": 312,
+  "orderable_parts": 1039,
+  "product_lines": {
+    "AT90 specialty AVR": 17,
+    "AVR DA": 22,
+    "AVR DB": 11,
+    "AVR DD": 12,
+    "AVR DU": 10,
+    "AVR EA": 9,
+    "AVR EB": 8,
+    "AVR LA": 8,
+    "AVR SD": 3,
+    "Automotive AVR": 15,
+    "Classic ATmega": 110,
+    "Classic ATtiny": 41,
+    "megaAVR 0-series": 8,
+    "tinyAVR 0/1-series": 26,
+    "tinyAVR 2-series": 12
+  },
+  "parse_errors": [],
+  "observed_at": "2026-08-12T17:20:34+00:00",
+  "accuracy_policy": [
+    "Every MCU row comes from one exact official Microchip ATDF file.",
+    "Overlapping AVR boot regions are excluded from total Flash; the primary program region is used.",
+    "ADC converter units, signal channels, and package-exposed ADC pads are stored separately.",
+    "Slash-separated ATDF package selectors are not presented as purchasable order codes.",
+    "AVR8/AVR8X architecture establishes that no hardware FPU is present."
+  ]
+}

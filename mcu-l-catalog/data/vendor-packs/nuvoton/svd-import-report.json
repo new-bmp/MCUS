@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "selected_packs": 1,
+  "successful_packs": 1,
+  "failed_packs": 0,
+  "augmented_device_records": 197,
+  "unique_svd_payloads": 10,
+  "errors": 0,
+  "proxy_mode": "environment_or_direct",
+  "packs": [
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroM4_DFP@1.0.2",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroM4_DFP.1.0.2.pack",
+      "sha256": "10583162988054edb0da4cf67341392d9b05a136e87c117a06cfbb6dd066d18d",
+      "archive_bytes": 7100160,
+      "devices": 197,
+      "unique_svd_files": 10,
+      "status": "ok"
+    }
+  ]
+}

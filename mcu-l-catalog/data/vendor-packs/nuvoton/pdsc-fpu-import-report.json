@@ -1,0 +1,16 @@
+{
+  "status": "ok",
+  "pdsc_files_with_updates": 4,
+  "device_records_updated": 420,
+  "updates_by_file": {
+    "Nuvoton.NuMicroCM33_DFP.pdsc": 18,
+    "Nuvoton.NuMicroKM1M4_DFP.pdsc": 8,
+    "Nuvoton.NuMicroM4_DFP.pdsc": 197,
+    "Nuvoton.NuMicro_DFP.pdsc": 197
+  },
+  "observed_at": "2026-08-12T17:22:48+00:00",
+  "accuracy_policy": [
+    "Only explicit FPU/Cortex-MxF/floating-point wording in the official Nuvoton PDSC is accepted.",
+    "No FPU state is copied from sibling product lines or inferred from a generic Cortex-M4/M33 name."
+  ]
+}

@@ -1,0 +1,3 @@
+manufacturer,match_type,match_value,feature_id,display_name,category,quantity,unit,source_url,verification_status,notes
+STMicroelectronics,product_line,STM32F429,chrom_art,Chrom-ART (DMA2D),graphics_accelerator,1,block,https://www.st.com/en/microcontrollers-microprocessors/stm32f429-439.html,pending_official_datasheet_verification,Only publish on device rows after the official device document confirms applicability.
+

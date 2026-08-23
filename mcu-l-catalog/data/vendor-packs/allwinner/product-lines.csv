@@ -1,0 +1,6 @@
+﻿product_line_id,manufacturer,product_type,architecture_class,family,series,product_line,device_variant_count,source_ids,observed_at,verification_status
+allwinner::xr-series::xr806,Allwinner,wireless_mcu,ARMv8-M,XRadio,XR series,XR806,1,allwinner:xr806:official-docs,2026-08-22T16:13:28+00:00,manufacturer_datasheet
+allwinner::xr-series::xr808,Allwinner,wireless_mcu,Cortex-M4,XRadio,XR series,XR808,2,allwinner:xradio:xr808-datasheet-v1.1,2026-08-22T16:13:28+00:00,manufacturer_datasheet
+allwinner::xr-series::xr809,Allwinner,wireless_mcu,Cortex-M4,XRadio,XR series,XR809,1,allwinner:xradio:xr809-datasheet-v1.1,2026-08-22T16:13:28+00:00,manufacturer_datasheet
+allwinner::xr-series::xr871,Allwinner,wireless_mcu,Cortex-M4,XRadio,XR series,XR871,2,allwinner:xradio:xr871-datasheet-v1.21,2026-08-22T16:13:28+00:00,manufacturer_datasheet
+allwinner::xr-series::xr872,Allwinner,wireless_mcu,Cortex-M4,XRadio,XR series,XR872,2,allwinner:xradio:xr872-datasheet-v1.05,2026-08-22T16:13:28+00:00,manufacturer_datasheet

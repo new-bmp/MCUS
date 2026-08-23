@@ -1,0 +1,3 @@
+﻿product_line_id,manufacturer,product_type,architecture_class,family,series,product_line,device_variant_count,source_ids,observed_at,verification_status
+stc::stc32::stc32g,STC,general_purpose_mcu,8051-compatible,STC32,STC32G,STC32G,7,stc:stc32:family-page,2026-08-13T09:09:58+00:00,manufacturer_product_page
+stc::stc32::stc32cl,STC,general_purpose_mcu,8051-compatible,STC32,STC32CL,STC32CL,2,stc:stc32:family-page,2026-08-13T09:09:58+00:00,manufacturer_product_page
