@@ -31,7 +31,7 @@ MCUS 是一个离线 MCU 选型应用，采用现代浅色、紧凑且信息密�
 .\build.ps1
 ```
 
-生成文件位于 `dist\MCUS-1.0.0-debug.apk`。构建脚本使用工作区 `.tools\android-build` 内的本地 JDK 与 Android SDK，不依赖系统全局环境。
+生成文件位于 `dist\MCUS-1.0.1-debug.apk`。构建脚本使用工作区 `.tools\android-build` 内的本地 JDK 与 Android SDK，不依赖系统全局环境。
 
 ## 数据说明
 

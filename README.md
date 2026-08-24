@@ -4,14 +4,14 @@
 
 ## 当前版本
 
-- Android：`1.0.0`
+- Android：`1.0.1`
 - Web：可直接上传 `mcu-l-web/staticfiles/`
 - 包名：`com.newbmp.mcus`
-- 数据快照：7,694 个器件、4,589 个官方订货号
-- 覆盖率 ≥ 90%：7,260 个器件；FPU 已核验：7,548 个
-- 支持 Arduino / Atmel AVR、SAM、Espressif ESP、沁恒 CH32/CH、STC32 等系列
+- 数据快照：7,916 个器件、4,811 个官方订货号
+- 覆盖率 ≥ 90%：7,482 个器件；FPU 已核验：7,770 个
+- 支持 Arduino / Atmel AVR、SAM、Espressif ESP、沁恒 CH32/CH、STC32、雅特力 AT32 等系列
 
-APK：[`release/MCUS-1.0.0-debug.apk`](release/MCUS-1.0.0-debug.apk)
+APK：[`release/MCUS-1.0.1-debug.apk`](release/MCUS-1.0.1-debug.apk)
 
 ## 目录结构
 

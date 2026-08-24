@@ -68,6 +68,39 @@
     catch(_){try{localStorage.removeItem(key)}catch(__){}return []}
   }
   function writeStored(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch(_){return false}}
+  function installKeyboardViewport(){
+    const root=document.documentElement;
+    const view=$('#view');
+    let resizeTimer;
+    const update=()=>{
+      const viewport=window.visualViewport;
+      const layoutHeight=Math.max(document.documentElement.clientHeight||0,window.innerHeight||0);
+      const visibleHeight=viewport?viewport.height:layoutHeight;
+      const offsetTop=viewport?viewport.offsetTop:0;
+      const inset=Math.max(0,Math.round(layoutHeight-visibleHeight-offsetTop));
+      root.style.setProperty('--keyboard-inset',`${inset}px`);
+      root.classList.toggle('keyboard-visible',inset>0);
+      if(inset>0)ensureAssistantInputVisible();
+    };
+    const delayedUpdate=()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(update,40)};
+    const ensureAssistantInputVisible=()=>{
+      const input=$('#assistant-input');
+      if(!input||document.activeElement!==input)return;
+      const viewport=window.visualViewport;
+      const keyboardTop=(viewport?viewport.offsetTop:0)+(viewport?viewport.height:window.innerHeight);
+      const rect=input.getBoundingClientRect();
+      const margin=12;
+      if(rect.bottom>keyboardTop-margin&&view){view.scrollTop+=rect.bottom-(keyboardTop-margin)}
+      const messages=$('#assistant-messages');
+      if(messages)messages.scrollTop=messages.scrollHeight;
+    };
+    window.addEventListener('resize',delayedUpdate,{passive:true});
+    window.addEventListener('orientationchange',delayedUpdate,{passive:true});
+    if(window.visualViewport){window.visualViewport.addEventListener('resize',delayedUpdate,{passive:true});window.visualViewport.addEventListener('scroll',delayedUpdate,{passive:true})}
+    document.addEventListener('focusin',event=>{if(event.target&&event.target.id==='assistant-input'){delayedUpdate();setTimeout(ensureAssistantInputVisible,180)}},{passive:true});
+    document.addEventListener('focusout',event=>{if(event.target&&event.target.id==='assistant-input'){setTimeout(update,120)}},{passive:true});
+    update();
+  }
   const state={tab:'catalog',query:'',vendorFilter:'',coreFilter:'',peripheralFilter:'',peripheralMin:1,sort:'score',limit:120,detail:null,browse:{vendor:null,series:null,line:null},compare:new Set(readStoredArray('mcul_compare').filter(id=>byId.has(id))),assistantMessages:[]};
   const previewDevice=new URLSearchParams(location.search).get('device');
   let toastTimer,searchTimer;
@@ -88,10 +121,10 @@
     if(searchable){const input=$('#search');input.addEventListener('input',e=>{state.query=e.target.value;state.limit=120;scheduleSearchRender()});$('#clear-search').onclick=()=>{if(state.query){state.query='';input.value='';if(searchTimer){clearTimeout(searchTimer);searchTimer=null}renderSearch(false)}else input.focus()}}
   }
   function breadcrumb(items){return `<div class="breadcrumb">${items.map((item,i)=>`${i?'<span>›</span>':''}<button data-crumb="${item.level}">${esc(item.label)}</button>`).join('')}</div>`}
-  function vendorGlyph(name){if(name==='STMicroelectronics')return 'ST';if(name==='Texas Instruments')return 'TI';if(name==='Qinheng')return 'WCH';if(name==='HPMicro')return 'HPM';return name.replace(/[^A-Z]/g,'').slice(0,2)||name.slice(0,2).toUpperCase()}
-  const vendorLogoFiles={Allwinner:'allwinner.png',Espressif:'espressif.svg',Geehy:'geehy.ico',GigaDevice:'gigadevice.svg',HPMicro:'hpmicro.png',Infineon:'infineon.svg',Microchip:'microchip.ico',MindMotion:'mindmotion.png',Nuvoton:'nuvoton.jpg',Puya:'puya.ico',Qinheng:'qinheng.svg',STC:'stc.svg',STMicroelectronics:'stmicroelectronics.svg','Texas Instruments':'texas-instruments.ico'};
+  function vendorGlyph(name){if(name==='STMicroelectronics')return 'ST';if(name==='Texas Instruments')return 'TI';if(name==='Qinheng')return 'WCH';if(name==='HPMicro')return 'HPM';if(name==='Artery')return 'AT';return name.replace(/[^A-Z]/g,'').slice(0,2)||name.slice(0,2).toUpperCase()}
+  const vendorLogoFiles={Allwinner:'allwinner.png',Artery:'artery.svg',Espressif:'espressif.svg',Geehy:'geehy.ico',GigaDevice:'gigadevice.svg',HPMicro:'hpmicro.png',Infineon:'infineon.svg',Microchip:'microchip.ico',MindMotion:'mindmotion.png',Nuvoton:'nuvoton.jpg',Puya:'puya.ico',Qinheng:'qinheng.svg',STC:'stc.svg',STMicroelectronics:'stmicroelectronics.svg','Texas Instruments':'texas-instruments.ico'};
   function vendorLogo(name){const file=vendorLogoFiles[name];const cssName=name.toLowerCase().replace(/[^a-z0-9]+/g,'-');return `<span class="folder-icon vendor logo-${cssName}"><span class="vendor-fallback">${esc(vendorGlyph(name))}</span>${file?`<img src="vendor-${esc(file)}" alt="${esc(name)} Logo" onerror="this.remove()">`:''}</span>`}
-  function vendorName(name){if(name==='Allwinner')return '全志（Allwinner / XRadio）';if(name==='Microchip')return 'Microchip（原 Atmel）';if(name==='Qinheng')return '沁恒（WCH）';if(name==='STC')return 'STC（宏晶）';if(name==='HPMicro')return '先楫半导体（HPMicro）';return name}
+  function vendorName(name){if(name==='Allwinner')return '全志（Allwinner / XRadio）';if(name==='Artery')return '雅特力（Artery）';if(name==='Microchip')return 'Microchip（原 Atmel）';if(name==='Qinheng')return '沁恒（WCH）';if(name==='STC')return 'STC（宏晶）';if(name==='HPMicro')return '先楫半导体（HPMicro）';return name}
   function productType(type){return ({wireless_mcu:'无线 MCU',wireless_audio_mcu_soc:'无线音频 MCU SoC',wireless_connectivity_chip:'无线连接芯片',heterogeneous_realtime_soc:'带实时 MCU 核的 SoC',micropython_mcu:'MicroPython MCU'})[type]||'MCU'}
   function categoryTitle(list){if(list[0]?.m==='Allwinner'||list[0]?.m==='MicroPy MCU')return [...new Set(list.map(d=>productType(d.pt)))].join(' / ');return list[0]?.a||list[0]?.c||'MCU 系列'}
   function boardTags(d,full=false){const boards=d.boards||[];if(!boards.length)return '';const shown=full?boards:boards.slice(0,3);return `<div class="board-tags"><span>Arduino 开发板</span>${shown.map(name=>`<i>${esc(name)}</i>`).join('')}${!full&&boards.length>shown.length?`<i>+${boards.length-shown.length}</i>`:''}</div>`}
@@ -475,4 +508,5 @@
   state.assistantMessages=restoreAssistant();
   $('#snapshot-pill').textContent=`${count(catalog.meta.devices)} DEVICES · OFFLINE`;
   $('#splash').remove();$('#app').hidden=false;render();if(previewDevice&&byId.has(previewDevice))setTimeout(()=>openDetail(previewDevice),50);
+  installKeyboardViewport();
 })();

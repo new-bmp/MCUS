@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 64" role="img" aria-label="Artery logo">
+  <rect width="160" height="64" rx="8" fill="#124f87"/>
+  <path d="M17 45 31 18h10l14 27H45l-3-7H30l-3 7Zm17-14h5l-2.5-6Z" fill="#fff"/>
+  <text x="62" y="40" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="700">AT32</text>
+</svg>

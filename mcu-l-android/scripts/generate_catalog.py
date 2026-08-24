@@ -310,7 +310,7 @@ def main():
     )
     payload = {
         "meta": {
-            "version": "1.0.0",
+            "version": "1.0.1",
             "name": "MCUS",
             "author": "new.bmp",
             "repository": "https://github.com/new-bmp/MCUS",

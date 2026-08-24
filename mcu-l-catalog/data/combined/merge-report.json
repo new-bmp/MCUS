@@ -2,6 +2,7 @@
   "vendor_pack_directories": [
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data",
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\allwinner",
+    "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\artery",
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\espressif",
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\geehy",
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\gigadevice",
@@ -17,11 +18,11 @@
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\stc",
     "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\vendor-packs\\texas-instruments"
   ],
-  "manufacturers": 15,
-  "product_lines": 933,
-  "device_variants": 7694,
-  "orderable_parts": 4589,
-  "source_records": 464,
+  "manufacturers": 16,
+  "product_lines": 959,
+  "device_variants": 7916,
+  "orderable_parts": 4811,
+  "source_records": 516,
   "upstream_import_errors": 9,
   "merge_collisions": [],
   "duplicate_part_sources_deduplicated": []

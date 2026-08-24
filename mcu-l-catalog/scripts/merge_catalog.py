@@ -141,6 +141,7 @@ def main() -> int:
             "GigaDevice": "gigadevice",
             "Qinheng": "qinheng",
             "STC": "stc",
+            "Artery": "artery",
         }.get(manufacturer, manufacturer.lower().replace(" ", "-"))
         adapter_report_path = vendor_dir / "official-adapter-report.json"
         if not adapter_report_path.exists():
