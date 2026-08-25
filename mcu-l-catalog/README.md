@@ -77,6 +77,7 @@ python scripts/import_stc32_official.py
 python scripts/import_espressif_products.py
 python scripts/import_hpmicro_official.py
 python scripts/import_allwinner_official.py
+python scripts/import_renesas_official.py
 python scripts/augment_infineon_from_device_db.py
 python scripts/augment_espressif_from_idf_soc_caps.py
 ```
@@ -110,6 +111,13 @@ real-time SoCs, R128, and XR819/XR829 connectivity chips remain in the source
 file as an audited reference but are excluded from the MCU directory. ADC
 converter units remain separate from ADC channels, and wildcard page examples
 never become orderable parts.
+
+The Renesas adapter reads the live official product selectors for RA, RX,
+RL78, RH850, Synergy and Renesas RISC-V MCUs. It keeps exact base devices and
+complete orderable codes separate, uses product-group values only when the
+official selector has one unambiguous value, and supplements matching RA
+devices with the official RA CMSIS pack. RZ/Five and all RZ MPU/SoC families
+are explicitly outside the MCU catalog scope.
 
 The `import_micropy_mcu.py` adapter provides an independent `MicroPy MCU`
 ecosystem entry for chips with an official MicroPython/CanMV route or an

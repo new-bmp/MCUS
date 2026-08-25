@@ -1,11 +1,13 @@
 param(
-    [switch]$SkipCatalog
+    [switch]$SkipCatalog,
+    [string]$QuoteApiEndpoint = "",
+    [string]$AndroidToolRoot = ""
 )
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $WorkspaceRoot = [IO.Path]::GetFullPath((Split-Path -Parent $ProjectRoot))
-$ToolRoot = Join-Path $WorkspaceRoot '.tools\android-build'
+$ToolRoot = if ($AndroidToolRoot) { [IO.Path]::GetFullPath($AndroidToolRoot) } else { Join-Path $WorkspaceRoot '.tools\android-build' }
 $SdkRoot = Join-Path $ToolRoot 'sdk'
 $JdkRoot = Get-ChildItem -LiteralPath (Join-Path $ToolRoot 'jdk-extracted') -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'bin\javac.exe') } | Select-Object -First 1 -ExpandProperty FullName
 if (-not $JdkRoot) { throw 'Local JDK 17 is missing.' }
@@ -47,13 +49,19 @@ Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'assets') -File | Copy-Item -
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'assets\vendor-logos') -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $AssetRoot ("vendor-" + $_.Name))
 }
+if ($QuoteApiEndpoint) {
+    $QuoteApiUri = [Uri]$QuoteApiEndpoint
+    if ($QuoteApiUri.Scheme -ne 'https') { throw 'Quote API endpoint must use HTTPS.' }
+    $QuoteApiJson = $QuoteApiEndpoint | ConvertTo-Json -Compress
+    Set-Content -LiteralPath (Join-Path $AssetRoot 'quote-config.js') -Value "window.MCUS_QUOTES_ENABLED=false;window.MCUS_QUOTE_API=$QuoteApiJson;" -Encoding UTF8
+}
 
 $CompiledResources = Join-Path $BuildRoot 'resources.zip'
 & $Aapt2 compile --dir (Join-Path $ProjectRoot 'res') -o $CompiledResources
 if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed.' }
 
 $UnsignedApk = Join-Path $BuildRoot 'MCUS-unsigned.apk'
-& $Aapt2 link -o $UnsignedApk --manifest (Join-Path $ProjectRoot 'AndroidManifest.xml') -I $AndroidJar -A $AssetRoot --min-sdk-version 24 --target-sdk-version 35 --version-code 22 --version-name '1.0.1' $CompiledResources
+& $Aapt2 link -o $UnsignedApk --manifest (Join-Path $ProjectRoot 'AndroidManifest.xml') -I $AndroidJar -A $AssetRoot --min-sdk-version 24 --target-sdk-version 35 --version-code 23 --version-name '1.0.2' $CompiledResources
 if ($LASTEXITCODE -ne 0) { throw 'APK resource linking failed.' }
 
 $JavaFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'src') -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
@@ -82,7 +90,7 @@ if (-not (Test-Path -LiteralPath $KeyStore)) {
     if ($LASTEXITCODE -ne 0) { throw 'Debug keystore creation failed.' }
 }
 
-$FinalApk = Join-Path $DistRoot 'MCUS-1.0.1-debug.apk'
+$FinalApk = Join-Path $DistRoot 'MCUS-1.0.2-debug.apk'
 & $ApkSigner sign --ks $KeyStore --ks-pass pass:android --key-pass pass:android --out $FinalApk $AlignedApk
 if ($LASTEXITCODE -ne 0) { throw 'APK signing failed.' }
 & $ApkSigner verify --verbose --print-certs $FinalApk

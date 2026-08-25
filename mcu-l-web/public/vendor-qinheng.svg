@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48" role="img" aria-label="Qinheng WCH">
-  <rect width="160" height="48" rx="6" fill="#f5f7fa"/>
-  <path d="M17 12h23v7H24v10h16v7H17zM29 29h11v7H29z" fill="#1664c0"/>
-  <path d="M48 12h7v24h-7zM61 12h7v24h-7zM74 12h7v24h-7z" fill="#16a05d"/>
-  <text x="91" y="21" font-family="Arial,sans-serif" font-size="10" font-weight="700" fill="#1b2733">QINHENG</text>
-  <text x="91" y="34" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#1664c0">WCH</text>
-</svg>

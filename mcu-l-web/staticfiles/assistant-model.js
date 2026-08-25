@@ -20,6 +20,7 @@ window.MCUS_LOCAL_MODEL = {
     {label:"Geehy", terms:["geehy","apm32","极海"]},
     {label:"Infineon", terms:["infineon","psoc","xmc","英飞凌"]},
     {label:"Texas Instruments", terms:["texas instruments","ti芯片","mspm","msp430","德州仪器"]},
+    {label:"Renesas", terms:["renesas","瑞萨","瑞萨电子","ra系列","rx系列","rl78","rh850","synergy"]},
     {label:"Allwinner", terms:["allwinner","xradio","xr806","全志"]},
     {label:"MicroPy MCU", terms:["micropython","micro python","micropy","canmv","rp2040","rp2350","rp2354","k210","k230","k510","kendryte","树莓派"]}
   ],
