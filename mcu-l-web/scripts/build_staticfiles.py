@@ -68,13 +68,18 @@ def main() -> int:
         "</script>"
     )
     scripts.append(
+        f'  <script src="quote-config.js?v={version}"></script>'
+    )
+    scripts.append(
         f'  <script src="app.js?v={version}" '
         "onerror=\"document.querySelector('.splash-sub').textContent='界面脚本载入失败，请确认已上传 app.js';\"></script>"
     )
 
     index = index_path.read_text(encoding="utf-8")
     index = re.sub(
-        r'\s*<script src="catalog\.js(?:\?[^\"]*)?"></script>\s*<script src="app\.js(?:\?[^\"]*)?"></script>',
+        r'\s*<script src="catalog\.js(?:\?[^\"]*)?"></script>\s*'
+        r'(?:<script src="quote-config\.js(?:\?[^\"]*)?"></script>\s*)?'
+        r'<script src="app\.js(?:\?[^\"]*)?"></script>',
         "\n" + "\n".join(scripts),
         index,
         count=1,

@@ -29,7 +29,7 @@ ARCHITECTURE_NO_FPU = {
 EXACT_DEVICE_SOURCE_KINDS = {
     "cubemx_device_db", "microchip_atdf", "puya_device_header",
     "infineon_device_db", "espressif_idf_soc_caps",
-    "hpmicro_product_selector",
+    "hpmicro_product_selector", "renesas_product_selector",
 }
 
 

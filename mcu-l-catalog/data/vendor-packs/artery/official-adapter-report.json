@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "adapter": "import_at32_official.py",
+  "manufacturer": "Artery",
+  "series": 26,
+  "device_variants": 222,
+  "orderable_parts": 222,
+  "source_scope": "ArteryTek CMSIS driver repositories and official product pages",
+  "completeness_claim": "Exact device macro snapshot for the listed public Artery CMSIS drivers; representative rows are explicitly limited to one published product-page model where a driver repository is unavailable. This is not a claim about every unpublished or discontinued orderable code."
+}

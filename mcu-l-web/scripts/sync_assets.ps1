@@ -19,6 +19,7 @@ if (Test-Path -LiteralPath $staticFiles) { Remove-Item -LiteralPath $staticFiles
 New-Item -ItemType Directory -Force -Path $staticFiles | Out-Null
 Get-ChildItem -LiteralPath $public -File | Where-Object { $_.Name -notin @("catalog.js", "index.html") } | Copy-Item -Destination $staticFiles -Force
 python (Join-Path $PSScriptRoot "build_staticfiles.py") --source $public --output $staticFiles
+if ($LASTEXITCODE -ne 0) { throw 'Static catalog bundle generation failed.' }
 @'
 /*.js
   Content-Type: application/javascript; charset=utf-8

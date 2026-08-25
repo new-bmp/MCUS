@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         });
         setContentView(webView);
         if (savedInstanceState == null) {
-            webView.loadUrl("file:///android_asset/index.html?build=1.0.0");
+            webView.loadUrl("file:///android_asset/index.html?build=1.0.2");
         } else webView.restoreState(savedInstanceState);
     }
 

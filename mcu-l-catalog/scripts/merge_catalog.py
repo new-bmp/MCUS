@@ -141,6 +141,8 @@ def main() -> int:
             "GigaDevice": "gigadevice",
             "Qinheng": "qinheng",
             "STC": "stc",
+            "Artery": "artery",
+            "Renesas": "renesas",
         }.get(manufacturer, manufacturer.lower().replace(" ", "-"))
         adapter_report_path = vendor_dir / "official-adapter-report.json"
         if not adapter_report_path.exists():
@@ -164,7 +166,7 @@ def main() -> int:
                 "last_observed": utc_now(),
                 "device_coverage_status": (
                     "official_product_selector_api_snapshot"
-                    if manufacturer == "Espressif"
+                    if manufacturer in {"Espressif", "Renesas"}
                     else ("official_product_selector_page_snapshot" if manufacturer == "HPMicro"
                     else ("official_product_page_and_datasheet_snapshot" if manufacturer == "Allwinner"
                     else "official_cmsis_pack_scope_snapshot")
@@ -172,7 +174,7 @@ def main() -> int:
                 ) if adapter_report else "indexed_from_available_cmsis_packs",
                 "orderable_coverage_status": (
                     "official_selector_api_scope"
-                    if manufacturer == "Espressif"
+                    if manufacturer in {"Espressif", "Renesas"}
                     else ("official_exact_model_scope" if manufacturer == "Allwinner"
                     else ("partial_official_sources" if part_counts[manufacturer] else "not_imported"))
                 ),
@@ -203,7 +205,10 @@ def main() -> int:
         "product_line_count", "device_variant_count", "orderable_part_count",
         "last_observed", "device_coverage_status", "orderable_coverage_status", "notes",
     ]
-    error_fields = ["vendor_pack", "pack_vendor", "pack_name", "pdsc_url", "error"]
+    error_fields = [
+        "vendor_pack", "pack_vendor", "pack_name", "pdsc_url",
+        "scope", "source_url", "item", "error",
+    ]
 
     write_csv(args.output_dir / "product-lines.csv", product_line_fields, product_lines)
     write_csv(args.output_dir / "device-variants.csv", device_fields, devices)
