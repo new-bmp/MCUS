@@ -6,13 +6,60 @@
     "series": 325,
     "product_lines": 1106,
     "device_variants": 13377,
-    "orderable_parts": 20418,
-    "sources": 670,
+    "orderable_parts": 20585,
+    "sources": 1520,
     "capability_records": 13377,
     "score_records": 13377,
     "average_score_coverage_percent": 97.38,
     "devices_at_or_above_90_percent": 12350,
-    "fpu_verified_records": 13163
+    "fpu_verified_records": 13163,
+    "package_type_records": 12813,
+    "package_type_coverage_percent": 95.78,
+    "pin_count_records": 11793,
+    "direct_manual_url_devices": 11075,
+    "direct_manual_url_coverage_percent": 82.79,
+    "any_document_url_devices": 11875,
+    "source_pack_only_devices": 557
+  },
+  "document_status_counts": {
+    "valid": 11119,
+    "rate_limited": 9989,
+    "unverified": 9813,
+    "blocked": 1041,
+    "official_all_product_package_library": 90,
+    "official_exact_model_scope": 5
+  },
+  "coverage_gaps": {
+    "missing_packages_by_manufacturer": {
+      "Nuvoton": 125,
+      "MindMotion": 118,
+      "Puya": 87,
+      "Infineon": 78,
+      "Microchip": 59,
+      "Geehy": 31,
+      "Texas Instruments": 23,
+      "Artery": 21,
+      "GigaDevice": 19,
+      "STC": 2,
+      "MicroPy MCU": 1
+    },
+    "missing_direct_manuals_by_manufacturer": {
+      "Nuvoton": 562,
+      "Infineon": 467,
+      "Microchip": 360,
+      "STMicroelectronics": 352,
+      "MindMotion": 124,
+      "Renesas": 100,
+      "Puya": 87,
+      "Qinheng": 85,
+      "HPMicro": 74,
+      "Geehy": 48,
+      "GigaDevice": 19,
+      "Espressif": 13,
+      "STC": 9,
+      "Allwinner": 1,
+      "MicroPy MCU": 1
+    }
   },
   "errors": [],
   "warnings": []

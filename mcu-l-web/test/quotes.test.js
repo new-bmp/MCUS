@@ -1,51 +1,142 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
-import worker, { exactPartMatch, isChipListing, md5Hex, pickQuotes } from "../src/index.js";
+import worker, {
+  ickeySign,
+  md5Hex,
+  normalizeIckeyOffers,
+  resetIckeyTokenCache,
+} from "../src/index.js";
 
-test("MD5 signer uses the standard digest", () => {
-  assert.equal(md5Hex("abc"), "900150983CD24FB0D6963F7D28E17F72");
-  assert.equal(md5Hex("淘宝"), "12AD5C790444F88966C2FAF90E73D8C9");
+const ENV = {
+  MCUS_QUOTES_ENABLED: "true",
+  ICKEY_API_BASE: "https://api.example.test",
+  ICKEY_APP_ID: "mcus-app",
+  ICKEY_APP_KEY: "secret-key",
+};
+
+test("MD5 and Ickey signing follow the documented canonical format", () => {
+  assert.equal(md5Hex("abc"), "900150983cd24fb0d6963f7d28e17f72");
+  const params = { appid: "app_id111", _t: 1721869200 };
+  const canonical = "_t=1721869200&appid=app_id111|appkey1";
+  const expected = createHash("md5").update(canonical).digest("hex");
+  assert.equal(ickeySign(params, "appkey1"), expected);
 });
 
-test("exact part matching rejects longer look-alike models", () => {
-  assert.equal(exactPartMatch("原装 STM32F429ZIT6 LQFP144 芯片", "STM32F429ZIT6"), true);
-  assert.equal(exactPartMatch("STM32F429ZIT6TR 原装", "STM32F429ZIT6"), false);
-  assert.equal(exactPartMatch("2PCS STM32F429ZIT6", "STM32F429ZIT6"), true);
+test("Ickey offers keep exact MPNs and select the requested price tier", () => {
+  const offers = normalizeIckeyOffers([
+    {
+      supplier: "云汉优选",
+      sku: "1001",
+      pro_name: "STM32F103C8T6",
+      pro_maf: "STMicroelectronics",
+      stock: 2519,
+      moq: 1,
+      spq: 1,
+      nums: [1, 200, 1500],
+      rmb: [8.5, 7.2, 6.4],
+      lead_time_cn: "3-5工作日",
+      detail_url: "https://www.ickey.cn/detail/1001/STM32F103C8T6.html",
+    },
+    {
+      supplier: "错误变体",
+      sku: "1002",
+      pro_name: "STM32F103C8T6TR",
+      nums: [1],
+      rmb: [1],
+    },
+  ], "STM32F103C8T6", 250);
+
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].price, 7.2);
+  assert.equal(offers[0].stock, 2519);
+  assert.equal(offers[0].leadTime, "3-5工作日");
+  assert.equal(offers[0].priceTiers.length, 3);
 });
 
-test("chip filter excludes boards, modules, programmers and used pulls", () => {
-  const part = "STM32F429ZIT6";
-  assert.equal(isChipListing(`${part} 原装芯片`, part), true);
-  assert.equal(isChipListing(`${part} 核心板`, part), false);
-  assert.equal(isChipListing(`${part} 开发套件`, part), false);
-  assert.equal(isChipListing(`${part} 拆机`, part), false);
-});
-
-test("quote selection keeps three distinct stores with valid prices", () => {
-  const part = "STM32F429ZIT6";
-  const items = [
-    { title: `${part} 原装芯片`, shop_title: "店铺甲", seller_id: "1", zk_final_price: "28.50", item_id: "a", item_url: "https://item.taobao.com/item.htm?id=a" },
-    { title: `${part} 核心板`, shop_title: "开发板店", seller_id: "2", zk_final_price: "12.00", item_id: "b" },
-    { title: `${part} 芯片`, shop_title: "店铺甲", seller_id: "1", zk_final_price: "27.00", item_id: "c" },
-    { title: `${part} 现货`, shop_title: "店铺乙", seller_id: "3", zk_final_price: "31.00", item_id: "d" },
-    { title: `${part} 原装`, shop_title: "店铺丙", seller_id: "4", zk_final_price: "29.00", item_id: "e" },
-    { title: `${part} 芯片`, shop_title: "店铺丁", seller_id: "5", zk_final_price: "35.00", item_id: "f" },
-  ];
-  const quotes = pickQuotes(items, part);
-  assert.deepEqual(quotes.map((quote) => quote.shop), ["店铺甲", "店铺丙", "店铺乙"]);
-  assert.equal(quotes.length, 3);
-});
-
-test("quote route stays disabled in 1.0.2", async () => {
-  const context = { waitUntil() {} };
+test("quote route stays disabled unless the deployment flag is enabled", async () => {
   const response = await worker.fetch(
-    new Request("https://mcus.example/api/quotes?part=STM32F429ZIT6"),
+    new Request("https://mcus.example/api/quotes?part=STM32F103C8T6"),
     {},
-    context,
+    { waitUntil() {} },
   );
   assert.equal(response.status, 404);
   assert.equal((await response.json()).code, "feature_disabled");
+});
+
+test("configured quote route obtains a token and returns normalized Ickey data", async () => {
+  resetIckeyTokenCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: String(options.body) });
+    if (String(url).endsWith("/v2/new-token/create")) {
+      return Response.json({
+        success: true,
+        errorCode: 0,
+        message: "success",
+        result: { token: "test-token", expireTime: 7200 },
+      });
+    }
+    if (String(url).endsWith("/search-v1/products/get-single-goods-new")) {
+      return Response.json({
+        success: true,
+        message: "success",
+        errorCode: 0,
+        result: [{
+          supplier: "云汉在库",
+          sku: "1003024504405",
+          pro_name: "STM32F103C8T6",
+          pro_maf: "STMicroelectronics",
+          date_code: "24+",
+          package: "LQFP48",
+          stock: 3000,
+          moq: 5,
+          spq: 1,
+          rmb: [8.5, 7.9, 7.2],
+          nums: [5, 20, 100],
+          lead_time_cn: "3-5工作日",
+          detail_url: "https://www.ickey.cn/detail/1003024504405/STM32F103C8T6.html",
+        }],
+      });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  try {
+    const response = await worker.fetch(
+      new Request("https://mcus.example/api/quotes?part=STM32F103C8T6&quantity=20"),
+      ENV,
+      { waitUntil() {} },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const payload = await response.json();
+    assert.equal(payload.provider, "ickey");
+    assert.equal(payload.quantity, 20);
+    assert.equal(payload.quotes[0].price, 7.9);
+    assert.equal(payload.quotes[0].moq, 5);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].body, /appid=mcus-app/);
+    assert.match(calls[0].body, /sign=[0-9a-f]{32}/);
+    assert.match(calls[1].body, /keyword=STM32F103C8T6/);
+    assert.match(calls[1].body, /is_exact_match=1/);
+    assert.match(calls[1].body, /pro_num=20/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetIckeyTokenCache();
+  }
+});
+
+test("enabled quote route reports missing Ickey credentials without leaking details", async () => {
+  const response = await worker.fetch(
+    new Request("https://mcus.example/api/quotes?part=STM32F103C8T6"),
+    { MCUS_QUOTES_ENABLED: "true" },
+    { waitUntil() {} },
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "not_configured");
 });
 
 test("quote route handles CORS preflight without a response body", async () => {

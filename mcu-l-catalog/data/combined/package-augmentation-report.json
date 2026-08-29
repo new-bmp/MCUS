@@ -1,0 +1,627 @@
+{
+  "generated_at": "2026-08-29T12:20:04+00:00",
+  "data_dir": "C:\\Users\\confl\\Desktop\\alice blue\\mcu-l-catalog\\data\\combined",
+  "datasheet_entries": 63,
+  "downloaded_documents": 63,
+  "package_mappings": 196,
+  "updated_devices": 529,
+  "package_updates": 1,
+  "package_corrections": 0,
+  "artery_document_updates": 222,
+  "artery_package_tables": 26,
+  "artery_unresolved_packages": [
+    "AT32F402V8T7",
+    "AT32F403CCT6",
+    "AT32F403CCU6",
+    "AT32F403CET6",
+    "AT32F403CEU6",
+    "AT32F403CGT6",
+    "AT32F403CGU6",
+    "AT32F403RCT6",
+    "AT32F403RET6",
+    "AT32F403RGT6",
+    "AT32F403VCT6",
+    "AT32F403VET6",
+    "AT32F403VGT6",
+    "AT32F405VET7",
+    "AT32F425G6U7",
+    "AT32F425G8U7",
+    "AT32F426R6T7",
+    "AT32F426R8T7",
+    "AT32WB415C8T7",
+    "AT32WB415K8T7",
+    "AT32WB415R8T7"
+  ],
+  "espressif_selector_matches": 319,
+  "espressif_datasheets_in_sitemap": 63,
+  "espressif_document_updates": 306,
+  "espressif_module_package_updates": 0,
+  "orderable_package_updates": 0,
+  "remaining_missing_packages": 641,
+  "remaining_missing_documents": 1563,
+  "remaining_missing_packages_by_manufacturer": {
+    "Nuvoton": 156,
+    "MindMotion": 124,
+    "Puya": 87,
+    "Infineon": 78,
+    "Texas Instruments": 63,
+    "Microchip": 59,
+    "Geehy": 31,
+    "Artery": 21,
+    "GigaDevice": 19,
+    "STC": 2,
+    "MicroPy MCU": 1
+  },
+  "index_errors": [],
+  "artery_errors": [],
+  "espressif_errors": [],
+  "documents": [
+    {
+      "title": "GD32C113xx Datasheet",
+      "version": "1.6",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/380/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/380/path_type/1",
+      "status": 200,
+      "sha256": "f746e237e3a1e57d45cb99b9d47a96025df6ccb1461dd4e755020aeda43bcb06",
+      "bytes": 1978196
+    },
+    {
+      "title": "GD32C103xx Datasheet",
+      "version": "2.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/275/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/275/path_type/1",
+      "status": 200,
+      "sha256": "bd4df4decb53d015efead52624ef47b8be5725504769b0187440bc4510a61609",
+      "bytes": 2217189
+    },
+    {
+      "title": "GD32E103xx Datasheet",
+      "version": "2.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/235/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/235/path_type/1",
+      "status": 200,
+      "sha256": "8d94da1362004f0c1e7222dfbbe613b8a8cf04cc8bdffb4dcdad0e8326976a37",
+      "bytes": 1337711
+    },
+    {
+      "title": "GD32E113xx Datasheet",
+      "version": "1.5",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/379/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/379/path_type/1",
+      "status": 200,
+      "sha256": "b846751c51fed4d21d30e1a35803fc3aad2e8add81821e834fee05cf41120a2e",
+      "bytes": 1986732
+    },
+    {
+      "title": "GD32E231xx Datasheet",
+      "version": "1.6",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/569/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/569/path_type/1",
+      "status": 200,
+      "sha256": "5a4e87b3972b4ec3db4a109b54b5ebc7679db5d91a23e5965fa8594f0d77b058",
+      "bytes": 998225
+    },
+    {
+      "title": "GD32E230xx Datasheet",
+      "version": "3.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/202/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/202/path_type/1",
+      "status": 200,
+      "sha256": "aa564218bdad841f82027ae85559d66301004c204001109e9b646c86f0d172c2",
+      "bytes": 1415675
+    },
+    {
+      "title": "GD32E235xx Datasheet",
+      "version": "2.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/553/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/553/path_type/1",
+      "status": 200,
+      "sha256": "ac2e0effac16831a5d96b0a76c1147ee5a60b947202d08c45ff24f1162f62dfa",
+      "bytes": 1353513
+    },
+    {
+      "title": "GD32E503xx Datasheet",
+      "version": "2.5",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/250/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/250/path_type/1",
+      "status": 200,
+      "sha256": "4e4f81de3e9aa93ec43055bfc102f81e5573df72e5f657cff2150b87edb1d432",
+      "bytes": 1959877
+    },
+    {
+      "title": "GD32E505xx Datasheet",
+      "version": "2.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/251/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/251/path_type/1",
+      "status": 200,
+      "sha256": "09f353edd7b0dc46ee949a886579bb0f2c79e325dfa3343196c121118f3e1452",
+      "bytes": 1921613
+    },
+    {
+      "title": "GD32E507xx Datasheet",
+      "version": "2.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/252/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/252/path_type/1",
+      "status": 200,
+      "sha256": "d6dcb0e0ec38ee973d3ddd5172ee1cbe57b7ef501aabbdff78ed0d30682074f6",
+      "bytes": 1906312
+    },
+    {
+      "title": "GD32E508xx Datasheet",
+      "version": "1.8",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/281/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/281/path_type/1",
+      "status": 200,
+      "sha256": "cf4abdbb1660956e9d4bb3b713c285df4f32941853a9d08c22331cfabd5220b9",
+      "bytes": 1901326
+    },
+    {
+      "title": "GD32E502xx Datasheet",
+      "version": "1.5",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/496/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/496/path_type/1",
+      "status": 200,
+      "sha256": "053550e4931bc825db3ee286254e4edb48fd524ff7a53bf62ffa3d3036dff878",
+      "bytes": 2099220
+    },
+    {
+      "title": "GD32E513xx Datasheet",
+      "version": "1.6",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/599/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/599/path_type/1",
+      "status": 200,
+      "sha256": "71d1f139e77bc597e099655f5e439cff2102a0e71c98726402577ec0c2924220",
+      "bytes": 1839753
+    },
+    {
+      "title": "GD32E517xx Datasheet",
+      "version": "1.4",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/600/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/600/path_type/1",
+      "status": 200,
+      "sha256": "ec95930c68f4542d1743dca31b4ad5ff3c269cf4ccaf1e17fc2d0c8d01f1a175",
+      "bytes": 1880624
+    },
+    {
+      "title": "GD32E518xx Datasheet",
+      "version": "1.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/601/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/601/path_type/1",
+      "status": 200,
+      "sha256": "45f96307b5aa4ac92833c7acdbffa03d4d67781b3c3dbefd334173223aa66fa0",
+      "bytes": 1974801
+    },
+    {
+      "title": "GD32F150xx Datasheet",
+      "version": "4.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/156/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/156/path_type/1",
+      "status": 200,
+      "sha256": "07a0aafaf83c47141ffc6370dac320a9fc70ae6d5e0865c65d91836cfdd15cfc",
+      "bytes": 2297394
+    },
+    {
+      "title": "GD32F130xx Datasheet",
+      "version": "4.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/231/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/231/path_type/1",
+      "status": 200,
+      "sha256": "237fa10d8ab044fb92a6cecbc97df9c60f89fdec77ed07f6edebdea2c5e0b3d3",
+      "bytes": 2557024
+    },
+    {
+      "title": "GD32F101xx Datasheet",
+      "version": "3.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/236/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/236/path_type/1",
+      "status": 200,
+      "sha256": "8d5f60d5b5f8c33a4be60ca1aa9e9b9cce47ee8737a217d5521cb58ac4f84903",
+      "bytes": 1928829
+    },
+    {
+      "title": "GD32F103xx Datasheet",
+      "version": "3.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/237/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/237/path_type/1",
+      "status": 200,
+      "sha256": "5f50b2250d9c814634e86f10c727a8a029c12d0a852d9abf1416c40a94503c96",
+      "bytes": 1752831
+    },
+    {
+      "title": "GD32F105xx Datasheet",
+      "version": "2.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/238/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/238/path_type/1",
+      "status": 200,
+      "sha256": "89c764f9d642f5a157bcdcdd041653c20278f647e245516639eb8719438bcb2c",
+      "bytes": 1597952
+    },
+    {
+      "title": "GD32F107xx Datasheet",
+      "version": "2.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/239/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/239/path_type/1",
+      "status": 200,
+      "sha256": "4b79bd8cd963d52636df49dc6b4d86fb48dfd684eb12c847bc75cec6ab49acd2",
+      "bytes": 1897270
+    },
+    {
+      "title": "GD32F205xx Datasheet",
+      "version": "3.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/190/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/190/path_type/1",
+      "status": 200,
+      "sha256": "9ca82c8567d01c6900aa836feb7001f24463cebb89618e619a389cea9fe8d7b8",
+      "bytes": 1163097
+    },
+    {
+      "title": "GD32F207xx Datasheet",
+      "version": "3.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/192/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/192/path_type/1",
+      "status": 200,
+      "sha256": "68e13fff22e7e9e7c61610f9754bdab09a5eae5f2e515e62e9fb83562df976c6",
+      "bytes": 1299985
+    },
+    {
+      "title": "GD32F330xx Datasheet",
+      "version": "3.5",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/134/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/134/path_type/1",
+      "status": 200,
+      "sha256": "0b54548338d7432d6295fd391afdc0d122989182651c7575c5f0a8ab1f975c90",
+      "bytes": 1997785
+    },
+    {
+      "title": "GD32F350xx Datasheet",
+      "version": "3.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/133/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/133/path_type/1",
+      "status": 200,
+      "sha256": "928a751b1171b901fb1d9242e265e9419b864b642ce4ee4eee72c23364cca280",
+      "bytes": 2828930
+    },
+    {
+      "title": "GD32F303xx Datasheet",
+      "version": "3.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/240/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/240/path_type/1",
+      "status": 200,
+      "sha256": "ca6f4036e52e7429e70a01346e6c5aa42b95dd5aa17a393ea84599de626cadd3",
+      "bytes": 3301897
+    },
+    {
+      "title": "GD32F305xx Datasheet",
+      "version": "3.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/241/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/241/path_type/1",
+      "status": 200,
+      "sha256": "75bffb8c552798f3bf8b28f6f8f14432f1965bd9008e8e26944486bab0bf28c6",
+      "bytes": 2912652
+    },
+    {
+      "title": "GD32F307xx Datasheet",
+      "version": "3.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/242/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/242/path_type/1",
+      "status": 200,
+      "sha256": "f33f12f137ec74bcfb3649a273bf315872544ddaf3ac5c0484929b75d7f02e91",
+      "bytes": 2794086
+    },
+    {
+      "title": "GD32F310xx Datasheet",
+      "version": "2.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/308/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/308/path_type/1",
+      "status": 200,
+      "sha256": "55b1ac2ad9e3d72a1963a6f64fae2b3568748864a0784f71b966bac4ae84df90",
+      "bytes": 2794984
+    },
+    {
+      "title": "GD32F303xB Datasheet",
+      "version": "1.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/544/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/544/path_type/1",
+      "status": 200,
+      "sha256": "a485cbdce30f6e52f787537220230324421cbfd4864fc74f2d852830bf602e74",
+      "bytes": 3028442
+    },
+    {
+      "title": "GD32F450xx Datasheet",
+      "version": "2.9",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/100/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/100/path_type/1",
+      "status": 200,
+      "sha256": "2ba61a82215f3e0c822a734516ddcc7eb5c1406dbace62f8dfb400c776fc9b12",
+      "bytes": 3850945
+    },
+    {
+      "title": "GD32F405xx Datasheet",
+      "version": "2.8",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/108/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/108/path_type/1",
+      "status": 200,
+      "sha256": "ca6d4c4f2cdc95d3e64a96a9cb61c6243817385cb9f9128d9aa37fceeacda4e8",
+      "bytes": 3460031
+    },
+    {
+      "title": "GD32F407xx Datasheet",
+      "version": "3.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/110/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/110/path_type/1",
+      "status": 200,
+      "sha256": "f77e32e1c3e79670776e84a640185996d65102d6304a046deae21136b4efb2ed",
+      "bytes": 4348937
+    },
+    {
+      "title": "GD32F403xx Datasheet",
+      "version": "3.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/243/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/243/path_type/1",
+      "status": 200,
+      "sha256": "244fd6598ecba2d2e1e62b26df715d2184476ba62ac07bb0b85791c24d442155",
+      "bytes": 3560394
+    },
+    {
+      "title": "GD32F425xx Datasheet",
+      "version": "1.8",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/350/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/350/path_type/1",
+      "status": 200,
+      "sha256": "b370da7b4ba62e0de2e442123ba9859b748764c58f080788a3dbbc1ffcc0b8cc",
+      "bytes": 3503645
+    },
+    {
+      "title": "GD32F427xx Datasheet",
+      "version": "1.9",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/351/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/351/path_type/1",
+      "status": 200,
+      "sha256": "c0d64ec0c92cd3636bec706e1389019ccb436fb40a8d5c1626fb64edc7c553ee",
+      "bytes": 4352349
+    },
+    {
+      "title": "GD32F470xx Datasheet",
+      "version": "2.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/352/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/352/path_type/1",
+      "status": 200,
+      "sha256": "19b76c644705999f5062cc780009ade9bd662fc7db4d122029fd8efcf8b73888",
+      "bytes": 4049822
+    },
+    {
+      "title": "GD32F5HCxx Datasheet",
+      "version": "1.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/312/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/312/path_type/1",
+      "status": 200,
+      "sha256": "235d7501405376218e5eb70f8fbfd20be7ad3ccb12259285dbe9b859c545a786",
+      "bytes": 2834280
+    },
+    {
+      "title": "GD32F527xx Datasheet",
+      "version": "1.8",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/557/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/557/path_type/1",
+      "status": 200,
+      "sha256": "c8bfe81e73f611f3c725f4af8e2232f6bfa3589c34f8953f5693f263519e24c8",
+      "bytes": 2642077
+    },
+    {
+      "title": "GD32F502xx Datasheet",
+      "version": "0.9RC6",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/148/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/148/path_type/1",
+      "status": 200,
+      "sha256": "d852918b81d619f0560ed8deddbdb31a77840946d4d591bcf962e5202b9c0008",
+      "bytes": 2941844
+    },
+    {
+      "title": "GD32F503xx Datasheet",
+      "version": "0.9RC6",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/743/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/743/path_type/1",
+      "status": 200,
+      "sha256": "3b002573be086e84149c213b0957478190fda61f9b6b8919e7aad75cea27d4de",
+      "bytes": 3291128
+    },
+    {
+      "title": "GD32F505xx Datasheet",
+      "version": "0.9RC5",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/744/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/744/path_type/1",
+      "status": 200,
+      "sha256": "26e07a1bdb5180a4b99abadb8ae3825949eb25581aa4adbc1a15383aea90f523",
+      "bytes": 3052021
+    },
+    {
+      "title": "GD32L233xx Datasheet",
+      "version": "2.4",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/289/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/289/path_type/1",
+      "status": 200,
+      "sha256": "58d9c55e71ed6e313dec92b214011057059df15aa28a2acdcd605e230e7f36e2",
+      "bytes": 2382404
+    },
+    {
+      "title": "GD32L235xx Datasheet",
+      "version": "2.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/581/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/581/path_type/1",
+      "status": 200,
+      "sha256": "903ed4f7febeb32f19134898261d14443d8f9005f1fc1615b19309d613e520e9",
+      "bytes": 2799127
+    },
+    {
+      "title": "GD32W515xx Datasheet",
+      "version": "1.9",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/279/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/279/path_type/1",
+      "status": 200,
+      "sha256": "36c079f51262c1140f671e806b9a74583275efcff7592d04c15ab760962bc45f",
+      "bytes": 1969816
+    },
+    {
+      "title": "GD32VF103 Datasheet",
+      "version": "2.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/287/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/287/path_type/1",
+      "status": 200,
+      "sha256": "974d9ebf07ac22524bc50d31b0c57ffff3c53d5e7c6fe3ecb352eebebe429a86",
+      "bytes": 1961459
+    },
+    {
+      "title": "GD32VF103xx Datasheet",
+      "version": "1.7",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/221/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/221/path_type/1",
+      "status": 200,
+      "sha256": "d3cc2541cefa3a0d0bc75eb60214eff19897477a0f76e51a7f9efcc3f9a60c61",
+      "bytes": 2358981
+    },
+    {
+      "title": "GD32A103xx Datasheet",
+      "version": "1.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/624/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/624/path_type/1",
+      "status": 200,
+      "sha256": "814a8a7834c890a14e203662ff06f39c3fcd7e72887dc36ab5e1d86026217855",
+      "bytes": 2173206
+    },
+    {
+      "title": "GD32A508xx Datasheet",
+      "version": "1.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/630/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/630/path_type/1",
+      "status": 200,
+      "sha256": "1f2ac476b93c78eca08bd649d813d15122b0e5783376687619cd2cdf1362a922",
+      "bytes": 1856685
+    },
+    {
+      "title": "GD32A490xx Datasheet",
+      "version": "1.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/531/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/531/path_type/1",
+      "status": 200,
+      "sha256": "02db9ec7abf17212e4903897839f4753f696968c0e2d23cc45d35d2b419e8505",
+      "bytes": 3468478
+    },
+    {
+      "title": "GD32A503xx Datasheet",
+      "version": "2.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/443/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/443/path_type/1",
+      "status": 200,
+      "sha256": "87697cdc4a937de070b5dc41744641e9bf0d6646914ff6c852000a929fe92d9f",
+      "bytes": 2707897
+    },
+    {
+      "title": "GD32A513xx Datasheet",
+      "version": "1.4",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/555/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/555/path_type/1",
+      "status": 200,
+      "sha256": "8620ed50d54444c9462e296cf4a6d513fe6526b0ec2beaf6397c31018438f30b",
+      "bytes": 2693138
+    },
+    {
+      "title": "GD32G553xx Datasheet",
+      "version": "2.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/656/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/656/path_type/1",
+      "status": 200,
+      "sha256": "6c6e2fd6af9a20e634622616859dda94014c527687994b6805f58f0bd4a626eb",
+      "bytes": 3878462
+    },
+    {
+      "title": "GD32H737xx Datasheet",
+      "version": "2.0",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/473/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/473/path_type/1",
+      "status": 200,
+      "sha256": "dea45b6a19b330510236e36b530a3e427050efea3a807d2eef33165cc527f025",
+      "bytes": 1990165
+    },
+    {
+      "title": "GD32H757xx Datasheet",
+      "version": "2.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/474/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/474/path_type/1",
+      "status": 200,
+      "sha256": "84fdb6748a7f89cb56dffb7d81106b5356e0d3b3ff72c61b51d0e3c28bf5e97c",
+      "bytes": 1736052
+    },
+    {
+      "title": "GD32H759xx Datasheet",
+      "version": "2.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/475/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/475/path_type/1",
+      "status": 200,
+      "sha256": "12995cf8ac78b6e3528754b8b15577308117f4e55b37b487af79672435591daf",
+      "bytes": 1733815
+    },
+    {
+      "title": "GD32H75Exx Datasheet",
+      "version": "1.5",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/652/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/652/path_type/1",
+      "status": 200,
+      "sha256": "49afeac55dd07920e3d70ace0bf18a8ef5a5fb5f124793ef265ada91874ce014",
+      "bytes": 3596081
+    },
+    {
+      "title": "GDSCN832xx Datasheet",
+      "version": "1.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/650/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/650/path_type/1",
+      "status": 200,
+      "sha256": "93cf1ca79253a4587cf2c2c65a9e470a7ac4c86b419fbc9372b61fca593b6d60",
+      "bytes": 1657270
+    },
+    {
+      "title": "GD32M531xx Datasheet",
+      "version": "1.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/767/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/767/path_type/1",
+      "status": 200,
+      "sha256": "e8bdc91a796faeee3376985701ef1b0d4ce79ef7799cf1c67bb026226dcbc62b",
+      "bytes": 1346090
+    },
+    {
+      "title": "GD32VW553xx Datasheet",
+      "version": "1.6",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/521/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/521/path_type/1",
+      "status": 200,
+      "sha256": "76eb013a7aaf9cede1eef5f277856234ebacaf603de0d6f9da3a3ce6609b0b62",
+      "bytes": 1646764
+    },
+    {
+      "title": "GD32VW553-MINI Datasheet",
+      "version": "1.3",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/676/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/676/path_type/1",
+      "status": 200,
+      "sha256": "8eb851f0c1697a9f5510d55f668dddee93d86f2af230435cf3b4b909470befac",
+      "bytes": 1433644
+    },
+    {
+      "title": "GD32VW553-UNIFI Datasheet",
+      "version": "1.2",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/677/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/677/path_type/1",
+      "status": 200,
+      "sha256": "70c341b5771fe06de9cf9b40d11a30ba5d116943d65508c612542862e03a2f71",
+      "bytes": 1022265
+    },
+    {
+      "title": "GD32VW553-MD1 Datasheet",
+      "version": "1.1",
+      "page_url": "https://www.gd32mcu.com/download/down/document_id/678/path_type/1",
+      "url": "https://www.gd32mcu.com/download/down/document_id/678/path_type/1",
+      "status": 200,
+      "sha256": "ccb69c83fb673f6880c5542343d325179f66cb5047cdbf8e1f56494d6e2abf60",
+      "bytes": 984044
+    }
+  ]
+}

@@ -63,7 +63,7 @@
     if(key==='bluetooth')return inventoryPresence(d,'Bluetooth');
     return null;
   }
-  devices.forEach(d=>{const peripheralText=(d.pi||[]).flatMap(item=>[item.n,item.t,item.d]).join(' ');const aliases=peripheralFilters.filter(item=>peripheralCount(d,item.key)).map(item=>item.aliases).join(' ');const vendorAliases=d.m==='Qinheng'?'沁恒 wch qinheng nanjing qinheng microelectronics qingke 青稞':d.m==='STC'?'stc 宏晶 hongjing stc microelectronics 8051':d.m==='HPMicro'?'先楫 hpm hpmicro risc-v 上海先楫':d.m==='Renesas'?'瑞萨 renesas ra rx rl78 rh850 synergy risc-v 瑞萨电子':d.m==='Allwinner'?'全志 allwinner xradio 芯之联 wireless mcu 实时 异构 soc 数传':d.m==='MicroPy MCU'?'micropy micropython mpy raspberry pi rp2040 rp2350 kendryte k210 micropython mcu':' ';d._q=[d.n,d.l,d.s,d.f,d.m,d.pt,vendorAliases,d.v,d.c,d.a,peripheralText,aliases,...(d.boards||[]),...(d.parts||[]).map(p=>p.n)].join(' ').toLowerCase()});
+  devices.forEach(d=>{const peripheralText=(d.pi||[]).flatMap(item=>[item.n,item.t,item.d]).join(' ');const aliases=peripheralFilters.filter(item=>peripheralCount(d,item.key)).map(item=>item.aliases).join(' ');const vendorAliases=d.m==='Qinheng'?'沁恒 wch qinheng nanjing qinheng microelectronics qingke 青稞':d.m==='STC'?'stc 宏晶 hongjing stc microelectronics 8051':d.m==='HPMicro'?'先楫 hpm hpmicro risc-v 上海先楫':d.m==='Renesas'?'瑞萨 renesas ra rx rl78 rh850 synergy risc-v 瑞萨电子':d.m==='Artery'?'雅特力 artery arterytek at32 at32f at32a at32l at32m at32wb':d.m==='Allwinner'?'全志 allwinner xradio 芯之联 wireless mcu 实时 异构 soc 数传':d.m==='MicroPy MCU'?'micropy micropython mpy raspberry pi rp2040 rp2350 kendryte k210 micropython mcu':' ';d._q=[d.n,d.l,d.s,d.f,d.m,d.pt,vendorAliases,d.v,d.c,d.a,peripheralText,aliases,...(d.boards||[]),...(d.parts||[]).map(p=>p.n)].join(' ').toLowerCase()});
   function readStoredArray(key){
     try{const parsed=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(parsed)?parsed:[]}
     catch(_){try{localStorage.removeItem(key)}catch(__){}return []}
@@ -125,7 +125,7 @@
   function vendorGlyph(name){if(name==='STMicroelectronics')return 'ST';if(name==='Texas Instruments')return 'TI';if(name==='Qinheng')return 'WCH';if(name==='HPMicro')return 'HPM';if(name==='Artery')return 'AT';if(name==='Renesas')return 'RE';return name.replace(/[^A-Z]/g,'').slice(0,2)||name.slice(0,2).toUpperCase()}
   const vendorLogoFiles={Allwinner:'allwinner.png',Artery:'artery.svg',Espressif:'espressif.svg',Geehy:'geehy.ico',GigaDevice:'gigadevice.svg',HPMicro:'hpmicro.png',Infineon:'infineon.svg',Microchip:'microchip.ico',MindMotion:'mindmotion.png',Nuvoton:'nuvoton.jpg',Puya:'puya.ico',Qinheng:'qinheng.svg',Renesas:'renesas.svg',STC:'stc.svg',STMicroelectronics:'stmicroelectronics.svg','Texas Instruments':'texas-instruments.ico'};
   function vendorLogo(name){const file=vendorLogoFiles[name];const cssName=name.toLowerCase().replace(/[^a-z0-9]+/g,'-');return `<span class="folder-icon vendor logo-${cssName}"><span class="vendor-fallback">${esc(vendorGlyph(name))}</span>${file?`<img src="vendor-${esc(file)}" alt="${esc(name)} Logo" onerror="this.remove()">`:''}</span>`}
-  function vendorName(name){if(name==='Allwinner')return '全志（Allwinner / XRadio）';if(name==='Artery')return '雅特力（Artery）';if(name==='Microchip')return 'Microchip（原 Atmel）';if(name==='Qinheng')return '沁恒（WCH）';if(name==='Renesas')return '瑞萨电子（Renesas）';if(name==='STC')return 'STC（宏晶）';if(name==='HPMicro')return '先楫半导体（HPMicro）';return name}
+  function vendorName(name){if(name==='Allwinner')return '全志（Allwinner / XRadio）';if(name==='Artery')return '雅特力（Artery / ArteryTek）';if(name==='Microchip')return 'Microchip（原 Atmel）';if(name==='Qinheng')return '沁恒（WCH）';if(name==='Renesas')return '瑞萨电子（Renesas）';if(name==='STC')return 'STC（宏晶）';if(name==='HPMicro')return '先楫半导体（HPMicro）';return name}
   function productType(type){return ({wireless_mcu:'无线 MCU',wireless_audio_mcu_soc:'无线音频 MCU SoC',wireless_connectivity_chip:'无线连接芯片',heterogeneous_realtime_soc:'带实时 MCU 核的 SoC',micropython_mcu:'MicroPython MCU'})[type]||'MCU'}
   function categoryTitle(list){if(list[0]?.m==='Allwinner'||list[0]?.m==='MicroPy MCU')return [...new Set(list.map(d=>productType(d.pt)))].join(' / ');return list[0]?.a||list[0]?.c||'MCU 系列'}
   function boardTags(d,full=false){const boards=d.boards||[];if(!boards.length)return '';const shown=full?boards:boards.slice(0,3);return `<div class="board-tags"><span>Arduino 开发板</span>${shown.map(name=>`<i>${esc(name)}</i>`).join('')}${!full&&boards.length>shown.length?`<i>+${boards.length-shown.length}</i>`:''}</div>`}
@@ -182,8 +182,8 @@
     for(const chunk of chunks){
       const hit=rx.exec(chunk);if(!hit)continue;
       const before=chunk.slice(Math.max(0,hit.index-28),hit.index),after=chunk.slice(hit.index+hit[0].length,hit.index+hit[0].length+28);
-      const negBefore=/(?:不要|不需要|无需|不含|排除|禁止|不考虑|不带|没有|不用|不想要|别|不配|不想配)[^，,;。]{0,14}$/i.test(before);
-      const negAfter=/^[^，,;。]{0,5}(?:不要|不需要|无需|不含|排除|禁止|不考虑|不带|没有|不用|不想要|别|不配|不想配)/i.test(after);
+      const negBefore=/(?:不要|别用|不想用|不是|不需要|无需|不含|排除|禁止|不考虑|不带|没有|不用|不想要|别|不配|不想配)[^，,;。]{0,14}$/i.test(before);
+      const negAfter=/^[^，,;。]{0,5}(?:不要|别用|不想用|不是|不需要|无需|不含|排除|禁止|不考虑|不带|没有|不用|不想要|别|不配|不想配)/i.test(after);
       if(!negBefore&&!negAfter)continue;
       const soft=/(?:最好|尽量|尽可能|优先|倾向|建议|可以不|能不)[^，,;。]{0,18}$/i.test(before);
       const optional=/(?:也行|也可以|无所谓|没关系|可有可无|不强求|有就行|没有就行)/i.test(before+after);
@@ -277,15 +277,38 @@
     return {min:max?null:min,max,target,approx:Boolean(target)};
   }
   function aiMemory(text,aliases){const number=aiQuantityPattern(),unit='(gb|mb|kb|g|m|k|吉|兆)';const after=new RegExp('(?:'+aliases+')[^\\d零〇一二两三四五六七八九十百千万]{0,14}'+number+'\\s*'+unit,'i').exec(text);const before=new RegExp(number+'\\s*'+unit+'\\s*(?:'+aliases+')','i').exec(text);const m=after||before;return m?aiUnitBytes(m[1],m[2]==='吉'?'gb':m[2]==='兆'?'mb':m[2]):null}
+  function aiCanonicalCore(token){
+    const value=String(token||'').toLowerCase().replace(/[\s_-]+/g,'');
+    const match=/m(?:35p|55|33|23|0\+?|7|4|3)/i.exec(value)||/m\d+\+?/i.exec(value);
+    return match?'cortex-'+match[0].toLowerCase():null;
+  }
+  function aiCoreCandidates(text){
+    const source=String(text||'').toLowerCase(),pattern=/(?:cortex[- ]?m(?:35p|55|33|23|0\+?|7|4|3)|arm\s+(?:cortex[- ]?)?m(?:35p|55|33|23|0\+?|7|4|3)|m(?:35p|55|33|23|0\+?|7|4|3)(?:f)?)(?=$|[^a-z0-9])/gi;
+    const result=[],excluded=[],softExcluded=[];let hit;
+    while((hit=pattern.exec(source))){
+      const canonical=aiCanonicalCore(hit[0]);if(!canonical)continue;
+      const escaped=hit[0].replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),relation=aiRelation(source,escaped);
+      if(relation.hard){if(!excluded.includes(canonical))excluded.push(canonical)}
+      else if(relation.soft){if(!softExcluded.includes(canonical))softExcluded.push(canonical)}
+      else if(!result.includes(canonical))result.push(canonical);
+    }
+    return {cores:result,excluded,softExcluded};
+  }
   function aiCoreFromText(text){
     const source=String(text||'').toLowerCase();
     // Longest-first plus an alphanumeric boundary prevents m33 from being cut to m3.
     const pattern=/(?:^|[^a-z0-9])((?:cortex[- ]?m(?:35p|55|33|23|0\+?|7|4|3)|arm\s+(?:cortex[- ]?)?m(?:35p|55|33|23|0\+?|7|4|3)|m(?:35p|55|33|23|0\+?|7|4|3)(?:f)?))(?=$|[^a-z0-9])/i;
     const hit=pattern.exec(source)||/(?:^|[^a-z0-9])((?:cortex[- ]?m|arm\s+(?:cortex[- ]?)?m|m)\d+\+?(?:f)?)(?=$|[^a-z0-9])/i.exec(source);if(!hit)return null;
-    const token=hit[1].replace(/\s+/g,'').replace(/^arm/i,'').replace(/^cortex-/i,'').replace(/^cortex/i,'');
-    const match=/m(?:35p|55|33|23|0\+?|7|4|3)/i.exec(token)||/m\d+\+?/i.exec(token);return match?'cortex-'+match[0].toLowerCase():null;
+    return aiCanonicalCore(hit[1]);
   }
   function aiMetric(d,key){if(key==='serial'){const values=[d.uart,d.usart].filter(v=>typeof v==='number');return values.length?values.reduce((a,b)=>a+b,0):null}if(key==='usbAny'){const values=[d.usb,d.usbd,d.usbh,d.otg].filter(v=>typeof v==='number');return values.length?Math.max(...values):null}return peripheralCount(d,key)}
+  function aiExactMatches(d,req){
+    const query=String(req?.exact||'').toLowerCase(),haystack=String(d?._q||'').toLowerCase();
+    if(!query)return true;
+    if(haystack.includes(query))return true;
+    const prefix=query.replace(/x+$/i,'');
+    return prefix.length>=4&&haystack.includes(prefix);
+  }
   function aiKnownWirelessAbsence(d,key){
     if(key!=='wifi'&&key!=='bluetooth')return false;
     // 对通用、低功耗和高性能 MCU，目录没有无线条目即表示未集成该无线能力；
@@ -295,21 +318,22 @@
   }
   function aiParse(prompt){
     const raw=String(prompt||'').trim(),text=aiNormalizeText(raw);
-    const req={prompt:raw,normalized:text,vendor:null,excludedVendors:[],core:null,exact:null,clock:null,clockTarget:null,ram:null,ramTarget:null,flash:null,flashTarget:null,pins:null,pinsMin:null,pinsMax:null,coreCount:null,coreOnly:false,fpu:false,micropython:false,minimums:{},maximums:{},softMinimums:{},softTargets:{},excludedFeatures:[],softExcludedFeatures:[],vagueFeatures:[],features:[],profiles:[],profileLabels:[],preferences:[],warnings:[]};
+    const req={prompt:raw,normalized:text,vendor:null,excludedVendors:[],core:null,coreAny:[],excludedCores:[],softExcludedCores:[],exact:null,clock:null,clockMax:null,clockTarget:null,ram:null,ramMax:null,ramTarget:null,flash:null,flashMax:null,flashTarget:null,pins:null,pinsMin:null,pinsMax:null,coreCount:null,coreOnly:false,fpu:false,micropython:false,minimums:{},maximums:{},softMinimums:{},softTargets:{},excludedFeatures:[],softExcludedFeatures:[],vagueFeatures:[],features:[],profiles:[],profileLabels:[],preferences:[],warnings:[]};
     const modelIntent=aiModelInfer(text),addUnique=(list,value)=>{if(value&&!list.includes(value))list.push(value)};
     modelIntent.profiles.forEach(profile=>{addUnique(req.profiles,profile.key);addUnique(req.profileLabels,profile.label);Object.entries(profile.softMinimums||{}).forEach(([key,min])=>{if(!(key in req.minimums))req.softMinimums[key]=Math.max(req.softMinimums[key]||0,min)});(profile.preferences||[]).forEach(key=>addUnique(req.preferences,key))});
     modelIntent.preferences.forEach(preference=>addUnique(req.preferences,preference.key));
     const vendors=[
-      ['STMicroelectronics',/stm32|stmicroelectronics|意法|st芯片/],['Espressif',/esp32|esp8266|乐鑫|espressif/],['Qinheng',/ch32|沁恒|wch|qingke|青稞/],['HPMicro',/hpmicro|hpm|先楫/],['Microchip',/microchip|atmel|avr|samd|pic/],['STC',/stc|宏晶/],['GigaDevice',/兆易创新|gigadevice|gd32/],['MindMotion',/灵动微|mindmotion|mm32/],['Nuvoton',/新唐|nuvoton|numicro/],['Puya',/普冉|puya|py32/],['Geehy',/极海|geehy|apm32/],['Infineon',/英飞凌|infineon|psoc|xmc/],['Texas Instruments',/德州仪器|ti芯片|texas instruments|mspm|msp430/],['Renesas',/瑞萨|renesas|\bra[02468][a-z0-9-]*\b|\brx[0-9][a-z0-9-]*\b|rl78|rh850|synergy/],['Allwinner',/全志|allwinner|xradio|xr806/],['MicroPy MCU',/micropython|micropy|canmv|rp2040|rp2350|rp2354|k210|k230|k510|树莓派|kendryte|嘉楠/]
+      ['STMicroelectronics',/stm32|stmicroelectronics|意法|st芯片/],['Espressif',/esp32|esp8266|乐鑫|espressif/],['Qinheng',/ch32|沁恒|wch|qingke|青稞/],['HPMicro',/hpmicro|hpm|先楫/],['Microchip',/microchip|atmel|avr|samd|pic/],['STC',/stc|宏晶/],['GigaDevice',/兆易创新|gigadevice|gd32/],['MindMotion',/灵动微|mindmotion|mm32/],['Nuvoton',/新唐|nuvoton|numicro/],['Puya',/普冉|puya|py32/],['Geehy',/极海|geehy|apm32/],['Infineon',/英飞凌|infineon|psoc|xmc/],['Texas Instruments',/德州仪器|ti芯片|texas instruments|mspm|msp430/],['Renesas',/瑞萨|renesas|\bra[02468][a-z0-9-]*\b|\brx[0-9][a-z0-9-]*\b|rl78|rh850|synergy/],['Artery',/雅特力|artery(?:tek)?|at32(?:f|a|l|m|wb)?\b/],['Allwinner',/全志|allwinner|xradio|xr806/],['MicroPy MCU',/micropython|micropy|canmv|rp2040|rp2350|rp2354|k210|k230|k510|树莓派|kendryte|嘉楠/]
     ];
     localModel.vendors.forEach(item=>{if(aiHasNegation(text,item.terms))req.excludedVendors.push(item.label)});
     const vendor=vendors.find(item=>item[1].test(text));if(modelIntent.vendor&&!req.excludedVendors.includes(modelIntent.vendor))req.vendor=modelIntent.vendor;else if(vendor&&!req.excludedVendors.includes(vendor[0]))req.vendor=vendor[0];
-    const exact=/\b(?:stm32|esp32|esp8266|ch32|gd32|mm32|py32|apm32|rp2040|rp2350[a-z0-9]*|rp2354[a-z0-9]*|k210|k230d?|k510|hpm[0-9a-z]+|ra[02468][a-z0-9-]*|rx[0-9][a-z0-9-]*|r7[a-z0-9-]+|r5f[a-z0-9-]+|r9a[a-z0-9-]+)[a-z0-9-]*\b/i.exec(text);if(exact)req.exact=exact[0].toLowerCase();
-    const coreAliases=[...cores].sort((a,b)=>b.length-a.length),core=coreAliases.find(item=>text.includes(String(item).toLowerCase())),explicitCore=aiCoreFromText(text);if(explicitCore)req.core=explicitCore;else if(modelIntent.core)req.core=modelIntent.core;else if(core)req.core=core;
-    const quantity=aiQuantityPattern(),frequencyUnit='(ghz|mhz|khz|兆|m(?!b)|g(?!b)|k(?!b))',clockPattern=new RegExp('(?:主频|频率|时钟|最高|clock|速度)[^\\d零〇一二两三四五六七八九十百千万]{0,14}'+quantity+'\\s*'+frequencyUnit+'?','i'),clockFallback=new RegExp(quantity+'\\s*'+frequencyUnit,'i'),clockMatch=clockPattern.exec(text)||clockFallback.exec(text);if(clockMatch){const unit=clockMatch[2]==='兆'?'mhz':clockMatch[2]||'mhz',clockValue=aiFrequency(clockMatch[1],unit),clockContext=text.slice(Math.max(0,text.indexOf(clockMatch[0])-8),text.indexOf(clockMatch[0])+clockMatch[0].length+8);if(clockValue){if(/约|大约|左右|上下|接近|差不多|附近/.test(clockContext))req.clockTarget=clockValue;else req.clock=clockValue}}
+    const exact=/\b(?:stm32|esp32|esp8266|ch32|gd32|mm32|py32|apm32|at32(?:f|a|l|m|wb)?|rp2040|rp2350[a-z0-9]*|rp2354[a-z0-9]*|k210|k230d?|k510|hpm[0-9a-z]+|ra[02468][a-z0-9-]*|rx[0-9][a-z0-9-]*|r7[a-z0-9-]+|r5f[a-z0-9-]+|r9a[a-z0-9-]+)[a-z0-9-]*\b/i.exec(text);if(exact)req.exact=exact[0].toLowerCase();
+    const coreIntent=aiCoreCandidates(text),coreAliases=[...cores].sort((a,b)=>b.length-a.length),core=coreAliases.find(item=>text.includes(String(item).toLowerCase())),explicitCore=aiCoreFromText(text);req.excludedCores.push(...coreIntent.excluded);req.softExcludedCores.push(...(coreIntent.softExcluded||[]));req.coreAny.push(...coreIntent.cores.filter(item=>!req.excludedCores.includes(item)&&!req.softExcludedCores.includes(item)));if(req.coreAny.length){req.core=req.coreAny[0]}else if(explicitCore&&!req.excludedCores.includes(explicitCore)&&!req.softExcludedCores.includes(explicitCore)){req.core=explicitCore;req.coreAny=[explicitCore]}else if(modelIntent.core&&!req.excludedCores.includes(modelIntent.core)&&!req.softExcludedCores.includes(modelIntent.core)){req.core=modelIntent.core;req.coreAny=[modelIntent.core]}else if(core){req.core=core;req.coreAny=[core]}
+    const quantity=aiQuantityPattern(),frequencyUnit='(ghz|mhz|khz|兆|m(?!b)|g(?!b)|k(?!b))',clockPattern=new RegExp('(?:主频|频率|时钟|最高|clock|速度)[^\\d零〇一二两三四五六七八九十百千万]{0,14}'+quantity+'\\s*'+frequencyUnit+'?','i'),clockFallback=new RegExp(quantity+'\\s*'+frequencyUnit,'i'),clockMatch=clockPattern.exec(text)||clockFallback.exec(text);if(clockMatch){const unit=clockMatch[2]==='兆'?'mhz':clockMatch[2]||'mhz',clockValue=aiFrequency(clockMatch[1],unit),clockIndex=text.indexOf(clockMatch[0]),clockContext=text.slice(Math.max(0,clockIndex-16),clockIndex+clockMatch[0].length+18);if(clockValue){if(/最多|不超过|不高于|小于等于|以内|以下|别太高|不用太高|不要太高/.test(clockContext))req.clockMax=clockValue;else if(/约|大约|左右|上下|接近|差不多|附近/.test(clockContext))req.clockTarget=clockValue;else req.clock=clockValue}}
     const performanceRelation=aiRelation(text,'高频|高速|高性能|主频');
     if(/(?:主频|频率|速度)[^，,;。]{0,12}(?:越高|越快|高一些|高速)|高频|高速|高性能/i.test(text)&&!performanceRelation.hard&&!performanceRelation.soft)addUnique(req.preferences,'highPerformance');
-    const ramValue=aiMemory(text,'ram|sram|内存'),flashValue=aiMemory(text,'flash|闪存');if(ramValue){if(aiNearConstraint(text,'ram|sram|内存'))req.ramTarget=ramValue;else req.ram=ramValue}if(flashValue){if(aiNearConstraint(text,'flash|闪存'))req.flashTarget=flashValue;else req.flash=flashValue}
+    const memoryConstraint=(aliases)=>{const number=aiQuantityPattern(),unit='(gb|mb|kb|g|m|k|吉|兆)',after=new RegExp('(?:'+aliases+')[^\\d零〇一二两三四五六七八九十百千万]{0,14}'+number+'\\s*'+unit,'i'),before=new RegExp(number+'\\s*'+unit+'\\s*(?:'+aliases+')','i'),match=after.exec(text)||before.exec(text);if(!match)return null;const value=aiUnitBytes(match[1],match[2]==='吉'?'gb':match[2]==='兆'?'mb':match[2]),index=text.indexOf(match[0]),context=text.slice(Math.max(0,index-16),index+match[0].length+18);return {value,context}};
+    const ramConstraint=memoryConstraint('ram|sram|内存'),flashConstraint=memoryConstraint('flash|闪存');if(ramConstraint?.value){if(/最多|不超过|不高于|小于等于|以内|以下|别太大|不用太大/.test(ramConstraint.context))req.ramMax=ramConstraint.value;else if(aiNearConstraint(text,'ram|sram|内存'))req.ramTarget=ramConstraint.value;else req.ram=ramConstraint.value}if(flashConstraint?.value){if(/最多|不超过|不高于|小于等于|以内|以下|别太大|不用太大/.test(flashConstraint.context))req.flashMax=flashConstraint.value;else if(aiNearConstraint(text,'flash|闪存'))req.flashTarget=flashConstraint.value;else req.flash=flashConstraint.value}
     const coreCountMatch=new RegExp('(单|双|三|四|五|六|七|八|\\d+)\\s*(?:核|核心)','i').exec(text);if(coreCountMatch){const map={单:1,双:2,三:3,四:4,五:5,六:6,七:7,八:8};req.coreCount=map[coreCountMatch[1]]||Number(coreCountMatch[1]);req.coreOnly=/单核|单核心|纯\s*核/i.test(text)}
     const pinAfter=new RegExp(quantity+'\\s*(?:pin|脚|引脚)','i').exec(text),pinBefore=new RegExp('(?:引脚|pin|脚)[^\\d零〇一二两三四五六七八九十百千万]{0,8}'+quantity,'i').exec(text),pinMatch=pinAfter||pinBefore;if(pinMatch){const pinValue=aiNumberValue(pinMatch[1]||pinMatch[2]),pinContext=text.slice(Math.max(0,text.indexOf(pinMatch[0])-8),text.indexOf(pinMatch[0])+pinMatch[0].length+8);if(/以内|以下|不超过|最多|小于等于/.test(pinContext))req.pinsMax=pinValue;else if(/至少|不少于|不低于|以上|大于等于/.test(pinContext))req.pinsMin=pinValue;else req.pins=pinValue}
     req.fpu=/\bfpu\b|浮点|硬件浮点/i.test(text);req.micropython=/micropython|micropy|canmv|micro\s*python/i.test(text);
@@ -350,14 +374,19 @@
     const check=(condition,label,unknown)=>{if(unknown)unknowns.push(label);else if(condition)matched.push(label);else failures.push(label)};
     req.excludedVendors.forEach(vendor=>{if(d.m===vendor)failures.push('排除厂商 '+vendor)});
     if(req.vendor)check(d.m===req.vendor,'厂商 '+vendorName(req.vendor),!d.m);
-    if(req.core)check(coreText.includes(String(req.core).toLowerCase()),'核心 '+req.core,!coreText);
+    if(req.excludedCores?.length)req.excludedCores.forEach(core=>{if(coreText.includes(String(core).toLowerCase()))failures.push('排除核心 '+core)});
+    if(req.coreAny?.length)check(req.coreAny.some(core=>coreText.includes(String(core).toLowerCase())),'核心 '+req.coreAny.join(' / '),!coreText);
+    else if(req.core)check(coreText.includes(String(req.core).toLowerCase()),'核心 '+req.core,!coreText);
     if(req.coreOnly)check(d.cc===1&&!/[+/,]/.test(coreText),'单核',typeof d.cc!=='number');
     if(req.coreCount)check(d.cc===req.coreCount,req.coreCount+' 核',typeof d.cc!=='number');
     if(req.micropython)check(d.pt==='micropython_mcu','MicroPython',!d.pt);
-    if(req.exact)check(String(d._q||'').includes(req.exact),'型号 '+req.exact,!d._q);
-    if(req.clock)check(d.hz>=req.clock,'主频 '+clock(req.clock),typeof d.hz!=='number');
-    if(req.ram)check(d.ra>=req.ram,'RAM '+memory(req.ram),typeof d.ra!=='number');
-    if(req.flash)check(d.fl>=req.flash,'Flash '+memory(req.flash),typeof d.fl!=='number');
+    if(req.exact)check(aiExactMatches(d,req),'型号 '+req.exact,!d._q);
+    if(req.clock)check(d.hz>=req.clock,'主频 ≥ '+clock(req.clock),typeof d.hz!=='number');
+    if(req.clockMax)check(d.hz<=req.clockMax,'主频 ≤ '+clock(req.clockMax),typeof d.hz!=='number');
+    if(req.ram)check(d.ra>=req.ram,'RAM ≥ '+memory(req.ram),typeof d.ra!=='number');
+    if(req.ramMax)check(d.ra<=req.ramMax,'RAM ≤ '+memory(req.ramMax),typeof d.ra!=='number');
+    if(req.flash)check(d.fl>=req.flash,'Flash ≥ '+memory(req.flash),typeof d.fl!=='number');
+    if(req.flashMax)check(d.fl<=req.flashMax,'Flash ≤ '+memory(req.flashMax),typeof d.fl!=='number');
     if(req.pins)check(Number(d.pin)===req.pins,req.pins+' 引脚',d.pin===''||d.pin===undefined);
     if(req.pinsMin)check(Number(d.pin)>=req.pinsMin,req.pinsMin+' 引脚以上',d.pin===''||d.pin===undefined);
     if(req.pinsMax)check(Number(d.pin)<=req.pinsMax,req.pinsMax+' 引脚以内',d.pin===''||d.pin===undefined);
@@ -374,11 +403,13 @@
     const coreText=String(d.c||d.a||'').toLowerCase();
     if(req.excludedVendors.includes(d.m))return false;
     if(req.vendor&&d.m!==req.vendor)return false;
-    if(req.core&&!coreText.includes(String(req.core).toLowerCase()))return false;
+    if(req.excludedCores?.some(core=>coreText.includes(String(core).toLowerCase())))return false;
+    if(req.coreAny?.length&&!req.coreAny.some(core=>coreText.includes(String(core).toLowerCase())))return false;
+    if(req.core&&!req.coreAny?.length&&!coreText.includes(String(req.core).toLowerCase()))return false;
     if(req.coreOnly&&!(d.cc===1&&!/[+/,]/.test(coreText)))return false;
     if(req.coreCount&&d.cc!==req.coreCount)return false;
     if(req.micropython&&d.pt!=='micropython_mcu')return false;
-    if(req.exact&&!String(d._q||'').includes(req.exact))return false;
+    if(req.exact&&!aiExactMatches(d,req))return false;
     return true;
   }
   function aiDiverseSelect(items,req){
@@ -391,11 +422,12 @@
   }
   function aiApplySoftSignals(d,req,score,reasons){
     const prefs=Array.isArray(req.preferences)?req.preferences:[],softMinimums=req.softMinimums||{},softTargets=req.softTargets||{},softExcluded=Array.isArray(req.softExcludedFeatures)?req.softExcludedFeatures:[],add=(delta,label)=>{score+=delta;if(label)reasons.push(label)};
+    (req.softExcludedCores||[]).forEach(core=>{if(String(d.c||d.a||'').toLowerCase().includes(String(core).toLowerCase()))add(-8,'尽量不含 '+core)});
     if(prefs.includes('lowPower')){if(d.pt==='low_power_mcu')add(12,'低功耗系列');else if(d.pt==='general_purpose_mcu'&&d.hz&&d.hz<=80000000)add(4,'较低运行功耗倾向');else if(d.hz&&d.hz>200000000)add(-6,'频率较高')}
-    if(prefs.includes('highPerformance')){if(d.pt==='high_performance_mcu')add(10,'高性能系列');if(d.hz)add(Math.min(8,Math.round(d.hz/100000000)),'主频性能优先')}
+    if(prefs.includes('highPerformance')){if(d.pt==='high_performance_mcu')add(10,'高性能系列');if(d.hz)add(Math.min(16,Math.max(1,Math.round(d.hz/25000000))),'主频性能优先')}
     if(prefs.includes('compact')){const pins=Number(d.pin);if(pins&&pins<=32)add(10,'小封装倾向');else if(pins&&pins<=48)add(6,'封装尺寸倾向');else if(pins>100)add(-4,'引脚数偏多')}
     if(prefs.includes('ecosystem')){if((d.boards||[]).length)add(8,'开发板生态');else if((d.parts||[]).length)add(3,'订货信息完整')}
-    if(prefs.includes('domestic')&&['HPMicro','Qinheng','GigaDevice','Geehy','MindMotion','Nuvoton','Puya','STC','Allwinner'].includes(d.m))add(10,'国产厂商优先')
+    if(prefs.includes('domestic')&&['Artery','HPMicro','Qinheng','GigaDevice','Geehy','MindMotion','Nuvoton','Puya','STC','Allwinner'].includes(d.m))add(10,'国产厂商优先')
     if(prefs.includes('largeMemory')){const capacity=(Number(d.ra)||0)+(Number(d.fl)||0);if(capacity>=1048576)add(8,'容量优先');else if(capacity>=524288)add(4,'容量尚可')}
     if(prefs.includes('morePeripherals')){const count=['uart','usart','spi','i2c','can','usb','tim','pwm','adch'].reduce((sum,key)=>sum+(typeof d[key]==='number'?d[key]:0),0);if(count>=12)add(8,'外设丰富');else if(count>=6)add(4,'外设较多')}
     if(prefs.includes('wireless')){const wifi=aiMetric(d,'wifi'),bluetooth=aiMetric(d,'bluetooth');if(typeof wifi==='number'||typeof bluetooth==='number')add(8,'无线能力');else if(String(d.pt||'').startsWith('wireless'))add(4,'无线产品类型')}
@@ -409,10 +441,10 @@
     const req=aiParse(prompt),pool=devices.slice(),scoped=pool.filter(d=>aiHardScope(d,req));let direct=scoped.filter(d=>aiMeets(d,req));let relaxed=false,scopeUnavailable=!scoped.length;
     if(!direct.length&&!scopeUnavailable){relaxed=true;direct=scoped}
     if(scopeUnavailable){return {req,relaxed:false,scopeUnavailable:true,text:`当前目录没有找到可核验的 ${req.core||req.vendor||req.exact||'目标范围'} 器件，已停止跨核心 / 跨厂商推荐，避免给出看似相近但实际不符合的结果。请放宽核心、厂商或型号条件后重试。`,results:[]}}
-    let scored=direct.map(d=>{let score=(Number(d.idx)||0)*.38+(Number(d.cov)||0)*.16+((d.parts||[]).length?4:0);const reasons=[];if(req.vendor){if(d.m===req.vendor){score+=18;reasons.push('厂商匹配')}else score-=14}if(req.core){if(String(d.c||d.a||'').toLowerCase().includes(String(req.core).toLowerCase())){score+=15;reasons.push('核心匹配')}else score-=12}if(req.micropython){if(d.pt==='micropython_mcu'){score+=18;reasons.push('MicroPython 生态')}else score-=20}if(req.exact&&String(d._q||'').includes(req.exact)){score+=35;reasons.push('型号命中')}if(req.clock){if(d.hz>=req.clock){score+=12;reasons.push(clock(d.hz)+' 达标')}else if(d.hz)score-=18;else reasons.push('主频未核验')}if(req.ram){if(d.ra>=req.ram){score+=8;reasons.push(memory(d.ra)+' RAM')}else if(d.ra)score-=14;else reasons.push('RAM 未核验')}if(req.flash){if(d.fl>=req.flash){score+=6;reasons.push(memory(d.fl)+' Flash')}else if(d.fl)score-=10;else reasons.push('Flash 未核验')}if(req.fpu){if(d.fpu==='yes'){score+=10;reasons.push('FPU')}else if(d.fpu==='no')score-=18;else reasons.push('FPU 未核验')}if(req.pins){if(Number(d.pin)===req.pins){score+=5;reasons.push(req.pins+' 引脚')}else if(d.pin)score-=4}if(req.pinsMin){if(Number(d.pin)>=req.pinsMin){score+=5;reasons.push(req.pinsMin+' 引脚以上')}else if(d.pin)score-=4}if(req.pinsMax){if(Number(d.pin)<=req.pinsMax){score+=5;reasons.push(req.pinsMax+' 引脚以内')}else if(d.pin)score-=4}Object.entries(req.minimums).forEach(([key,min])=>{const got=aiMetric(d,key);const label=key==='serial'?'串口':key==='usbAny'?'USB':(peripheralByKey.get(key)?.label||key);if(typeof got==='number'&&got>=min){score+=10;reasons.push(label+' '+got+' 路')}else if(typeof got==='number')score-=12;else reasons.push(label+' 未核验')});const soft=aiApplySoftSignals(d,req,score,reasons);score=soft.score;reasons.splice(0,reasons.length,...soft.reasons);if(!reasons.length)reasons.push('选型指数 '+value(d.idx));return {device:d,score:Math.max(0,Math.min(100,Math.round(score))),reasons:reasons.slice(0,5)}}).sort((a,b)=>b.score-a.score||((b.device.idx||0)-(a.device.idx||0))||natural(a.device.n,b.device.n));
+    let scored=direct.map(d=>{let score=(Number(d.idx)||0)*.38+(Number(d.cov)||0)*.16+((d.parts||[]).length?4:0);const reasons=[];const deviceCore=String(d.c||d.a||'').toLowerCase();if(req.vendor){if(d.m===req.vendor){score+=18;reasons.push('厂商匹配')}else score-=14}if(req.coreAny?.length){if(req.coreAny.some(core=>deviceCore.includes(String(core).toLowerCase()))){score+=15;reasons.push('核心匹配')}else score-=12}else if(req.core){if(deviceCore.includes(String(req.core).toLowerCase())){score+=15;reasons.push('核心匹配')}else score-=12}if(req.micropython){if(d.pt==='micropython_mcu'){score+=18;reasons.push('MicroPython 生态')}else score-=20}if(req.exact&&aiExactMatches(d,req)){score+=35;reasons.push('型号命中')}if(req.clock){if(d.hz>=req.clock){score+=12;reasons.push(clock(d.hz)+' 达标')}else if(d.hz)score-=18;else reasons.push('主频未核验')}if(req.clockMax){if(d.hz<=req.clockMax){score+=8;reasons.push(clock(d.hz)+' 未超上限')}else if(d.hz)score-=14;else reasons.push('主频未核验')}if(req.ram){if(d.ra>=req.ram){score+=8;reasons.push(memory(d.ra)+' RAM')}else if(d.ra)score-=14;else reasons.push('RAM 未核验')}if(req.ramMax){if(d.ra<=req.ramMax){score+=6;reasons.push('RAM 在上限内')}else if(d.ra)score-=10;else reasons.push('RAM 未核验')}if(req.flash){if(d.fl>=req.flash){score+=6;reasons.push(memory(d.fl)+' Flash')}else if(d.fl)score-=10;else reasons.push('Flash 未核验')}if(req.flashMax){if(d.fl<=req.flashMax){score+=5;reasons.push('Flash 在上限内')}else if(d.fl)score-=9;else reasons.push('Flash 未核验')}if(req.fpu){if(d.fpu==='yes'){score+=10;reasons.push('FPU')}else if(d.fpu==='no')score-=18;else reasons.push('FPU 未核验')}if(req.pins){if(Number(d.pin)===req.pins){score+=5;reasons.push(req.pins+' 引脚')}else if(d.pin)score-=4}if(req.pinsMin){if(Number(d.pin)>=req.pinsMin){score+=5;reasons.push(req.pinsMin+' 引脚以上')}else if(d.pin)score-=4}if(req.pinsMax){if(Number(d.pin)<=req.pinsMax){score+=5;reasons.push(req.pinsMax+' 引脚以内')}else if(d.pin)score-=4}Object.entries(req.minimums).forEach(([key,min])=>{const got=aiMetric(d,key);const label=key==='serial'?'串口':key==='usbAny'?'USB':(peripheralByKey.get(key)?.label||key);if(typeof got==='number'&&got>=min){score+=10;reasons.push(label+' '+got+' 路')}else if(typeof got==='number')score-=12;else reasons.push(label+' 未核验')});Object.entries(req.maximums).forEach(([key,max])=>{const got=aiMetric(d,key);const label=key==='serial'?'串口':key==='usbAny'?'USB':(peripheralByKey.get(key)?.label||key);if(typeof got==='number'&&got<=max){score+=7;reasons.push(label+' 在上限内')}else if(typeof got==='number')score-=10;else reasons.push(label+' 未核验')});const soft=aiApplySoftSignals(d,req,score,reasons);score=soft.score;reasons.splice(0,reasons.length,...soft.reasons);if(!reasons.length)reasons.push('选型指数 '+value(d.idx));return {device:d,score:Math.max(0,Math.min(100,Math.round(score))),reasons:reasons.slice(0,5)}}).sort((a,b)=>b.score-a.score||((b.device.idx||0)-(a.device.idx||0))||natural(a.device.n,b.device.n));
     scored=scored.map(item=>{const evaluation=aiEvaluate(item.device,req);const fail=evaluation.failures.map(label=>'不满足 '+label),unknown=evaluation.unknowns.map(label=>'未核验 '+label);const penalty=fail.length*24+unknown.length*14;return {...item,strict:evaluation.strict,violations:fail,unknowns:unknown,score:Math.max(0,Math.min(100,item.score-penalty)),reasons:[...fail,...unknown,...item.reasons].slice(0,5)}}).sort((a,b)=>b.score-a.score||((b.device.idx||0)-(a.device.idx||0))||natural(a.device.n,b.device.n));
     const selected=aiDiverseSelect(scored,req);
-    const known=Object.keys(req.minimums).length+Object.keys(req.maximums).length+Object.keys(req.softMinimums||{}).length+Object.keys(req.softTargets||{}).length+Number(Boolean(req.vendor))+Number(Boolean(req.core))+Number(Boolean(req.coreCount))+Number(Boolean(req.clock))+Number(Boolean(req.clockTarget))+Number(Boolean(req.ram))+Number(Boolean(req.ramTarget))+Number(Boolean(req.flash))+Number(Boolean(req.flashTarget))+Number(Boolean(req.pins))+Number(Boolean(req.pinsMin))+Number(Boolean(req.pinsMax))+Number(Boolean(req.fpu))+Number(Boolean(req.micropython))+req.profiles.length+req.preferences.length;const scope=known?'按自然语言理解出的场景、偏好与硬约束排序':'按本地模型与数据完整度排序';const warning=req.warnings.length?' '+req.warnings.join(' '):'';const text=relaxed?'没有找到全部满足且字段已核验的器件，以下仅列出同一核心 / 厂商范围内违约项最少的近似候选；请优先查看“未核验 / 不满足”提示。'+warning:`${scope}，给出 ${selected.length} 款候选。${warning}`;return {req,relaxed,text,results:selected};
+    const known=Object.keys(req.minimums).length+Object.keys(req.maximums).length+Object.keys(req.softMinimums||{}).length+Object.keys(req.softTargets||{}).length+Number(Boolean(req.vendor))+Number(Boolean(req.coreAny?.length||req.core))+Number(Boolean(req.excludedCores?.length))+Number(Boolean(req.softExcludedCores?.length))+Number(Boolean(req.coreCount))+Number(Boolean(req.clock))+Number(Boolean(req.clockMax))+Number(Boolean(req.clockTarget))+Number(Boolean(req.ram))+Number(Boolean(req.ramMax))+Number(Boolean(req.ramTarget))+Number(Boolean(req.flash))+Number(Boolean(req.flashMax))+Number(Boolean(req.flashTarget))+Number(Boolean(req.pins))+Number(Boolean(req.pinsMin))+Number(Boolean(req.pinsMax))+Number(Boolean(req.fpu))+Number(Boolean(req.micropython))+req.profiles.length+req.preferences.length;const scope=known?'按自然语言理解出的场景、偏好与硬约束排序':'按本地模型与数据完整度排序';const warning=req.warnings.length?' '+req.warnings.join(' '):'';const text=relaxed?'没有找到全部满足且字段已核验的器件，以下仅列出同一核心 / 厂商范围内违约项最少的近似候选；请优先查看“未核验 / 不满足”提示。'+warning:`${scope}，给出 ${selected.length} 款候选。${warning}`;return {req,relaxed,text,results:selected};
   }
   function aiConstraintText(req){
     // 历史记录可能来自旧版本，字段类型和当前请求对象不完全一致；展示层必须容错。
@@ -429,12 +461,17 @@
     const preferences=Array.isArray(source.preferences)?source.preferences:[];
     if(source.vendor)parts.push(vendorName(source.vendor));
     if(excludedVendors.length)parts.push('排除 '+excludedVendors.map(vendorName).join('、'));
-    if(source.core)parts.push(source.core);
+    if(source.coreAny?.length)parts.push('核心 '+source.coreAny.join(' 或 '));else if(source.core)parts.push(source.core);
+    if(source.excludedCores?.length)parts.push('排除核心 '+source.excludedCores.join('、'));
+    if(source.softExcludedCores?.length)parts.push('尽量不含核心 '+source.softExcludedCores.join('、'));
     if(source.coreCount)parts.push(source.coreCount+' 核');
     if(source.coreOnly)parts.push('单核');
     if(source.clock)parts.push('主频 ≥ '+clock(source.clock));
+    if(source.clockMax)parts.push('主频 ≤ '+clock(source.clockMax));
     if(source.ram)parts.push('RAM ≥ '+memory(source.ram));
+    if(source.ramMax)parts.push('RAM ≤ '+memory(source.ramMax));
     if(source.flash)parts.push('Flash ≥ '+memory(source.flash));
+    if(source.flashMax)parts.push('Flash ≤ '+memory(source.flashMax));
     if(source.pins)parts.push(source.pins+' 引脚');
     if(source.pinsMin)parts.push('引脚 ≥ '+source.pinsMin);
     if(source.pinsMax)parts.push('引脚 ≤ '+source.pinsMax);
@@ -457,7 +494,7 @@
   function aiResultCard(item){const d=item.device;const selected=state.compare.has(d.id);return `<div class="assistant-result ${item.strict?'strict':'approximate'}" data-ai-device="${esc(d.id)}" role="button" tabindex="0"><div class="assistant-result-main"><div class="assistant-result-title"><b>${esc(d.n)}</b><span>${item.strict?'满足':'近似'} · ${item.score} / 100</span></div><p>${esc(vendorName(d.m))} › ${esc(d.s)} › ${esc(d.l)}</p><div class="assistant-result-specs"><span>${esc(d.c||d.a||'—')}</span><span>${clock(d.hz)}</span><span>${memory(d.fl)} Flash</span><span>${memory(d.ra)} RAM</span></div><div class="assistant-reasons">${item.reasons.map(reason=>`<i class="${reason.startsWith('不满足')||reason.startsWith('未核验')?'warning':''}">${esc(reason)}</i>`).join('')}</div></div><button class="assistant-compare ${selected?'selected':''}" data-ai-compare="${esc(d.id)}">${selected?'已对比':'＋ 对比'}</button></div>`}
   function aiMessageHtml(message){if(message.role==='user')return `<div class="assistant-message user"><div>${esc(message.text)}</div></div>`;return `<div class="assistant-message bot"><div class="assistant-avatar">✦</div><div class="assistant-bubble"><p>${esc(message.text).replace(/\n/g,'<br>')}</p>${message.req?`<div class="assistant-constraints"><span>识别条件</span><b>${esc(aiConstraintText(message.req))}</b></div>`:''}${message.results?.length?`<div class="assistant-results">${message.results.map(aiResultCard).join('')}</div>`:''}</div></div>`}
   function saveAssistant(){writeStored('mcul_assistant_history',state.assistantMessages.slice(-12).map(message=>({role:message.role,text:message.text,req:message.req,results:(message.results||[]).map(item=>({id:item.device.id,score:item.score,reasons:item.reasons}))})))}
-  function restoreAssistant(){return readStoredArray('mcul_assistant_history').filter(message=>message&&typeof message==='object').map(message=>({...message,req:message.req?{...message.req,excludedVendors:message.req.excludedVendors||[],minimums:message.req.minimums||{},maximums:message.req.maximums||{},excludedFeatures:message.req.excludedFeatures||[],softExcludedFeatures:message.req.softExcludedFeatures||[],vagueFeatures:message.req.vagueFeatures||[]}:null,results:(Array.isArray(message.results)?message.results:[]).filter(item=>item&&item.id).map(item=>{const device=byId.get(item.id);return device?{...item,device}:null}).filter(Boolean)}))}
+  function restoreAssistant(){return readStoredArray('mcul_assistant_history').filter(message=>message&&typeof message==='object').map(message=>({...message,req:message.req?{...message.req,coreAny:message.req.coreAny||[],excludedCores:message.req.excludedCores||[],softExcludedCores:message.req.softExcludedCores||[],excludedVendors:message.req.excludedVendors||[],minimums:message.req.minimums||{},maximums:message.req.maximums||{},excludedFeatures:message.req.excludedFeatures||[],softExcludedFeatures:message.req.softExcludedFeatures||[],vagueFeatures:message.req.vagueFeatures||[]}:null,results:(Array.isArray(message.results)?message.results:[]).filter(item=>item&&item.id).map(item=>{const device=byId.get(item.id);return device?{...item,device}:null}).filter(Boolean)}))}
   function renderAssistant(){
     const messages=state.assistantMessages.length?state.assistantMessages:[{role:'assistant',text:'告诉我你的资源约束，我会从当前离线目录中给出可核对的候选。',req:null,results:[]}];
     $('#view').innerHTML=`<div class="assistant-heading page-heading"><div><h1>选型助手 <span class="ai-badge">AI</span></h1><p>本地轻量模型 v${esc(localModel.version)} · 目录约束离线核验</p></div><button id="assistant-reset" class="assistant-reset" title="清空对话">清空</button></div><div class="assistant-shell"><div class="assistant-messages" id="assistant-messages">${messages.map(aiMessageHtml).join('')}</div><div class="assistant-quick"><button data-ai-prompt="需要 120MHz 以上、2 个 UART、CAN、64KB RAM 的 Cortex-M4">Cortex-M4 + CAN</button><button data-ai-prompt="需要 Wi-Fi、蓝牙和 USB，优先低功耗">Wi-Fi + 蓝牙</button><button data-ai-prompt="MicroPython，至少 2 个串口，带摄像头接口">MicroPython + 摄像头</button></div><form class="assistant-composer" id="assistant-form"><textarea id="assistant-input" rows="2" placeholder="例如：需要 120MHz、2 个 UART、CAN、64KB RAM 的 Cortex-M4"></textarea><button class="assistant-send" type="submit">生成候选 <span>↵</span></button></form></div>`;
@@ -488,6 +525,81 @@
     const grouped=new Map();items.forEach(item=>{const key=item.g||'other';if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(item)});
     return `<div class="detail-section"><h2>来源外设清单 · ${items.length}</h2><div class="inventory-note">这里逐项展示来源明确列出的资源。ADC 以转换器单元和通道为选型参数，不统计 ADC 引脚数量。</div>${order.filter(key=>grouped.has(key)).map(key=>`<div class="inventory-group"><h3>${categoryLabels[key]||key}</h3><div class="inventory-list">${grouped.get(key).map(item=>`<div class="inventory-item"><b>${esc(item.n)}</b><span>${esc(item.d)}</span></div>`).join('')}</div></div>`).join('')}</div>`;
   }
+  function packageNames(d){
+    const names=String(d.pkg||'').split(/[;,]/).map(item=>item.trim()).filter(Boolean);
+    if(names.length)return [...new Set(names)];
+    return [...new Set((d.parts||[]).map(part=>String(part.p||'').trim()).filter(Boolean))];
+  }
+  function packageEntries(d){
+    const names=packageNames(d),pins=String(d.pin||'').split(/[;,]/).map(item=>Number(item.trim())).filter(item=>Number.isFinite(item)&&item>0);
+    if(!names.length)return [];
+    if(names.length===1&&pins.length>1)return pins.map(pin=>({name:names[0],pins:pin}));
+    return names.map((name,index)=>{
+      let pin=pins[index];
+      if(!Number.isFinite(pin)&&names.length===1&&pins.length===1)pin=pins[0];
+      if(!Number.isFinite(pin)){const match=/(?:QFN|QFP|LQFP|TQFP|UFQFPN|UFBGA|LFBGA|BGA|LGA|WLCSP|CSP|SOIC|SOP|SSOP|TSSOP|MSOP|DFN|DIP|PDIP|PLCC)[^0-9]{0,3}(\d{2,4})/i.exec(name);pin=match?Number(match[1]):null}
+      return {name,pins:Number.isFinite(pin)&&pin>0?pin:null};
+    });
+  }
+  function packageKind(name){
+    const value=String(name||'').toUpperCase();
+    if(/DIP|PDIP|SIP|ZIP/.test(value))return 'through-hole';
+    if(/BGA|FBGA|LGA|WLCSP|CSP|TFLGA/.test(value))return 'array';
+    if(/QFN|DFN|UFQFPN|HVQFN|VQFN/.test(value))return 'leadless';
+    if(/QFP|LQFP|TQFP|UQFP|PQFP/.test(value))return 'qfp';
+    if(/SOIC|SOP|SSOP|TSSOP|MSOP|TSOP|SOT/.test(value))return 'gullwing';
+    if(/RF MODULE/.test(value))return 'module';
+    return 'generic';
+  }
+  function packagePins(count,side){
+    if(!count)return '';
+    const sideIndex={top:0,right:1,bottom:2,left:3}[side]??0;
+    const sideCount=Math.min(64,Math.floor(count/4)+(sideIndex<count%4?1:0));
+    if(!sideCount)return '';
+    return `<div class="package-pins ${side}">${Array.from({length:sideCount},()=>'<i></i>').join('')}</div>`;
+  }
+  function documentLabel(doc){return String(doc.title||doc.name||doc.path||'').trim()}
+  function isDatasheetDocument(doc){
+    const kind=String(doc.kind||'').toLowerCase();
+    return kind==='datasheet'||/(?:\bdata\s*-?\s*sheet\b|\bdatasheet\b|数据手册)/i.test(documentLabel(doc));
+  }
+  function isManualDocument(doc){
+    const kind=String(doc.kind||'').toLowerCase();
+    if(new Set(['datasheet','reference_manual','user_manual','technical_manual','manual']).has(kind))return true;
+    return /(?:\bdata\s*-?\s*sheet\b|\bdatasheet\b|\breference\s+manual\b|\buser\s+manual\b|\btechnical\s+manual\b|数据手册|参考手册|用户手册|技术手册)/i.test(documentLabel(doc));
+  }
+  function packageSection(d){
+    const entries=packageEntries(d);
+    const drawings=(Array.isArray(d.docs)?d.docs:[]).filter(doc=>doc.kind==='package_drawing'&&safeHttpUrl(doc.url));
+    const datasheets=(Array.isArray(d.docs)?d.docs:[]).filter(doc=>isDatasheetDocument(doc)&&safeHttpUrl(doc.url));
+    const packageDocs=drawings.length?drawings:datasheets.slice(0,2);
+    const packageDocsTitle=drawings.length?'厂商封装图':'厂商数据手册中的封装尺寸资料';
+    const drawingBlock=packageDocs.length?`<h3 class="document-group-title">${packageDocsTitle} · ${packageDocs.length}</h3>${documentRows(packageDocs)}`:'';
+    if(!entries.length){const message=d.verify==='official_datasheet_variant_not_listed'?'该旧型号未出现在厂商当前数据手册的订货编码表中，原有推测封装已移除，等待厂商历史资料核验。':'当前官方来源没有提供可核验的封装名称。';return `<div class="detail-section"><h2>封装图</h2><div class="feature-panel"><div class="feature-label">${esc(message)}</div></div>${drawingBlock}</div>`}
+    return `<div class="detail-section"><h2>封装图</h2><div class="inventory-note">应用内示意图仅用于快速辨认；焊盘尺寸、引脚定义和包装尺寸以厂商封装图或数据手册为准。</div><div class="package-grid">${entries.map(entry=>{const kind=packageKind(entry.name);const packageLabel=entry.pins?`${entry.name} · ${entry.pins}`:entry.name;return `<div class="package-card"><div class="package-figure package-${kind}"><div class="package-body"><strong>${esc(d.n||'MCU')}</strong><small>${esc(packageLabel)}</small></div></div></div>`}).join('')}</div>${drawingBlock}</div>`;
+  }
+  function documentStatus(doc){
+    const status=String(doc.status||'').toLowerCase(),http=Number(doc.http||0);
+    if(http===404||http===410||status==='invalid')return {label:'已失效',className:'invalid'};
+    if(status.includes('rate')||http===429)return {label:'厂商限流',className:'limited'};
+    if(status.includes('waf')||http===403)return {label:'厂商防护',className:'limited'};
+    if(status==='valid'||status.startsWith('official_')||http===200)return {label:'已核验',className:'valid'};
+    if(doc.path&&!doc.url)return {label:'Pack 内文件',className:'local'};
+    return {label:doc.url?'官方链接':'来源记录',className:'neutral'};
+  }
+  function documentRows(items){
+    return `<div class="document-list">${items.map(doc=>{const url=safeHttpUrl(doc.url);const title=doc.title||doc.name||doc.path||'官方资料';const status=documentStatus(doc);const detail=[doc.version?`版本 ${doc.version}`:'',doc.path?`Pack 路径 ${doc.path}`:''].filter(Boolean).join(' · ');const body=`<span class="document-icon">${url?'↗':'DOC'}</span><span class="document-main"><b>${esc(title)}</b>${detail?`<small>${esc(detail)}</small>`:''}</span><span class="document-status ${status.className}">${esc(status.label)}</span>`;return url?`<a class="document-row" href="${esc(url)}" target="_blank" rel="noopener">${body}</a>`:`<div class="document-row document-local">${body}</div>`}).join('')}</div>`;
+  }
+  function documentsSection(d){
+    const docs=Array.isArray(d.docs)?d.docs:[];
+    const sourceUrls=safeHttpUrls(d.src);
+    const manuals=docs.filter(isManualDocument);
+    const sources=docs.filter(doc=>!isManualDocument(doc)&&doc.kind!=='package_drawing');
+    sourceUrls.forEach((sourceUrl,index)=>{if(!sources.some(doc=>safeHttpUrl(doc.url)===sourceUrl)&&!manuals.some(doc=>safeHttpUrl(doc.url)===sourceUrl))sources.push({title:sourceUrls.length>1?`官方来源页面 ${index+1}`:'官方来源页面',url:sourceUrl,kind:'source'})});
+    const manualBlock=manuals.length?documentRows(manuals):'<div class="feature-panel"><div class="feature-label">当前来源没有可直接打开的手册；Pack 内相对路径不会伪装成网页链接。</div></div>';
+    const sourceBlock=sources.length?`<h3 class="document-group-title">产品页与器件包来源 · ${sources.length}</h3>${documentRows(sources)}`:'';
+    return `<div class="detail-section"><h2>官方手册 · ${manuals.length}</h2>${manualBlock}${sourceBlock}<p class="score-note">“已核验”表示链接审计可访问或来自厂商官方文档接口；“厂商限流/防护”不等于链接失效。</p></div>`;
+  }
   function quoteEndpoint(){
     const configured=String(window.MCUS_QUOTE_API||'').trim();
     if(configured)return configured;
@@ -495,43 +607,47 @@
     return '';
   }
   function safeHttpUrl(value){try{const url=new URL(value);return url.protocol==='https:'||url.protocol==='http:'?url.href:''}catch(_){return ''}}
+  function safeHttpUrls(value){return [...new Set(String(value||'').split(/[;\r\n]+/).map(item=>safeHttpUrl(item.trim())).filter(Boolean))]}
   function quoteMessage(code,fallback){
-    const messages={not_configured:'淘宝询价服务尚未配置，请先在 Cloudflare Worker 设置淘宝开放平台参数。',invalid_part:'该订货号不适合直接询价。',taobao_api_error:'淘宝接口暂时不可用，请稍后重试。',no_strict_matches:'没有找到标题精确包含该订货号的芯片商品。',network_error:'无法连接询价服务，请检查网络后重试。'};
+    const messages={feature_disabled:'实时询价暂未开放。',not_configured:'云汉芯城询价尚未配置。',invalid_part:'该订货号不适合直接询价。',invalid_quantity:'询价数量无效。',ickey_auth_error:'云汉芯城鉴权失败，请检查开放平台配置。',ickey_invalid_config:'云汉芯城接口配置无效。',ickey_api_error:'云汉芯城接口暂时不可用，请稍后重试。',no_strict_matches:'没有找到与完整订货号精确匹配的可售货源。',network_error:'无法连接询价服务，请检查网络后重试。'};
     return messages[code]||fallback||'询价失败，请稍后重试。';
   }
   function quotePanelHtml(part,data){
     const quotes=Array.isArray(data.quotes)?data.quotes:[];
+    const quantity=Math.max(1,Number(data.quantity)||1);
     const updated=data.updatedAt?new Date(data.updatedAt).toLocaleString('zh-CN',{hour12:false}):'刚刚';
-    return `<div class="quote-head"><div><b>淘宝询价 · ${esc(part)}</b><br><span>${quotes.length} 家严格匹配店铺 · ${esc(updated)}</span></div></div>${quotes.length?`<div class="quote-list">${quotes.map(item=>{const link=safeHttpUrl(item.url);const price=Number(item.price);return `<div class="quote-row"><div><span class="quote-shop">${esc(item.shop||'淘宝商家')}</span><p class="quote-title">${esc(item.title||part)}</p></div><div class="quote-price"><b>¥${Number.isFinite(price)?price.toFixed(2):'—'}</b>${link?`<a href="${esc(link)}">查看商品 ↗</a>`:''}</div></div>`}).join('')}</div>`:`<div class="quote-status">${esc(quoteMessage('no_strict_matches'))}</div>`}<p class="quote-note">仅展示标题精确包含完整订货号、价格有效且来自不同店铺的芯片商品；已排除开发板、核心板、模块、套件、烧录器和二手拆机商品。严格结果不足 3 家时不会用模糊型号补足，实际成交价以淘宝结算页为准。</p>`;
+    return `<div class="quote-head"><div><b>云汉芯城询价 · ${esc(part)}</b><br><span>${quotes.length} 条精确货源 · 按 ${quantity} 件 · ${esc(updated)}</span></div></div><form class="quote-quantity" data-quote-quantity><label>询价数量</label><input name="quantity" type="number" min="1" max="1000000" step="1" value="${quantity}" inputmode="numeric"><button type="submit">更新</button></form>${quotes.length?`<div class="quote-list">${quotes.map(item=>{const link=safeHttpUrl(item.url);const price=Number(item.price);const stock=Number(item.stock);const moq=Number(item.moq);const tiers=Array.isArray(item.priceTiers)?item.priceTiers:[];return `<div class="quote-row"><div><span class="quote-shop">${esc(item.shop||'云汉芯城')}</span><p class="quote-title">${esc(item.title||part)}</p><p class="quote-meta">库存 ${Number.isFinite(stock)?stock.toLocaleString('zh-CN'):'—'} · MOQ ${Number.isFinite(moq)?moq:'—'}${item.package?` · ${esc(item.package)}`:''}${item.dateCode?` · 批次 ${esc(item.dateCode)}`:''}${item.leadTime?` · ${esc(item.leadTime)}`:''}</p>${tiers.length?`<div class="quote-tiers">${tiers.slice(0,4).map(tier=>`<span>${esc(tier.quantity)}+ ¥${Number(tier.price).toFixed(4)}</span>`).join('')}</div>`:''}</div><div class="quote-price"><b>¥${Number.isFinite(price)?price.toFixed(4):'—'}</b><small>/ 件</small>${link?`<a href="${esc(link)}">查看货源 ↗</a>`:''}</div></div>`}).join('')}</div>`:`<div class="quote-status">${esc(quoteMessage('no_strict_matches'))}</div>`}<p class="quote-note">数据来自云汉芯城开放平台，按完整订货号精确匹配。“云汉在库、云汉优选、国内现货、授权代理”等是货源类型，不保证对应不同商家；库存、批次、交期及最终含税成交价以云汉结算页为准。</p>`;
   }
-  async function requestQuotes(part){
+  async function requestQuotes(part,quantity=1){
     const panel=$('#quote-panel');if(!panel)return;
     part=String(part||'').trim().toUpperCase();
-    if(!/^[A-Z0-9][A-Z0-9+._\/-]{3,63}$/.test(part)){panel.hidden=false;panel.innerHTML=`<div class="quote-head"><b>淘宝询价</b></div><div class="quote-status">${esc(quoteMessage('invalid_part'))}</div>`;return}
+    quantity=Math.max(1,Math.min(1000000,Math.floor(Number(quantity)||1)));
+    if(!/^[A-Z0-9][A-Z0-9+._\/-]{3,63}$/.test(part)){panel.hidden=false;panel.innerHTML=`<div class="quote-head"><b>实时询价</b></div><div class="quote-status">${esc(quoteMessage('invalid_part'))}</div>`;return}
     document.querySelectorAll('[data-quote-part]').forEach(button=>button.classList.toggle('active',button.dataset.quotePart===part));
-    panel.hidden=false;panel.dataset.part=part;panel.innerHTML=`<div class="quote-head"><b>淘宝询价 · ${esc(part)}</b></div><div class="quote-status">正在查找精确型号的芯片商品…</div>`;
+    panel.hidden=false;panel.dataset.part=part;panel.dataset.quantity=String(quantity);panel.innerHTML=`<div class="quote-head"><b>云汉芯城询价 · ${esc(part)}</b></div><div class="quote-status">正在查询精确型号的实时库存与阶梯价…</div>`;
     panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     const endpoint=quoteEndpoint();
-    if(!endpoint){panel.innerHTML=`<div class="quote-head"><b>淘宝询价 · ${esc(part)}</b></div><div class="quote-status">${esc(quoteMessage('not_configured'))}</div>`;return}
+    if(!endpoint){panel.innerHTML=`<div class="quote-head"><b>云汉芯城询价 · ${esc(part)}</b></div><div class="quote-status">${esc(quoteMessage('not_configured'))}</div>`;return}
     if(quoteAbort)quoteAbort.abort();quoteAbort=new AbortController();
     try{
-      const url=new URL(endpoint,location.href);url.searchParams.set('part',part);
+      const url=new URL(endpoint,location.href);url.searchParams.set('part',part);url.searchParams.set('quantity',String(quantity));
       const response=await fetch(url.href,{headers:{accept:'application/json'},signal:quoteAbort.signal});
       const data=await response.json().catch(()=>({}));
       if(panel.dataset.part!==part)return;
-      if(!response.ok)throw Object.assign(new Error(data.message||''),{code:data.code||'taobao_api_error'});
+      if(!response.ok)throw Object.assign(new Error(data.message||''),{code:data.code||'ickey_api_error'});
       panel.innerHTML=quotePanelHtml(part,data);
+      const quantityForm=panel.querySelector('[data-quote-quantity]');if(quantityForm)quantityForm.onsubmit=event=>{event.preventDefault();requestQuotes(part,quantityForm.elements.quantity.value)};
     }catch(error){
       if(error&&error.name==='AbortError')return;
       if(panel.dataset.part!==part)return;
       const code=error&&error.code?error.code:'network_error';
-      panel.innerHTML=`<div class="quote-head"><b>淘宝询价 · ${esc(part)}</b></div><div class="quote-status">${esc(quoteMessage(code,error&&error.message))}<br><button class="quote-retry" data-quote-retry="${esc(part)}">重新询价</button></div>`;
-      const retry=panel.querySelector('[data-quote-retry]');if(retry)retry.onclick=()=>requestQuotes(retry.dataset.quoteRetry);
+      panel.innerHTML=`<div class="quote-head"><b>云汉芯城询价 · ${esc(part)}</b></div><div class="quote-status">${esc(quoteMessage(code,error&&error.message))}<br><button class="quote-retry" data-quote-retry="${esc(part)}">重新询价</button></div>`;
+      const retry=panel.querySelector('[data-quote-retry]');if(retry)retry.onclick=()=>requestQuotes(retry.dataset.quoteRetry,panel.dataset.quantity);
     }
   }
   function openDetail(id){
-    state.detail=id;const d=byId.get(id);if(!d)return;const features=[...(d.acc||[]),...(d.feat||[])];const parts=d.parts||[];const selected=state.compare.has(d.id);const layer=$('#detail-layer');
-    layer.innerHTML=`<div class="detail-backdrop"></div><section class="detail-page"><div class="detail-header"><button class="back-btn">‹</button><div class="detail-title"><h1>${esc(d.n)}</h1><p>${esc(d.m)} · ${esc(d.s)} · ${esc(productType(d.pt))}</p></div><div class="detail-score"><b>${value(d.idx)}</b><span>选型指数 / 100</span></div></div><div class="detail-hero"><div class="detail-path">${esc(d.m)} › ${esc(d.s)} › ${esc(d.l)} › ${esc(productType(d.pt))}</div><div class="detail-model"><b>${esc(d.n)}</b><span>变体码 ${esc(d.v||'—')}</span></div></div><div class="detail-section"><h2>核心与存储</h2><div class="spec-grid">${spec(d.c||d.a||'—','处理器核心')}${spec((d.cc||1)+' core','核心数')}${spec(clock(d.hz),'最高核心频率')}${spec(memory(d.fl),'Flash')}${spec(memory(d.ra),'RAM')}${spec(d.fpu==='yes'?'有':d.fpu==='no'?'无':'—','FPU')}</div></div><div class="detail-section"><h2>外设资源</h2><div class="spec-grid">${spec(value(d.tim)+(d.tw?' × '+d.tw+'b':''),'TIM 数量 / 位宽')}${spec(value(d.adcu),'ADC 转换器单元')}${spec(value(d.adch),'ADC 通道（含内部）')}${spec(value(d.adc)+(d.adr?' · '+d.adr+' bit':''),'来源 ADC 原始参数')}${spec(value(d.gpio),'GPIO')}${spec(value(d.sercom),'SERCOM / FLEXCOM')}${spec(value(d.spi),'SPI')}${spec(value(d.i2c),'I²C')}${spec(value(d.usart),'USART')}${spec(value(d.uart),'UART')}${spec(value(d.can),'CAN')}${spec(value(d.usbd),'USB Device')}${spec(value(d.usbh),'USB Host')}${spec(value(d.eth),'Ethernet')}${spec(d.pin||'—','引脚数')}</div></div>${inventorySection(d)}<div class="detail-section"><h2>厂商加速器与特性</h2><div class="feature-panel">${features.length?`<div class="feature-label">来源已经确认的能力</div><div class="feature-list">${features.map(x=>`<span class="feature-chip confirmed">${esc(x)}</span>`).join('')}</div>`:'<div class="feature-label">当前来源没有已确认的专用加速器记录</div>'}${(d.pending||[]).length?`<div class="feature-label" style="margin-top:10px">待逐器件官方文档核验</div><div class="feature-list">${d.pending.map(x=>`<span class="feature-chip pending">${esc(x)}</span>`).join('')}</div><p class="feature-note">候选项不代表该具体后缀型号已经确认支持。</p>`:''}</div></div><div class="detail-section"><h2>评分拆解</h2><div class="score-panel">${[['计算',d.cs],['存储',d.ms],['外设',d.ps],['加速器',d.acs]].map(x=>`<div class="score-row"><label>${x[0]}</label><div class="score-bar"><i style="width:${Math.max(0,Math.min(100,x[1]||0))}%"></i></div><b>${value(x[1])}</b></div>`).join('')}<p class="score-note">数据覆盖率 ${value(d.cov)}%。这是选型排序指标，不是实测性能。CoreMark：${value(d.cm)} · DMIPS：${value(d.dm)}。</p></div></div><div class="detail-section"><h2>官方完整订货号 · ${parts.length}</h2>${parts.length?`<div class="parts">${parts.map(p=>`<div class="part-row"><div><b>${esc(p.n)}</b><p>后缀 ${esc(p.s||'—')} · 封装码 ${esc(p.p||'—')} · 温度码 ${esc(p.t||'—')} · 包装 ${esc(p.k||'—')}</p></div><div class="part-actions"><span class="verified">✓ 已核验</span><button class="quote-trigger" data-quote-part="${esc(p.n)}">询价</button></div></div>`).join('')}</div>`:'<div class="feature-panel"><div class="feature-label">完整订货号尚未导入；不会根据后缀组合自动生成。请明确输入厂商完整订货号后询价。</div><form class="quote-manual" id="quote-manual"><input id="quote-manual-part" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="输入完整订货号，如 STM32F429ZIT6"><button type="submit">询价</button></form></div>'}<div class="quote-panel" id="quote-panel" hidden aria-live="polite"></div></div><button class="detail-action primary" id="detail-compare">${selected?'✓ 已加入对比':'＋ 加入参数对比'}</button>${d.src?`<a class="detail-action" href="${esc(d.src)}">打开来源页面 ↗</a>`:''}</section>`;
+    state.detail=id;const d=byId.get(id);if(!d)return;const features=[...(d.acc||[]),...(d.feat||[])];const parts=d.parts||[];const selected=state.compare.has(d.id);const layer=$('#detail-layer');const sourceActions=safeHttpUrls(d.src).map((url,index,urls)=>`<a class="detail-action" href="${esc(url)}">${urls.length>1?`打开来源页面 ${index+1}`:'打开来源页面'} ↗</a>`).join('');
+    layer.innerHTML=`<div class="detail-backdrop"></div><section class="detail-page"><div class="detail-header"><button class="back-btn">‹</button><div class="detail-title"><h1>${esc(d.n)}</h1><p>${esc(d.m)} · ${esc(d.s)} · ${esc(productType(d.pt))}</p></div><div class="detail-score"><b>${value(d.idx)}</b><span>选型指数 / 100</span></div></div><div class="detail-hero"><div class="detail-path">${esc(d.m)} › ${esc(d.s)} › ${esc(d.l)} › ${esc(productType(d.pt))}</div><div class="detail-model"><b>${esc(d.n)}</b><span>变体码 ${esc(d.v||'—')}</span></div></div><div class="detail-section"><h2>核心与存储</h2><div class="spec-grid">${spec(d.c||d.a||'—','处理器核心')}${spec((d.cc||1)+' core','核心数')}${spec(clock(d.hz),'最高核心频率')}${spec(memory(d.fl),'Flash')}${spec(memory(d.ra),'RAM')}${spec(d.fpu==='yes'?'有':d.fpu==='no'?'无':'—','FPU')}</div></div><div class="detail-section"><h2>外设资源</h2><div class="spec-grid">${spec(value(d.tim)+(d.tw?' × '+d.tw+'b':''),'TIM 数量 / 位宽')}${spec(value(d.adcu),'ADC 转换器单元')}${spec(value(d.adch),'ADC 通道（含内部）')}${spec(value(d.adc)+(d.adr?' · '+d.adr+' bit':''),'来源 ADC 原始参数')}${spec(value(d.gpio),'GPIO')}${spec(value(d.sercom),'SERCOM / FLEXCOM')}${spec(value(d.spi),'SPI')}${spec(value(d.i2c),'I²C')}${spec(value(d.usart),'USART')}${spec(value(d.uart),'UART')}${spec(value(d.can),'CAN')}${spec(value(d.usbd),'USB Device')}${spec(value(d.usbh),'USB Host')}${spec(value(d.eth),'Ethernet')}${spec(d.pin||'—','引脚数')}</div></div>${packageSection(d)}${documentsSection(d)}${inventorySection(d)}<div class="detail-section"><h2>厂商加速器与特性</h2><div class="feature-panel">${features.length?`<div class="feature-label">来源已经确认的能力</div><div class="feature-list">${features.map(x=>`<span class="feature-chip confirmed">${esc(x)}</span>`).join('')}</div>`:'<div class="feature-label">当前来源没有已确认的专用加速器记录</div>'}${(d.pending||[]).length?`<div class="feature-label" style="margin-top:10px">待逐器件官方文档核验</div><div class="feature-list">${d.pending.map(x=>`<span class="feature-chip pending">${esc(x)}</span>`).join('')}</div><p class="feature-note">候选项不代表该具体后缀型号已经确认支持。</p>`:''}</div></div><div class="detail-section"><h2>评分拆解</h2><div class="score-panel">${[['计算',d.cs],['存储',d.ms],['外设',d.ps],['加速器',d.acs]].map(x=>`<div class="score-row"><label>${x[0]}</label><div class="score-bar"><i style="width:${Math.max(0,Math.min(100,x[1]||0))}%"></i></div><b>${value(x[1])}</b></div>`).join('')}<p class="score-note">数据覆盖率 ${value(d.cov)}%。这是选型排序指标，不是实测性能。CoreMark：${value(d.cm)} · DMIPS：${value(d.dm)}。</p></div></div><div class="detail-section"><h2>官方完整订货号 · ${parts.length}</h2>${parts.length?`<div class="parts">${parts.map(p=>`<div class="part-row"><div><b>${esc(p.n)}</b><p>后缀 ${esc(p.s||'—')} · 封装码 ${esc(p.p||'—')} · 温度码 ${esc(p.t||'—')} · 包装 ${esc(p.k||'—')}</p></div><div class="part-actions"><span class="verified">✓ 已核验</span><button class="quote-trigger" data-quote-part="${esc(p.n)}">询价</button></div></div>`).join('')}</div>`:'<div class="feature-panel"><div class="feature-label">完整订货号尚未导入；不会根据后缀组合自动生成。请明确输入厂商完整订货号后询价。</div><form class="quote-manual" id="quote-manual"><input id="quote-manual-part" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="输入完整订货号，如 STM32F429ZIT6"><button type="submit">询价</button></form></div>'}<div class="quote-panel" id="quote-panel" hidden aria-live="polite"></div></div><button class="detail-action primary" id="detail-compare">${selected?'✓ 已加入对比':'＋ 加入参数对比'}</button>${sourceActions}</section>`;
     if(!quotesEnabled){const manual=layer.querySelector('.quote-manual');if(manual){const label=manual.parentElement.querySelector('.feature-label');if(label)label.textContent='完整订货号尚未导入；不会根据后缀组合自动生成。'}layer.querySelectorAll('.quote-trigger,.quote-manual,.quote-panel').forEach(element=>element.remove())}
     const detailSpecGrids=layer.querySelectorAll('.spec-grid');
     const coreCountValue=detailSpecGrids[0]?.querySelector('.spec-cell:nth-child(2) b');

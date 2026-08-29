@@ -2,6 +2,7 @@
 import argparse
 import csv
 import json
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,76 @@ def feature_labels(value):
             label = ""
         if label and label not in result:
             result.append(label)
+    return result
+
+
+def document_records(value):
+    """Normalize manuals, product pages, and pack references without conflating them."""
+    result = []
+    seen = set()
+    for item in json_value(value):
+        if not isinstance(item, dict):
+            continue
+        raw_name = text(item.get("name"))
+        title = text(item.get("title")) or raw_name or text(item.get("Dname"))
+        url = text(item.get("url")) or text(item.get("href"))
+        if not url and raw_name and raw_name.startswith(("http://", "https://")):
+            url = raw_name
+        if url:
+            url = re.sub(r"(?i)(?:\.pdf){2,}(?=\?|$)", ".pdf", url)
+        path = text(item.get("file")) or (raw_name if raw_name and not raw_name.startswith(("http://", "https://")) else None)
+        if not title and not url and not path:
+            continue
+        # Relative CMSIS-Pack book paths are useful evidence, but are not
+        # converted to fake web links. The UI presents them as pack paths.
+        if url and not url.startswith(("http://", "https://")):
+            path = path or url
+            url = None
+        explicit_kind = text(item.get("kind"))
+        evidence = " ".join(filter(None, (title, url, path))).lower()
+        product_page_url = bool(url) and (
+            "/product/" in url.lower()
+            or "#documentation" in url.lower()
+            or "product-selector" in url.lower()
+        )
+        if product_page_url:
+            kind = "product_page"
+        elif explicit_kind:
+            kind = explicit_kind
+        elif "datasheet" in evidence or "data sheet" in evidence or "数据手册" in evidence:
+            kind = "datasheet"
+        elif "reference manual" in evidence or "参考手册" in evidence or "technical reference" in evidence:
+            kind = "reference_manual"
+        elif "user manual" in evidence or "user guide" in evidence or "用户手册" in evidence:
+            kind = "user_manual"
+        elif path or any(token in evidence for token in (".pdsc", ".pack", ".atpack", "cmsis driver", "github.com")):
+            kind = "source_pack"
+        elif "product page" in evidence or "/product/" in evidence or "product-selector" in evidence:
+            kind = "product_page"
+        else:
+            kind = "source"
+        record = {}
+        if title:
+            record["title"] = title
+        if url:
+            record["url"] = url
+        if path and path != url:
+            record["path"] = path
+        if text(item.get("version")):
+            record["version"] = text(item.get("version"))
+        record["kind"] = kind
+        for source_field, target_field in (
+            ("verification_status", "status"),
+            ("http_status", "http"),
+            ("checked_at", "checked"),
+        ):
+            source_value = item.get(source_field)
+            if source_value is not None and source_value != "":
+                record[target_field] = source_value
+        key = tuple(record.get(field, "") for field in ("title", "url", "path", "version", "kind"))
+        if key != ("", "", "", "", "") and key not in seen:
+            seen.add(key)
+            result.append(record)
     return result
 
 
@@ -209,6 +280,7 @@ def main():
         put(record, "ra", number(variant.get("ram_bytes")))
         put(record, "pkg", text(variant.get("package_types")))
         put(record, "pin", text(variant.get("pin_counts")))
+        put(record, "docs", document_records(variant.get("documents_json")))
         put(record, "tim", number(cap.get("timer_count")))
         put(record, "tw", number(cap.get("timer_width_bits")))
         put(record, "adc", number(cap.get("adc_source_quantity")))
@@ -310,7 +382,7 @@ def main():
     )
     payload = {
         "meta": {
-            "version": "1.0.2",
+            "version": "1.1",
             "name": "MCUS",
             "author": "new.bmp",
             "repository": "https://github.com/new-bmp/MCUS",

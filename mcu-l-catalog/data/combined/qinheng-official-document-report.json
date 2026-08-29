@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-08-29T13:39:12+00:00",
+  "devices": 90,
+  "article_aliases": 26,
+  "articles_loaded": 24,
+  "exact_model_manual_updates": 5,
+  "models_with_exact_manual": 5,
+  "package_library_updates": 90,
+  "errors": [
+    "CH32H415: ValueError: article not found",
+    "CH32H416: ValueError: article not found"
+  ]
+}

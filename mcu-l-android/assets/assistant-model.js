@@ -4,7 +4,7 @@
  */
 window.MCUS_LOCAL_MODEL = {
   name: "MCUS MCU 选型槽位模型",
-  version: "0.6.0",
+  version: "0.7.0",
   type: "natural-language-slot-constraint",
   vendors: [
     {label:"STMicroelectronics", terms:["stmicroelectronics","stm32","意法"]},
@@ -21,6 +21,7 @@ window.MCUS_LOCAL_MODEL = {
     {label:"Infineon", terms:["infineon","psoc","xmc","英飞凌"]},
     {label:"Texas Instruments", terms:["texas instruments","ti芯片","mspm","msp430","德州仪器"]},
     {label:"Renesas", terms:["renesas","瑞萨","瑞萨电子","ra系列","rx系列","rl78","rh850","synergy"]},
+    {label:"Artery", terms:["artery","arterytek","雅特力","at32","at32f","at32a","at32l","at32m","at32wb"]},
     {label:"Allwinner", terms:["allwinner","xradio","xr806","全志"]},
     {label:"MicroPy MCU", terms:["micropython","micro python","micropy","canmv","rp2040","rp2350","rp2354","k210","k230","k510","kendryte","树莓派"]}
   ],
