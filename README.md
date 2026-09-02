@@ -195,6 +195,7 @@ S1 除通用突变、加速度和 Jerk 外，还会对明确标记为 `endpose/r
 - `GET /api/datasets/{id}/episodes/{episode}/frame`
 - `GET /api/datasets/{id}/episodes/{episode}/invalid-index`
 - `GET /api/datasets/{id}/episodes/{episode}/invalid-index?frame={frame}`
+- `GET /api/datasets/{id}/episodes/{episode}/quality-evidence`
 - `POST /api/models/upload`
 - `POST /api/models/configure`
 - `POST /api/datasets/{id}/episodes/{episode}/analyze`
@@ -202,3 +203,5 @@ S1 除通用突变、加速度和 Jerk 外，还会对明确标记为 `endpose/r
 - `PATCH /api/datasets/{id}/episodes/{episode}/segments`
 - `GET /api/datasets/{id}/export.zip`
 - `POST /api/datasets/{id}/export-folder`
+
+清洗报告同时提供 `alice/quality-evidence/v1` 统一质量证据视图。Full 的 Episode 输出会在对应目录保留 `quality_evidence.json`（有清洗证据时生成），其中记录阶段测量、坏帧/待复核区间、最终结论、运行版本和源文件指纹。

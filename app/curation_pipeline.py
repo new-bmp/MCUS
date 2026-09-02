@@ -48,6 +48,7 @@ from .projection_correction import (
     projection_source_from_document,
     run_projection_correction,
 )
+from .quality_evidence import build_quality_evidence
 from .schema_profiler import infer_local_signal_fields, probe_local_signal_fields
 from .schemas import ActionMappingRequest, BehaviorAnnotationRequest, CurationJobRequest, HandPoseModelConfig
 from .s1_repair import S1_REPAIR_SCHEMA, load_s1_repair
@@ -3822,6 +3823,27 @@ def run_episode_curation(
         "stage_skipped_count": sum(item["status"] == "skipped" for item in stages),
         "recommendation": "exclude_episode" if invalid.all() else "review_and_apply" if invalid.any() or review.any() else "keep",
     }
+    quality_evidence = build_quality_evidence(
+        dataset_id=dataset_id,
+        episode_id=str(episode["id"]),
+        frame_count=frame_count,
+        fps=fps,
+        stages=stages,
+        findings=findings,
+        segments=segments,
+        pipeline_version=CURATION_PIPELINE_VERSION,
+        pipeline_schema=CURATION_SCHEMA,
+        run_id=run_id,
+        timeline_id=timeline_id,
+        source_video=media,
+        source_signatures=signatures,
+        config={**request.model_dump(), "quality_gap_merge_rule": "strictly_less_than"},
+        artifact_paths={
+            "sensor_alignment": alignment.get("artifact_path"),
+            "s1_repair": s1_repair_summary.get("artifact_path"),
+            "smoothing": media.get("smoothing_artifact_path"),
+        },
+    )
     document = {
         "schema": CURATION_SCHEMA,
         "pipeline_version": CURATION_PIPELINE_VERSION,
@@ -3896,6 +3918,7 @@ def run_episode_curation(
         "segments": segments,
         "samples": samples,
         "summary": summary,
+        "quality_evidence": quality_evidence,
     }
     path = _write_curation_report(dataset_id, str(episode["id"]), media_file_id, document, run_id)
     staged_paths = [path, *([repair_path] if s1_repair_patch is not None else [])]
@@ -4032,6 +4055,27 @@ def finalize_episode_curation(
         "samples": samples,
         "summary": summary,
     }
+    document["quality_evidence"] = build_quality_evidence(
+        dataset_id=dataset_id,
+        episode_id=str(episode["id"]),
+        frame_count=frame_count,
+        fps=fps,
+        stages=stages,
+        findings=findings,
+        segments=segments,
+        pipeline_version=CURATION_PIPELINE_VERSION,
+        pipeline_schema=CURATION_SCHEMA,
+        run_id=run_id or report.get("full_run_id"),
+        timeline_id=timeline_id or report.get("timeline_id"),
+        source_video=source_video,
+        source_signatures=report.get("source_signatures") or [],
+        config=report.get("config") or {},
+        artifact_paths={
+            "sensor_alignment": (report.get("sensor_alignment") or {}).get("artifact_path"),
+            "s1_repair": (report.get("s1_repair") or {}).get("artifact_path"),
+            "behavior": (behavior or {}).get("artifacts", {}).get("behavior"),
+        },
+    )
     resolved_media_file_id = str((report.get("source_video") or {}).get("file_id") or media_file_id or "") or None
     path = _write_curation_report(dataset_id, str(episode["id"]), resolved_media_file_id, document, run_id)
     source_paths = [str(item.get("relative_path") or "") for item in report.get("source_signatures") or []]

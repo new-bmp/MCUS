@@ -99,6 +99,9 @@ def start_full_run(
     if manifest_path.exists():
         raise FileExistsError(f"Full run already exists and cannot be overwritten: {run_id}")
     created_at = _utc_now()
+    request_fingerprint = hashlib.sha256(
+        json.dumps(request_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     document = {
         "schema": FULL_RUN_SCHEMA,
         "run_id": run_id,
@@ -108,6 +111,12 @@ def start_full_run(
         "created_at": created_at,
         "updated_at": created_at,
         "request": deepcopy(request_payload),
+        "provenance": {
+            "producer": "alice-blue",
+            "schema": FULL_RUN_SCHEMA,
+            "request_fingerprint": request_fingerprint,
+            "artifact_policy": "immutable_run_directory",
+        },
         "episode_order": list(episode_ids),
         "episodes": {
             episode_id: {
@@ -246,7 +255,14 @@ def artifact_record(dataset_id: str, run_id: str, path_value: str | Path, **meta
         relative = path.relative_to(root).as_posix()
     except ValueError as exc:
         raise ValueError("Full run artifact must stay inside its immutable run directory") from exc
-    return {"path": relative, **metadata}
+    record = {"path": relative, **metadata}
+    try:
+        stat = path.stat()
+    except OSError:
+        return record
+    record["size_bytes"] = int(stat.st_size)
+    record["modified_ns"] = int(stat.st_mtime_ns)
+    return record
 
 
 def _resolve_artifact_path(dataset_id: str, run_id: str, record: dict | None) -> Path | None:

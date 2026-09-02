@@ -833,6 +833,26 @@ def episode_curation_result(dataset_id: str, episode_id: str, media_file_id: str
         raise HTTPException(409, str(exc))
 
 
+@app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/quality-evidence")
+def episode_quality_evidence(dataset_id: str, episode_id: str, media_file_id: str | None = None, run_id: str | None = None):
+    """Return the normalized evidence view without exposing stage-private fields."""
+    try:
+        get_episode(dataset_id, episode_id)
+        if run_id:
+            bundle = load_full_run_episode_bundle(dataset_id, episode_id, media_file_id, run_id)
+            payload = (bundle or {}).get("curation")
+        else:
+            payload = load_curation_report(dataset_id, episode_id, media_file_id)
+        evidence = (payload or {}).get("quality_evidence") if payload else None
+        if not isinstance(evidence, dict):
+            raise HTTPException(404, "尚无统一质量证据；请重新运行数据质量清洗")
+        return evidence
+    except KeyError:
+        raise HTTPException(404, "Episode 不存在")
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, str(exc))
+
+
 @app.get("/api/datasets/{dataset_id}/episodes/{episode_id}/full-run")
 def episode_full_run_result(
     dataset_id: str,

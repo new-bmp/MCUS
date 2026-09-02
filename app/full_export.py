@@ -517,6 +517,8 @@ def _export_subtask_json(
             "fine_segments": nested_fine,
         })
     path = episode_root / "subtasks.json" if episode_root is not None else _subtask_json_path(output_root, episode)
+    quality_evidence = curation.get("quality_evidence")
+    quality_evidence_path = path.with_name("quality_evidence.json") if isinstance(quality_evidence, dict) else None
     payload = {
         "schema": SUBTASK_JSON_SCHEMA,
         "output_format": output_format,
@@ -539,6 +541,10 @@ def _export_subtask_json(
         "review_frames": [int(value) for value in np.flatnonzero(review).tolist()],
         "bad_frame_ranges": invalid_ranges,
         "review_frame_ranges": review_ranges,
+        "quality_evidence": {
+            "schema": quality_evidence.get("schema"),
+            "file": quality_evidence_path.name,
+        } if quality_evidence_path is not None else None,
         "summary": {
             "bad_frame_count": int(invalid.sum()),
             "review_frame_count": int(review.sum()),
@@ -548,6 +554,8 @@ def _export_subtask_json(
         },
     }
     _write_json_atomic(path, payload)
+    if quality_evidence_path is not None:
+        _write_json_atomic(quality_evidence_path, quality_evidence)
     classification = classify_behavior(behavior or {}, 0, max(0, frame_count - 1))
     pair = {
         "id": str(episode.get("id") or path.parent.name),
@@ -566,6 +574,7 @@ def _export_subtask_json(
         "review_frame_count": int(review.sum()),
         "subtasks_json": str(path),
         "json": str(path),
+        "quality_evidence_json": str(quality_evidence_path) if quality_evidence_path is not None else None,
     }
     return {
         "pairs": [pair],

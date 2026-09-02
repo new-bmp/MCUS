@@ -203,6 +203,19 @@ S3 对每个目标 Episode 使用 leave-one-episode-out 参考：只拼接同 co
 
 每个 finding 保存 stage、severity、帧范围、时间范围、reason 和 confidence。最终 segments 的原因是所有与该区间相交 finding 原因的并集。
 
+### 6.1 统一质量证据视图
+
+清洗报告在保留原有字段的同时，新增 `alice/quality-evidence/v1` 视图。它把每个阶段的结果统一为 `checks`，每个 check 包含：
+
+- `measurements`：阶段原始测量值和统计量；
+- `intervals`：带帧号、时间和原因的坏帧/待复核区间；
+- `tags`：阶段和质量类型；
+- `verdict`：`pass`、`review`、`fail` 或 `skipped`。
+
+顶层 `aggregate` 使用最终合并后的 segments 计算有效、待复核和坏帧数量。`skipped` 不会被转换为通过。`pipeline` 保存清洗版本、`full_run_id` 和 `timeline_id`；`provenance` 保存配置指纹、源文件签名和产物引用。这样下游查询可以直接使用统一结构，不需要解析每个阶段的私有 metrics。
+
+完整 Full Episode 导出时，如果清洗报告包含该视图，Episode 目录会额外写入 `quality_evidence.json`，并由 `subtasks.json` 的 `quality_evidence.file` 引用。原有 `.alice` 报告和 `.invalid.bin` 不变。
+
 ## 7. 各阶段的当前实现
 
 ### 7.1 T0：统一时间轴
@@ -567,6 +580,7 @@ Action 生成或 S2 校验失败时，系统仍继续执行质量清洗、VLM �
 | 请求参数 | app/schemas.py::CurationJobRequest |
 | API 提交、查询与预检 | app/main.py |
 | 阶段编排、状态合并和报告 | app/curation_pipeline.py |
+| 统一质量证据与 provenance | app/quality_evidence.py |
 | 数据集模式契约 | app/dataset_modes.py |
 | EgoDex/Nexus/OpenXR C3 整手可见性 | app/hand_visibility.py |
 | Nexus20 到 MANO21 | app/nexus_mano.py |
@@ -580,6 +594,7 @@ Action 生成或 S2 校验失败时，系统仍继续执行质量清洗、VLM �
 | C3 测试 | tests/test_hand_visibility.py |
 | Full run 一致性测试 | tests/test_full_run.py |
 | Full 导出测试 | tests/test_full_export.py |
+| 统一质量证据测试 | tests/test_quality_evidence.py |
 | 模式分流测试 | tests/test_dataset_modes.py、tests/test_nexus_mano.py、tests/test_openxr_mano.py |
 
 下一章进入 VLM 三级行为标注，说明候选帧抽样、Coarse/Medium/Fine 协议、Joint 边界微调、结果复用以及与 C1/C2 和导出的衔接。
