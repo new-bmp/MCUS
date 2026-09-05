@@ -1135,6 +1135,7 @@
       layer.querySelectorAll('[data-spec-expand]').forEach(button=>{
         const cell=button.closest('.spec-cell'),specValue=cell?.querySelector('.spec-value');
         if(!cell||!specValue)return;
+        if(cell.classList.contains('expanded'))return;
         const overflows=specValue.scrollWidth>specValue.clientWidth+1;
         button.hidden=!overflows;
         if(!overflows)return;
