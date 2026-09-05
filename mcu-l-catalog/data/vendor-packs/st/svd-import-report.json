@@ -1,13 +1,31 @@
 {
   "status": "ok",
-  "selected_packs": 1,
-  "successful_packs": 1,
+  "selected_packs": 27,
+  "successful_packs": 27,
   "failed_packs": 0,
-  "augmented_device_records": 95,
-  "unique_svd_payloads": 6,
+  "augmented_device_records": 2778,
+  "unique_svd_payloads": 202,
   "errors": 0,
   "proxy_mode": "environment_or_direct",
   "packs": [
+    {
+      "source_id": "cmsis:Keil.STM32C0xx_DFP@2.4.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32C0xx_DFP.2.4.0.pack",
+      "sha256": "423fab051a0f3eb96cc38ebac41b5e828ec27b2258e910b8b53772b99ddc5d2a",
+      "archive_bytes": 1138205,
+      "devices": 95,
+      "unique_svd_files": 6,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32F0xx_DFP@3.1.1",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32F0xx_DFP.3.1.1.pack",
+      "sha256": "b64035f71e80280d3e6b0f2677471d6f9701f482a1191b1f5c1ec4f2e5fc9e45",
+      "archive_bytes": 580567,
+      "devices": 111,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
     {
       "source_id": "cmsis:Keil.STM32F1xx_DFP@2.4.1",
       "pack_url": "https://www.keil.com/pack/Keil.STM32F1xx_DFP.2.4.1.pack",
@@ -15,6 +33,222 @@
       "archive_bytes": 50237740,
       "devices": 95,
       "unique_svd_files": 6,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32F2xx_DFP@3.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32F2xx_DFP.3.1.0.pack",
+      "sha256": "0c36d60606fd52d559d7527ac780c9021014ab50c69418ec810a40ed2d7b6ae5",
+      "archive_bytes": 568274,
+      "devices": 47,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32F3xx_DFP@3.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32F3xx_DFP.3.1.0.pack",
+      "sha256": "bfd67f2c27b1fff733f949fd977f1e540fa44113a84a70ce81ede3aef1cf60ba",
+      "archive_bytes": 528455,
+      "devices": 90,
+      "unique_svd_files": 6,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32F4xx_DFP@3.1.1",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32F4xx_DFP.3.1.1.pack",
+      "sha256": "345231106fe697df24bbe9133aeeec1b0383d7891c4adf4f47bbb8b478e9f2f0",
+      "archive_bytes": 2085496,
+      "devices": 211,
+      "unique_svd_files": 17,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32F7xx_DFP@3.1.1",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32F7xx_DFP.3.1.1.pack",
+      "sha256": "0eddf78cffa96d07924eabbfe4b4aac45d58bc85376354163e98146c574cf0e5",
+      "archive_bytes": 2435267,
+      "devices": 123,
+      "unique_svd_files": 16,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32G0xx_DFP@2.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32G0xx_DFP.2.1.0.pack",
+      "sha256": "3076c0f9a6a9a99f7a2325a2e519bed0ac3a3c1db3553748ceeb5b0676645889",
+      "archive_bytes": 1612855,
+      "devices": 182,
+      "unique_svd_files": 12,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32G4xx_DFP@2.2.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32G4xx_DFP.2.2.0.pack",
+      "sha256": "092a8700e79d65fd0d7ffe50e6140ce71e3162cecc0cbcf14db5714a086fcc00",
+      "archive_bytes": 1995377,
+      "devices": 183,
+      "unique_svd_files": 9,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32H5xx_DFP@2.3.1",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32H5xx_DFP.2.3.1.pack",
+      "sha256": "906b2f8802845ed21c4bc31512a816065991bd9839f1441d0126a667a50347b1",
+      "archive_bytes": 6587709,
+      "devices": 151,
+      "unique_svd_files": 12,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32H7RSxx_DFP@1.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32H7RSxx_DFP.1.1.0.pack",
+      "sha256": "c3ea9aad9a96a0417117a9a426db6db8087935fdd97416836767991d7f2bfba6",
+      "archive_bytes": 2422082,
+      "devices": 34,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32H7xx_DFP@4.1.3",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32H7xx_DFP.4.1.3.pack",
+      "sha256": "42a2358e0cb7344a9a54ee14c95eb17af20ccbe44bd2b0a08b24fefbfb67b8c8",
+      "archive_bytes": 13090621,
+      "devices": 166,
+      "unique_svd_files": 16,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32L0xx_DFP@3.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32L0xx_DFP.3.1.0.pack",
+      "sha256": "d37d11f80098a6f8c24486a12eade9f0632261f53ba54b6fd1e51ce647f6bdf1",
+      "archive_bytes": 554332,
+      "devices": 166,
+      "unique_svd_files": 8,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32L1xx_DFP@2.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32L1xx_DFP.2.1.0.pack",
+      "sha256": "ab5b7a6589f80a0fb12ebb3107e3c7ed870d9a2b1576189f4cf09d6d6d3dadcd",
+      "archive_bytes": 525476,
+      "devices": 132,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32L4xx_DFP@3.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32L4xx_DFP.3.1.0.pack",
+      "sha256": "5672383c07fbdcee0e471a33f4f8beb2e1f3200bc999244dcd6858e0e8e8203f",
+      "archive_bytes": 4833906,
+      "devices": 255,
+      "unique_svd_files": 14,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32L5xx_DFP@2.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32L5xx_DFP.2.1.0.pack",
+      "sha256": "190ebdd8615107f9be69cd7a8bd9710e4c4240ed69c5886a5d7694a6d8c74c31",
+      "archive_bytes": 987459,
+      "devices": 38,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32N6xx_DFP@1.2.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32N6xx_DFP.1.2.0.pack",
+      "sha256": "e0ceea0fd94d62d05f186ab461f83381433c3382738bc114eab1398ca5dcbf65",
+      "archive_bytes": 3589363,
+      "devices": 24,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32U0xx_DFP@2.2.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32U0xx_DFP.2.2.0.pack",
+      "sha256": "50db8e7b7db463362cbad59c326b161903ab1d7effa9a127fc2277179286dfd1",
+      "archive_bytes": 837944,
+      "devices": 48,
+      "unique_svd_files": 3,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32U3xx_DFP@1.3.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32U3xx_DFP.1.3.0.pack",
+      "sha256": "0e86ca5b3c6c7da3248303dc7818ca65552317369184d150f8599ec3d8963964",
+      "archive_bytes": 3585363,
+      "devices": 171,
+      "unique_svd_files": 8,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32U5xx_DFP@3.2.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32U5xx_DFP.3.2.0.pack",
+      "sha256": "e320687fe534f2fe6902e9bcdee981315abea26c4ca547142af9b9439e958be6",
+      "archive_bytes": 8821594,
+      "devices": 162,
+      "unique_svd_files": 12,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32WB0x_DFP@1.0.2",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32WB0x_DFP.1.0.2.pack",
+      "sha256": "fe7254bb674ddaa9f2218221d12e187bc2ae0d7dc3da7a7c2f531e28536d6d05",
+      "archive_bytes": 578772,
+      "devices": 10,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32WBAxx_DFP@2.2.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32WBAxx_DFP.2.2.0.pack",
+      "sha256": "629532e024093307f0a46e47abbf1fe7826923720d9ad108684b0955316ea51a",
+      "archive_bytes": 2788606,
+      "devices": 61,
+      "unique_svd_files": 11,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32WBxx_DFP@2.0.1",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32WBxx_DFP.2.0.1.pack",
+      "sha256": "99ad2af644bdf1e4afd89100da2026612953603ec0600d5db1ed020ced54a5fb",
+      "archive_bytes": 749777,
+      "devices": 23,
+      "unique_svd_files": 6,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32WL3x_DFP@1.2.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32WL3x_DFP.1.2.0.pack",
+      "sha256": "1d2226da1e35180e532d26e4391ed30a13cd3cd3c135039ef4c22036d28dc753",
+      "archive_bytes": 568035,
+      "devices": 22,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32WL4x_DFP@1.0.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32WL4x_DFP.1.0.0.pack",
+      "sha256": "a31ad8a61bebf4972d2b86e21e3145b42964dde87230057cd0c5c24e3bf26d74",
+      "archive_bytes": 505637,
+      "devices": 4,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Keil.STM32WLxx_DFP@2.1.0",
+      "pack_url": "https://www.keil.com/pack/Keil.STM32WLxx_DFP.2.1.0.pack",
+      "sha256": "c86d1e9f262179e5aa163688fc82f6fec05f85a75cc9402ff4bd75a649eaab08",
+      "archive_bytes": 372278,
+      "devices": 17,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:STMicroelectronics.stm32c5xx_dfp@2.1.0",
+      "pack_url": "https://developer.st.com/st-pack-server/api/v1/pack/STMicroelectronics.stm32c5xx_dfp.2.1.0.pack",
+      "sha256": "e3eba4b9de0ca8c8263402915bd5059cb64ab79d4096d810e228e3016b664a1b",
+      "archive_bytes": 5962949,
+      "devices": 157,
+      "unique_svd_files": 9,
       "status": "ok"
     }
   ]

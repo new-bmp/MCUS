@@ -3,6 +3,7 @@
 .spec-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .spec-cell{min-width:0}
 .spec-expand{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:19px;margin-top:5px;padding:0 5px;border:1px solid var(--fl-stroke-strong);border-radius:3px;background:#fff;color:var(--fl-accent);font-size:7px;font-weight:600}
+.spec-expand[hidden]{display:none !important}
 .spec-cell.expanded .spec-value{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;word-break:break-word}
 .spec-cell.expanded .spec-expand{background:var(--fl-accent-soft)}
 .detail-path{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}

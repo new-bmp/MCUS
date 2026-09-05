@@ -23,7 +23,7 @@
   "product_lines": 1118,
   "device_variants": 13389,
   "orderable_parts": 20418,
-  "source_records": 697,
+  "source_records": 724,
   "upstream_import_errors": 9,
   "merge_collisions": [],
   "duplicate_part_sources_deduplicated": []

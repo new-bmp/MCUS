@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-05T03:28:55+00:00",
+  "generated_at": "2026-09-05T16:00:17+00:00",
   "documents": [
     {
       "manufacturer": "Artery",
@@ -1506,6 +1506,190 @@
       "documents_added": 0
     },
     {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U535",
+      "file": "stm32u535cb-b2fd240d.txt",
+      "features": 4,
+      "features_added": 140,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U545",
+      "file": "stm32u545ce-01355f71.txt",
+      "features": 4,
+      "features_added": 56,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U575",
+      "file": "stm32u575ag-7d4dd216.txt",
+      "features": 4,
+      "features_added": 120,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U585",
+      "file": "stm32u585ai-10f1d9b6.txt",
+      "features": 4,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U5A5",
+      "file": "stm32u5a5aj-dbc4d4ec.txt",
+      "features": 4,
+      "features_added": 44,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U5F7",
+      "file": "stm32u5f7vj-1b59a573.txt",
+      "features": 4,
+      "features_added": 16,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U5G7",
+      "file": "stm32u5g7vj-e6b1116f.txt",
+      "features": 4,
+      "features_added": 8,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB05",
+      "file": "stm32wb05kz-0880157e.txt",
+      "features": 4,
+      "features_added": 8,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB07",
+      "file": "stm32wb07cc-1c829289.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB09",
+      "file": "stm32wb09ke-6dc30c54.txt",
+      "features": 4,
+      "features_added": 8,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB10",
+      "file": "stm32wb10cc-e84b45b1.txt",
+      "features": 4,
+      "features_added": 4,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB15",
+      "file": "stm32wb15cc-c398a6f6.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB1M",
+      "file": "stm32wb1mmc-d7ab74cd.txt",
+      "features": 1,
+      "features_added": 1,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB50",
+      "file": "stm32wb50cg-1577b3d3.txt",
+      "features": 4,
+      "features_added": 4,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB55",
+      "file": "stm32wb55cc-5f91f7b0.txt",
+      "features": 4,
+      "features_added": 52,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WB5M",
+      "file": "stm32wb5mmg-8feb8589.txt",
+      "features": 1,
+      "features_added": 1,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WBA25",
+      "file": "stm32wba25ce-4b585be1.txt",
+      "features": 7,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WBA50",
+      "file": "stm32wba50kg-554821fa.txt",
+      "features": 8,
+      "features_added": 32,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WBA52",
+      "file": "stm32wba52ce-3d9ed0e5.txt",
+      "features": 8,
+      "features_added": 72,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WBA5M",
+      "file": "stm32wba5mmg-7eab40e7.txt",
+      "features": 7,
+      "features_added": 14,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WBA62",
+      "file": "stm32wba62ci-bb6b3c31.txt",
+      "features": 7,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WL55",
+      "file": "stm32wl55cc-58f305ca.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32WLE5",
+      "file": "stm32wle5c8-a4944c81.txt",
+      "features": 4,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
       "manufacturer": "Allwinner",
       "product_line": "XR808",
       "file": "XR808_Datasheet_V1.1.txt",
@@ -1538,5 +1722,5 @@
       "documents_added": 0
     }
   ],
-  "features_added": 10818
+  "features_added": 11588
 }

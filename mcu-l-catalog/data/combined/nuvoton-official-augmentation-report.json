@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-08-29T13:18:19+00:00",
+  "generated_at": "2026-09-05T15:59:44+00:00",
   "sitemap_product_pages": 1597,
   "exact_catalog_pages": 618,
   "pages_processed": 618,
   "selector_series_queries": 78,
   "selector_exact_matches": 538,
-  "package_updates": 0,
-  "package_corrections": 0,
-  "document_updates": 0,
+  "package_updates": 31,
+  "package_corrections": 507,
+  "document_updates": 1114,
   "remaining_missing_packages": [
     "I9130",
     "I9160",
@@ -136,22 +136,22 @@
     "N575S"
   ],
   "errors": [
-    "Arm Cortex-M23 MCUs / CM2053 Series selector: ValueError: selector returned no item list",
-    "Arm Cortex-M23 MCUs / CM2052 Series selector: ValueError: selector returned no item list",
-    "Arm Cortex-M23 MCUs / CM2U51 Series selector: ValueError: selector returned no item list",
-    "Arm Cortex-M33 MCUs / CM3033 Series selector: ValueError: selector returned no item list",
+    "Arm Cortex-M7 MCUs / KM1M7AF5X Series selector: ValueError: selector returned no item list",
     "Arm Cortex-M33 MCUs / CM3034 Series selector: ValueError: selector returned no item list",
-    "Arm Cortex-M7 MCUs / KM1M7AF5X Series selector: HTTPError: HTTP Error 504: Gateway Time-out",
+    "Arm Cortex-M23 MCUs / CM2053 Series selector: ValueError: selector returned no item list",
+    "Arm Cortex-M23 MCUs / CM2U51 Series selector: ValueError: selector returned no item list",
+    "Arm Cortex-M23 MCUs / CM2052 Series selector: ValueError: selector returned no item list",
+    "Arm Cortex-M33 MCUs / CM3033 Series selector: ValueError: selector returned no item list",
+    "Arm Cortex-M7 MCUs / KM1M7CF0X Series selector: ValueError: selector returned no item list",
     "Arm Cortex-M7 MCUs / KM1M7BF0X Series selector: ValueError: selector returned no item list",
-    "Arm Cortex-M7 MCUs / KM1M7CF0X Series selector: HTTPError: HTTP Error 504: Gateway Time-out",
-    "Arm Cortex-M0 MCUs / M091 Series selector: HTTPError: HTTP Error 504: Gateway Time-out",
     "Arm Cortex-M23 MCUs / M2U51 / M2U54 Series selector: ValueError: selector returned no item list",
+    "Arm Cortex-M0 MCUs / M091 Series selector: ValueError: selector returned no item list",
     "Audio & Speech Controllers / NuVoice Series selector: ValueError: 查詢的產品家族錯誤",
     "NuMotor Microcontroller / NM1120 Series selector: ValueError: 查詢的產品家族錯誤",
     "NuMotor Microcontroller / NM1234 Series selector: ValueError: 查詢的產品家族錯誤",
-    "NuMotor Microcontroller / NM1244 Series selector: ValueError: 查詢的產品家族錯誤",
-    "NuMotor Microcontroller / NM1330 Series selector: ValueError: 查詢的產品家族錯誤",
     "NuMotor Microcontroller / NM1530 Series selector: ValueError: 查詢的產品家族錯誤",
-    "Arm Cortex-M4 MCUs / NUC505 Series selector: ValueError: selector returned no item list"
+    "Arm Cortex-M4 MCUs / NUC505 Series selector: ValueError: selector returned no item list",
+    "NuMotor Microcontroller / NM1244 Series selector: ValueError: 查詢的產品家族錯誤",
+    "NuMotor Microcontroller / NM1330 Series selector: ValueError: 查詢的產品家族錯誤"
   ]
 }
