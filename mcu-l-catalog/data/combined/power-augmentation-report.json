@@ -1,0 +1,348 @@
+{
+  "generated_at": "2026-09-05T03:31:54+00:00",
+  "documents": [
+    {
+      "vendor": "Artery",
+      "product_line": "AT32A403A",
+      "file": "ds-at32a403a.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32A423",
+      "file": "ds-at32a423.pdf.txt",
+      "features_added": 72
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F011",
+      "file": "ds-at32f011.pdf.txt",
+      "features_added": 16
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F402",
+      "file": "ds-at32f402.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F403A",
+      "file": "ds-at32f403a.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F405",
+      "file": "ds-at32f405.pdf.txt",
+      "features_added": 16
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F407",
+      "file": "ds-at32f407.pdf.txt",
+      "features_added": 32
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F413",
+      "file": "ds-at32f413.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F415",
+      "file": "ds-at32f415.pdf.txt",
+      "features_added": 56
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F421",
+      "file": "ds-at32f421.pdf.txt",
+      "features_added": 80
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F4212",
+      "file": "ds-at32f4212.pdf.txt",
+      "features_added": 4
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F422",
+      "file": "ds-at32f422.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F423",
+      "file": "ds-at32f423.pdf.txt",
+      "features_added": 88
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F425",
+      "file": "ds-at32f425.pdf.txt",
+      "features_added": 64
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F426",
+      "file": "ds-at32f426.pdf.txt",
+      "features_added": 16
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F435",
+      "file": "ds-at32f435.pdf.txt",
+      "features_added": 80
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F437",
+      "file": "ds-at32f437.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F455",
+      "file": "ds-at32f455.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F456",
+      "file": "ds-at32f456.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F457",
+      "file": "ds-at32f457.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32F490",
+      "file": "ds-at32f490.pdf.txt",
+      "features_added": 4
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32L021",
+      "file": "ds-at32l021.pdf.txt",
+      "features_added": 84
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32M412",
+      "file": "ds-at32m412.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32M416",
+      "file": "ds-at32m416.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "Artery",
+      "product_line": "AT32WB415",
+      "file": "ds-at32wb415.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32C103",
+      "file": "gd32c103xx-datasheet-2.pdf.txt",
+      "features_added": 16
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E103",
+      "file": "gd32e103xx-datasheet-3.pdf.txt",
+      "features_added": 32
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E230",
+      "file": "gd32e230xx-datasheet-6.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E231",
+      "file": "gd32e231xx-datasheet-5.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E503",
+      "file": "gd32e503xx-datasheet-8.pdf.txt",
+      "features_added": 32
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E505",
+      "file": "gd32e505xx-datasheet-9.pdf.txt",
+      "features_added": 28
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E507",
+      "file": "gd32e507xx-datasheet-10.pdf.txt",
+      "features_added": 24
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32E508",
+      "file": "gd32e508xx-datasheet-11.pdf.txt",
+      "features_added": 12
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F101",
+      "file": "gd32f101xx-datasheet-18.pdf.txt",
+      "features_added": 140
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F103",
+      "file": "gd32f103xx-datasheet-19.pdf.txt",
+      "features_added": 140
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F105",
+      "file": "gd32f105xx-datasheet-20.pdf.txt",
+      "features_added": 76
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F107",
+      "file": "gd32f107xx-datasheet-21.pdf.txt",
+      "features_added": 68
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F130",
+      "file": "gd32f130xx-datasheet-17.pdf.txt",
+      "features_added": 52
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F150",
+      "file": "gd32f150xx-datasheet-16.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F205",
+      "file": "gd32f205xx-datasheet-22.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F207",
+      "file": "gd32f207xx-datasheet-23.pdf.txt",
+      "features_added": 60
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F303",
+      "file": "gd32f303xb-datasheet-30.pdf.txt",
+      "features_added": 84
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F303",
+      "file": "gd32f303xx-datasheet-26.pdf.txt",
+      "features_added": 84
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F305",
+      "file": "gd32f305xx-datasheet-27.pdf.txt",
+      "features_added": 40
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F307",
+      "file": "gd32f307xx-datasheet-28.pdf.txt",
+      "features_added": 36
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F310",
+      "file": "gd32f310xx-datasheet-29.pdf.txt",
+      "features_added": 28
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F330",
+      "file": "gd32f330xx-datasheet-24.pdf.txt",
+      "features_added": 60
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F350",
+      "file": "gd32f350xx-datasheet-25.pdf.txt",
+      "features_added": 56
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F403",
+      "file": "gd32f403xx-datasheet-34.pdf.txt",
+      "features_added": 60
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F405",
+      "file": "gd32f405xx-datasheet-32.pdf.txt",
+      "features_added": 28
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F407",
+      "file": "gd32f407xx-datasheet-33.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F425",
+      "file": "gd32f425xx-datasheet-35.pdf.txt",
+      "features_added": 28
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F427",
+      "file": "gd32f427xx-datasheet-36.pdf.txt",
+      "features_added": 48
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F450",
+      "file": "gd32f450xx-datasheet-31.pdf.txt",
+      "features_added": 44
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32F470",
+      "file": "gd32f470xx-datasheet-37.pdf.txt",
+      "features_added": 44
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32L233",
+      "file": "gd32l233xx-datasheet-43.pdf.txt",
+      "features_added": 24
+    },
+    {
+      "vendor": "GigaDevice",
+      "product_line": "GD32W515",
+      "file": "gd32w515xx-datasheet-45.pdf.txt",
+      "features_added": 16
+    }
+  ],
+  "features_added": 2392
+}

@@ -1,1 +1,7 @@
 ﻿source_id,device_name,svd_file,error
+cmsis:Nuvoton.AudioSoCs_DFP@1.0.1,,,TimeoutError: The read operation timed out
+cmsis:Nuvoton.NuMicroM33_DFP@1.0.4,,,RemoteDisconnected: Remote end closed connection without response
+cmsis:Nuvoton.NuMicroM55_DFP@3.1.4-rc.5,,,URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>
+cmsis:Nuvoton.NuMicroM7_DFP@1.1.3,,,URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>
+cmsis:Nuvoton.NuMicro_DFP@1.3.26,,,URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>
+cmsis:Nuvoton.NuVoice_ISD_DFP@1.0.23,,,URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>

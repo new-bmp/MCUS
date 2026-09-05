@@ -341,6 +341,24 @@ def selector_features(row: dict[str, str]) -> list[dict[str, Any]]:
     def counted(feature_type: str, name: str, value: str, *, bits: int | None = None) -> None:
         add_feature(features, feature_type, name, source_count(value), raw=value, bits=bits, source_parameter=name)
 
+    # The selector's voltage column is an exact per-model operating range.
+    # Store it separately from power-measurement conditions so the derived
+    # catalog can expose the range without treating it as a current value.
+    voltage = column(row, "电源输入")
+    voltage_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:-|~|～|–|—)\s*(\d+(?:\.\d+)?)\s*V", voltage, re.I)
+    if voltage_match:
+        lower, upper = voltage_match.groups()
+        add_feature(
+            features,
+            "VCC",
+            f"Operating supply range: {lower}-{upper} V",
+            None,
+            raw=voltage,
+            source_parameter="电源输入（V）",
+        )
+        features[-1]["n"] = lower
+        features[-1]["m"] = upper
+
     counted("I2S", "I²S controllers", column(row, "i²s"))
     counted("Audio", "Digital audio output", column(row, "数字音频输出"))
     counted("ExtBus", "DDR controller", column(row, "ddr"))

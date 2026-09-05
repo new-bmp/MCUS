@@ -70,6 +70,7 @@ catalog boundary:
 ```powershell
 python scripts/import_st_official.py
 python scripts/import_ti_official.py
+python scripts/import_ti_c2000_official.py
 python scripts/import_microchip_official.py
 python scripts/import_gigadevice_official.py
 python scripts/import_qinheng_official.py
@@ -89,6 +90,13 @@ orderable suffixes are only added by a source-specific part-number importer.
 The Espressif adapter uses the official Product Selector API and keeps SoCs and
 modules separate, including Xtensa/RISC-V, wireless, RMT/MCPWM/LEDPWM, PSRAM,
 RTC SRAM, and other vendor-specific capabilities.
+
+The TI C2000 adapter imports exact, manufacturer-documented C28x real-time
+controllers from TI C2000Ware and their individual data sheets. These records
+are classified as `dsp_mcu` / `C28x DSP`, not Arm MCU records. FPU, TMU, VCU,
+CLA, ADC converter/channel counts, PWM, serial buses, memory structure and
+the optional Cortex-M4 connectivity manager are retained only where the exact
+TI data sheet states them.
 
 The Infineon augmenter uses the official ModusToolbox `device-db` snapshot. It
 supports a local cache, retries, `--proxy`, and an optional pre-downloaded
@@ -134,10 +142,29 @@ their Product Selector series. General-purpose timers, LEDC and MCPWM remain
 separate; a support macro is not converted into an invented timer count.
 
 `device-capabilities.csv` contains flattened core, clock, timer, analog,
-connectivity, accelerator, and vendor-specific feature fields. It also keeps a
+connectivity, accelerator, vendor-specific feature, and explicit operating
+voltage range fields (`operating_voltage_min_v` / `operating_voltage_max_v`).
+It also keeps a
 source-backed `peripheral_inventory_json` so less common resources such as I²S,
 LIN, SDIO, watchdogs, RTC, comparators, op-amps, touch, display, camera,
 external buses and security blocks are not discarded.
+The mobile catalog additionally extracts explicitly named external-memory
+interfaces into `eb`, including FMC/FSMC, OCTOSPI/OSPI, QSPI, XSPI, FlexSPI,
+HyperBus, EMIF and EBI; this is a source-name index, not an inferred bus count.
+
+Explicit source-backed current and power figures are stored separately in
+`power_measurements_json`. Every record keeps its operating mode, value, unit,
+typical/maximum status, disclosed test conditions and source document ID.
+Unitless `Consumption` values and low-power mode counts are never interpreted
+as electrical measurements. Devices without an explicit A/W unit remain
+`not_found`, and measurements with incomplete voltage, temperature or clock
+conditions are shown as such instead of being silently compared.
+
+The cached official PDF text snapshots can be rechecked with
+`augment_power_from_cached_datasheets.py`. It currently covers the Artery and
+GigaDevice datasheets present in `cache/`, applies suffix-scoped tables such as
+GD32F103x4/6/8/B versus GD32F103xC/D/E/F/G/I/K to the matching devices, and
+writes an audit report to `data/combined/power-augmentation-report.json`.
 
 ADC converter units, ADC channels and the raw CMSIS ADC quantity parameter are
 separate fields. ADC-capable pin counts are deliberately not derived or used as
@@ -148,8 +175,9 @@ benchmark fields. See `SCORING_MODEL.md` for the formula and limitations.
 ## Current boundary
 
 CMSIS-Pack is a broad source for Arm-based MCUs. It does not prove complete
-coverage of PIC, AVR, 8051, RL78, RX, C2000, or other proprietary/non-Arm
-catalogs. Those require manufacturer-specific import adapters. Likewise, a
+coverage of PIC, AVR, 8051, RL78, RX, or other proprietary/non-Arm catalogs.
+Those require manufacturer-specific import adapters; TI C2000 is covered by
+the dedicated official adapter above. Likewise, a
 device row such as `STM32F103C8` is not counted as complete orderable-part
 coverage until every official package/temperature/packing code is collected.
 
@@ -160,3 +188,14 @@ The catalog preserves the 8051-compatible 1T core, MDU32, DSP32/TFPU, UART /
 USART, timer, ADC channel and ADC-unit distinctions, and records STC32G18K64
 and STC32G96K246 only as official page mentions because their individual
 public specification table is not present on the linked page.
+
+## Release metadata
+
+`release-metadata.csv` stores optional per-device release observations. The
+`collect_release_metadata.py` adapter currently imports exact Espressif MPNs
+from the official Product Selector snapshot. Its `releaseTime` values are
+normalized to `YYYY-MM-DD` and `YYYY/Qx`. Selector prices are stored with the
+status `official_product_selector_listed_price`; the UI presents these as
+“official reference price” because the source does not state that they are
+launch prices. A value is shown as “launch price” only when a future source
+explicitly marks it as a launch/release price.

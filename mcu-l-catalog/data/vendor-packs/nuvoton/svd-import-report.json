@@ -1,13 +1,79 @@
 {
-  "status": "ok",
-  "selected_packs": 1,
-  "successful_packs": 1,
-  "failed_packs": 0,
-  "augmented_device_records": 197,
-  "unique_svd_payloads": 10,
-  "errors": 0,
+  "status": "partial",
+  "selected_packs": 13,
+  "successful_packs": 7,
+  "failed_packs": 6,
+  "augmented_device_records": 905,
+  "unique_svd_payloads": 109,
+  "errors": 6,
   "proxy_mode": "environment_or_direct",
   "packs": [
+    {
+      "source_id": "cmsis:Nuvoton.AudioSoCs_DFP@1.0.1",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton.AudioSoCs_DFP.1.0.1.pack",
+      "status": "error",
+      "error": "TimeoutError: The read operation timed out"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroCM23_DFP@1.0.4",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroCM23_DFP.1.0.4.pack",
+      "sha256": "5f6586920a3df2f49be14b3d378cc47ad50e22f971ecc9619f2594bd263d6980",
+      "archive_bytes": 2004112,
+      "devices": 18,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroCM33_DFP@1.0.1",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroCM33_DFP.1.0.1.pack",
+      "sha256": "01e48f6d33909241a487aeb302715189f40e0c389ad40afc48821ee30dccbf7d",
+      "archive_bytes": 1598445,
+      "devices": 18,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroKM1M0_DFP@1.0.4",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton.NuMicroKM1M0_DFP.1.0.4.pack",
+      "sha256": "5532d6f22d922d8a179a9d7a4f1c57e7cb2e0bfc268661e275f0e5ee5635ecb9",
+      "archive_bytes": 2611705,
+      "devices": 24,
+      "unique_svd_files": 19,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroKM1M4_DFP@1.1.0",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton.NuMicroKM1M4_DFP.1.1.0.pack",
+      "sha256": "75c9e4cbd5e243dfdda30a3e6894a1705c986140ba7b979e612116c1d2686c02",
+      "archive_bytes": 1497009,
+      "devices": 8,
+      "unique_svd_files": 6,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroM0_DFP@1.0.2",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroM0_DFP.1.0.2.pack",
+      "sha256": "f7e5ad00e84febfa6e85b621d69503cc8eb8bbc4db1ca0d8148be034178398b1",
+      "archive_bytes": 13605446,
+      "devices": 472,
+      "unique_svd_files": 56,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroM23_DFP@1.0.7",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroM23_DFP.1.0.7.pack",
+      "sha256": "a51eeda09459a13a28ee09a6385bb11e789d5eb388e2fe71346d77156e52e15b",
+      "archive_bytes": 9416018,
+      "devices": 168,
+      "unique_svd_files": 13,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroM33_DFP@1.0.4",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroM33_DFP.1.0.4.pack",
+      "status": "error",
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
     {
       "source_id": "cmsis:Nuvoton.NuMicroM4_DFP@1.0.2",
       "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroM4_DFP.1.0.2.pack",
@@ -16,6 +82,30 @@
       "devices": 197,
       "unique_svd_files": 10,
       "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroM55_DFP@3.1.4-rc.5",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicroM55_DFP.3.1.4-rc.5.pack",
+      "status": "error",
+      "error": "URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicroM7_DFP@1.1.3",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton.NuMicroM7_DFP.1.1.3.pack",
+      "status": "error",
+      "error": "URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuMicro_DFP@1.3.26",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton_DFP/Nuvoton.NuMicro_DFP.1.3.26.pack",
+      "status": "error",
+      "error": "URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>"
+    },
+    {
+      "source_id": "cmsis:Nuvoton.NuVoice_ISD_DFP@1.0.23",
+      "pack_url": "https://github.com/OpenNuvoton/cmsis-packs/raw/master/Nuvoton.NuVoice_ISD_DFP.1.0.23.pack",
+      "status": "error",
+      "error": "URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>"
     }
   ]
 }

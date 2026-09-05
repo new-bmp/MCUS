@@ -1,13 +1,58 @@
 {
   "status": "ok",
-  "selected_packs": 2,
-  "successful_packs": 2,
+  "selected_packs": 10,
+  "successful_packs": 10,
   "failed_packs": 0,
-  "augmented_device_records": 24,
-  "unique_svd_payloads": 3,
+  "augmented_device_records": 153,
+  "unique_svd_payloads": 32,
   "errors": 0,
   "proxy_mode": "environment_or_direct",
   "packs": [
+    {
+      "source_id": "cmsis:Geehy.APM32E1xx_DFP@1.0.5",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32E1xx_DFP.1.0.5.pack",
+      "sha256": "612d25bfc1ea3785d0d58e205655c5eb083f84d7b58e4613de8ec7417be90287",
+      "archive_bytes": 1486900,
+      "devices": 8,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.APM32F00x_DFP@1.0.7",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F00x_DFP.1.0.7.pack",
+      "sha256": "b0b48b473bbe42d944423a34360402c704b85c24d581472acffd184ea7eeaa6b",
+      "archive_bytes": 984061,
+      "devices": 2,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.APM32F035_DFP@1.0.4",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F035_DFP.1.0.4.pack",
+      "sha256": "7c85a38edb9fe44a75fc5a7d3fe8a16359faca7a47b1958f7b5aae134b9cf312",
+      "archive_bytes": 1185807,
+      "devices": 1,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.APM32F0xx_DFP@1.1.4",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F0xx_DFP.1.1.4.pack",
+      "sha256": "88b3c6f5b60f6586334fd6f8884fe57f32b3a143612050e94a99d96385e26441",
+      "archive_bytes": 2389676,
+      "devices": 35,
+      "unique_svd_files": 6,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.APM32F1xx_DFP@1.2.1",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F1xx_DFP.1.2.1.pack",
+      "sha256": "22c926eeedd885fed6d6a30d65fa5c35d8d6d35cf9a1ad8b61d908761287b4ec",
+      "archive_bytes": 3366853,
+      "devices": 32,
+      "unique_svd_files": 9,
+      "status": "ok"
+    },
     {
       "source_id": "cmsis:Geehy.APM32F445_446_DFP@1.0.0",
       "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F445_446_DFP.1.0.0.pack",
@@ -15,6 +60,33 @@
       "archive_bytes": 1917248,
       "devices": 8,
       "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.APM32F4xx_DFP@1.0.12",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.APM32F4xx_DFP.1.0.12.pack",
+      "sha256": "d40e81f5d8ef6c8eadb4308c56131f551b53a7752e775f412eb5696dc249f00a",
+      "archive_bytes": 5423204,
+      "devices": 46,
+      "unique_svd_files": 9,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.BMP561_DFP@1.0.1",
+      "pack_url": "https://www.geehy.com/uploads/tool/Geehy.BMP561_DFP.1.0.1.pack",
+      "sha256": "432d4b17364655c6390ef7ca9f5639d235d42f2c1b1e64ff1f7bad524020763f",
+      "archive_bytes": 782334,
+      "devices": 1,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:Geehy.G32R4xx_DFP@1.0.3",
+      "pack_url": "https://global.geehy.com/uploads/tool/Geehy.G32R4xx_DFP.1.0.3.pack",
+      "sha256": "48fb119e1cd7b0a9e2c5f126124cb52c455ec42807d364c6c23d0a3d26c17de7",
+      "archive_bytes": 1074398,
+      "devices": 4,
+      "unique_svd_files": 1,
       "status": "ok"
     },
     {

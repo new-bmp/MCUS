@@ -1,0 +1,215 @@
+{
+  "generated_at": "2026-09-05T03:32:06+00:00",
+  "documents": [
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F030"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f030f4.pdf",
+      "file": "stm32f030f4-82a36fc7.pdf",
+      "measurements": 2,
+      "features_added": 14
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F070"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f070c6.pdf",
+      "file": "stm32f070c6-5a3e592b.pdf",
+      "measurements": 2,
+      "features_added": 8
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F205",
+        "STM32F207"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f205rb.pdf",
+      "file": "stm32f205rb-5613909c.pdf",
+      "measurements": 6,
+      "features_added": 198
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F215",
+        "STM32F217"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f215re.pdf",
+      "file": "stm32f215re-6c875ec1.pdf",
+      "measurements": 6,
+      "features_added": 84
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F301"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f301c6.pdf",
+      "file": "stm32f301c6-e1f86e6a.pdf",
+      "measurements": 4,
+      "features_added": 32
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F302"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f302cb.pdf",
+      "file": "stm32f302cb-2f75a1c1.pdf",
+      "measurements": 4,
+      "features_added": 88
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F302"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f302r6.pdf",
+      "file": "stm32f302r6-0ae902e4.pdf",
+      "measurements": 4,
+      "features_added": 88
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F302"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f302re.pdf",
+      "file": "stm32f302re-d8ee6652.pdf",
+      "measurements": 4,
+      "features_added": 88
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F303"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f303c6.pdf",
+      "file": "stm32f303c6-77463d2e.pdf",
+      "measurements": 6,
+      "features_added": 120
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F303"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f303cb.pdf",
+      "file": "stm32f303cb-320f3f22.pdf",
+      "measurements": 4,
+      "features_added": 96
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F303"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f303re.pdf",
+      "file": "stm32f303re-d1f1b9d5.pdf",
+      "measurements": 4,
+      "features_added": 96
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F3x8"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f318c8.pdf",
+      "file": "stm32f318c8-a0721dfd.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F3x8"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f328c8.pdf",
+      "file": "stm32f328c8-6d881794.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F3x4"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f334k4.pdf",
+      "file": "stm32f334k4-7b6d5109.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F3x8"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f358cc.pdf",
+      "file": "stm32f358cc-9548a7d6.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F373"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f373cc.pdf",
+      "file": "stm32f373cc-0fbb3b7a.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F3x8"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f378cc.pdf",
+      "file": "stm32f378cc-1c2ff6fa.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F3x8"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f398ve.pdf",
+      "file": "stm32f398ve-998d1096.pdf",
+      "measurements": 4,
+      "features_added": 48
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F405",
+        "STM32F407"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f405rg.pdf",
+      "file": "stm32f405rg-aa9dce0f.pdf",
+      "measurements": 6,
+      "features_added": 78
+    },
+    {
+      "vendor": "STMicroelectronics",
+      "product_lines": [
+        "STM32F415",
+        "STM32F417"
+      ],
+      "url": "https://www.st.com/resource/en/datasheet/stm32f415rg.pdf",
+      "file": "stm32f415rg-180c06dd.pdf",
+      "measurements": 6,
+      "features_added": 72
+    }
+  ],
+  "features_added": 1398,
+  "downloaded": 181,
+  "failed_downloads": [
+    "https://www.st.com/resource/en/datasheet/stm32f427vg.pdf.pdf"
+  ],
+  "cache_misses": []
+}

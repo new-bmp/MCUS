@@ -125,12 +125,11 @@ def full_name(line: str, token: str) -> str:
 
 
 def package_info(model: str, line: str) -> tuple[str, str]:
-    # AT32 orderable suffixes end in a package code followed by temperature
-    # grade (for example C8T7, RCT7, or K8U7_4).  The capacity letter before
-    # it is intentionally not used for package decoding.
-    suffix = model[len(line):] if model.startswith(line) else ""
-    code = suffix[0] if suffix else ""
-    return {"C": "LQFP48", "R": "LQFP64", "V": "LQFP100", "Z": "LQFP144", "K": "QFN32", "F": "QFN20", "G": "QFN28", "P": "QFN20"}.get(code, ""), {"C": "48", "R": "64", "V": "100", "Z": "144", "K": "32", "F": "20", "G": "28", "P": "20"}.get(code, "")
+    # Package data is intentionally added later by
+    # augment_packages_from_official_sources.py, which parses the exact
+    # product-line datasheet. CMSIS macro names alone are not package proof;
+    # some legacy macros are absent from the current ordering-code table.
+    return "", ""
 
 
 def features(p: dict[str, Any]) -> list[dict[str, Any]]:

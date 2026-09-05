@@ -1,0 +1,1542 @@
+{
+  "generated_at": "2026-09-05T03:28:55+00:00",
+  "documents": [
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32A403A",
+      "file": "ds-at32a403a.pdf.txt",
+      "features": 6,
+      "features_added": 18,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32A423",
+      "file": "ds-at32a423.pdf.txt",
+      "features": 4,
+      "features_added": 72,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F011",
+      "file": "ds-at32f011.pdf.txt",
+      "features": 5,
+      "features_added": 20,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F402",
+      "file": "ds-at32f402.pdf.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F403A",
+      "file": "ds-at32f403a.pdf.txt",
+      "features": 5,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F405",
+      "file": "ds-at32f405.pdf.txt",
+      "features": 4,
+      "features_added": 16,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F407",
+      "file": "ds-at32f407.pdf.txt",
+      "features": 5,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F413",
+      "file": "ds-at32f413.pdf.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F415",
+      "file": "ds-at32f415.pdf.txt",
+      "features": 2,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F421",
+      "file": "ds-at32f421.pdf.txt",
+      "features": 3,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F4212",
+      "file": "ds-at32f4212.pdf.txt",
+      "features": 4,
+      "features_added": 4,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F422",
+      "file": "ds-at32f422.pdf.txt",
+      "features": 3,
+      "features_added": 9,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F423",
+      "file": "ds-at32f423.pdf.txt",
+      "features": 4,
+      "features_added": 88,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F425",
+      "file": "ds-at32f425.pdf.txt",
+      "features": 3,
+      "features_added": 48,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F426",
+      "file": "ds-at32f426.pdf.txt",
+      "features": 3,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F435",
+      "file": "ds-at32f435.pdf.txt",
+      "features": 3,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F437",
+      "file": "ds-at32f437.pdf.txt",
+      "features": 3,
+      "features_added": 36,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F455",
+      "file": "ds-at32f455.pdf.txt",
+      "features": 5,
+      "features_added": 15,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F456",
+      "file": "ds-at32f456.pdf.txt",
+      "features": 5,
+      "features_added": 15,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F457",
+      "file": "ds-at32f457.pdf.txt",
+      "features": 5,
+      "features_added": 15,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32F490",
+      "file": "ds-at32f490.pdf.txt",
+      "features": 4,
+      "features_added": 4,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32L021",
+      "file": "ds-at32l021.pdf.txt",
+      "features": 4,
+      "features_added": 84,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32M412",
+      "file": "ds-at32m412.pdf.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32M416",
+      "file": "ds-at32m416.pdf.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Artery",
+      "product_line": "AT32WB415",
+      "file": "ds-at32wb415.pdf.txt",
+      "features": 2,
+      "features_added": 6,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32C103",
+      "file": "gd32c103xx-datasheet-2.pdf.txt",
+      "features": 3,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32E103",
+      "file": "gd32e103xx-datasheet-3.pdf.txt",
+      "features": 3,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32E231",
+      "file": "gd32e231xx-datasheet-5.pdf.txt",
+      "features": 1,
+      "features_added": 3,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F101",
+      "file": "gd32f101xx-datasheet-18.pdf.txt",
+      "features": 2,
+      "features_added": 70,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F105",
+      "file": "gd32f105xx-datasheet-20.pdf.txt",
+      "features": 2,
+      "features_added": 38,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F107",
+      "file": "gd32f107xx-datasheet-21.pdf.txt",
+      "features": 2,
+      "features_added": 34,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F130",
+      "file": "gd32f130xx-datasheet-17.pdf.txt",
+      "features": 3,
+      "features_added": 39,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F150",
+      "file": "gd32f150xx-datasheet-16.pdf.txt",
+      "features": 3,
+      "features_added": 36,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F205",
+      "file": "gd32f205xx-datasheet-22.pdf.txt",
+      "features": 4,
+      "features_added": 48,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F207",
+      "file": "gd32f207xx-datasheet-23.pdf.txt",
+      "features": 4,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F303",
+      "file": "gd32f303xb-datasheet-30.pdf.txt",
+      "features": 4,
+      "features_added": 84,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F305",
+      "file": "gd32f305xx-datasheet-27.pdf.txt",
+      "features": 4,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F307",
+      "file": "gd32f307xx-datasheet-28.pdf.txt",
+      "features": 4,
+      "features_added": 36,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F310",
+      "file": "gd32f310xx-datasheet-29.pdf.txt",
+      "features": 2,
+      "features_added": 14,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F330",
+      "file": "gd32f330xx-datasheet-24.pdf.txt",
+      "features": 3,
+      "features_added": 45,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F350",
+      "file": "gd32f350xx-datasheet-25.pdf.txt",
+      "features": 3,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F405",
+      "file": "gd32f405xx-datasheet-32.pdf.txt",
+      "features": 1,
+      "features_added": 7,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32F425",
+      "file": "gd32f425xx-datasheet-35.pdf.txt",
+      "features": 4,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "GigaDevice",
+      "product_line": "GD32W515",
+      "file": "gd32w515xx-datasheet-45.pdf.txt",
+      "features": 3,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32C011",
+      "file": "stm32c011d6-992dfb11.txt",
+      "features": 2,
+      "features_added": 18,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32C031",
+      "file": "stm32c031c4-c5e3b46d.txt",
+      "features": 2,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32C051",
+      "file": "stm32c051c6-689ffce0.txt",
+      "features": 4,
+      "features_added": 48,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32C071",
+      "file": "stm32c071kb-45cd0c41.txt",
+      "features": 4,
+      "features_added": 120,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32C091",
+      "file": "stm32c091cb-244bb9df.txt",
+      "features": 4,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F030",
+      "file": "stm32f030f4-82a36fc7.txt",
+      "features": 3,
+      "features_added": 21,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F031",
+      "file": "stm32f031c4-71e754bd.txt",
+      "features": 5,
+      "features_added": 50,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F038",
+      "file": "stm32f038c6-0ed6ee70.txt",
+      "features": 5,
+      "features_added": 25,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F042",
+      "file": "stm32f042c4-5a9767bf.txt",
+      "features": 4,
+      "features_added": 52,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F048",
+      "file": "stm32f048c6-ea2f13ac.txt",
+      "features": 4,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F051",
+      "file": "stm32f051c4-bcbe454e.txt",
+      "features": 5,
+      "features_added": 85,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F058",
+      "file": "stm32f058c8-c0c0d02c.txt",
+      "features": 5,
+      "features_added": 20,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F070",
+      "file": "stm32f070c6-5a3e592b.txt",
+      "features": 4,
+      "features_added": 16,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F071",
+      "file": "stm32f071cb-69ef7876.txt",
+      "features": 4,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F072",
+      "file": "stm32f072c8-ad0bb966.txt",
+      "features": 4,
+      "features_added": 52,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F078",
+      "file": "stm32f078cb-a4ec7deb.txt",
+      "features": 4,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F091",
+      "file": "stm32f091cc-d852a904.txt",
+      "features": 4,
+      "features_added": 44,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F098",
+      "file": "stm32f098cc-cdb60cfa.txt",
+      "features": 4,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F205",
+      "file": "stm32f205rb-5613909c.txt",
+      "features": 5,
+      "features_added": 85,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F215",
+      "file": "stm32f215re-6c875ec1.txt",
+      "features": 5,
+      "features_added": 30,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F301",
+      "file": "stm32f301c6-e1f86e6a.txt",
+      "features": 4,
+      "features_added": 32,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F302",
+      "file": "stm32f302cb-2f75a1c1.txt",
+      "features": 4,
+      "features_added": 88,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F302",
+      "file": "stm32f302r6-0ae902e4.txt",
+      "features": 4,
+      "features_added": 88,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F302",
+      "file": "stm32f302re-d8ee6652.txt",
+      "features": 3,
+      "features_added": 66,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F303",
+      "file": "stm32f303c6-77463d2e.txt",
+      "features": 4,
+      "features_added": 96,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F303",
+      "file": "stm32f303cb-320f3f22.txt",
+      "features": 4,
+      "features_added": 96,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F303",
+      "file": "stm32f303re-d1f1b9d5.txt",
+      "features": 4,
+      "features_added": 96,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F373",
+      "file": "stm32f373cc-0fbb3b7a.txt",
+      "features": 5,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F401",
+      "file": "stm32f401cb-4b18b245.txt",
+      "features": 4,
+      "features_added": 84,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F401",
+      "file": "stm32f401re-ac5bcaa3.txt",
+      "features": 4,
+      "features_added": 63,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F405",
+      "file": "stm32f405rg-aa9dce0f.txt",
+      "features": 5,
+      "features_added": 25,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F410",
+      "file": "stm32f410cb-078ba3bf.txt",
+      "features": 7,
+      "features_added": 70,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F411",
+      "file": "stm32f411ce-71430e9e.txt",
+      "features": 4,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F412",
+      "file": "stm32f412ce-2aa73760.txt",
+      "features": 5,
+      "features_added": 80,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F413",
+      "file": "stm32f413cg-048dc620.txt",
+      "features": 6,
+      "features_added": 84,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F415",
+      "file": "stm32f415rg-180c06dd.txt",
+      "features": 5,
+      "features_added": 20,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F423",
+      "file": "stm32f423ch-2a82c91c.txt",
+      "features": 6,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F429",
+      "file": "stm32f429zi-2026.txt",
+      "features": 6,
+      "features_added": 132,
+      "documents_added": 22
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F437",
+      "file": "stm32f437ai-c4b1fa45.txt",
+      "features": 6,
+      "features_added": 54,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F446",
+      "file": "stm32f446mc-5808ac95.txt",
+      "features": 6,
+      "features_added": 72,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F469",
+      "file": "stm32f469ae-8c4360e6.txt",
+      "features": 6,
+      "features_added": 144,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F479",
+      "file": "stm32f479ai-90b9a7df.txt",
+      "features": 6,
+      "features_added": 96,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F722",
+      "file": "stm32f722ic-0fa307cc.txt",
+      "features": 8,
+      "features_added": 80,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F730",
+      "file": "stm32f730i8-90199541.txt",
+      "features": 8,
+      "features_added": 32,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F732",
+      "file": "stm32f732ie-55b772a2.txt",
+      "features": 8,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F745",
+      "file": "stm32f745ie-7787a0fd.txt",
+      "features": 8,
+      "features_added": 80,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F750",
+      "file": "stm32f750n8-c5d8f140.txt",
+      "features": 8,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F756",
+      "file": "stm32f756bg-23c253a2.txt",
+      "features": 8,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F765",
+      "file": "stm32f765bi-b6b6b3ae.txt",
+      "features": 9,
+      "features_added": 126,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32F777",
+      "file": "stm32f777bi-7b901318.txt",
+      "features": 9,
+      "features_added": 63,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G030",
+      "file": "stm32g030c6-74577fdc.txt",
+      "features": 2,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G031",
+      "file": "stm32g031c6-cde733a3.txt",
+      "features": 2,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G041",
+      "file": "stm32g041c8-1198a18d.txt",
+      "features": 2,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G050",
+      "file": "stm32g050c6-e77574cb.txt",
+      "features": 2,
+      "features_added": 10,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G051",
+      "file": "stm32g051c6-00c5d008.txt",
+      "features": 2,
+      "features_added": 26,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G061",
+      "file": "stm32g061c6-8d1793f6.txt",
+      "features": 2,
+      "features_added": 26,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G070",
+      "file": "stm32g070cb-87370c1d.txt",
+      "features": 2,
+      "features_added": 6,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G071",
+      "file": "stm32g071c8-5437e550.txt",
+      "features": 2,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G081",
+      "file": "stm32g081cb-8d07fb4e.txt",
+      "features": 2,
+      "features_added": 22,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G0B0",
+      "file": "stm32g0b0ce-ed11c442.txt",
+      "features": 3,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G0B1",
+      "file": "stm32g0b1cc-ded09737.txt",
+      "features": 3,
+      "features_added": 129,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G0C1",
+      "file": "stm32g0c1cc-7e915425.txt",
+      "features": 3,
+      "features_added": 87,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G431",
+      "file": "stm32g431c6-daaedbf8.txt",
+      "features": 8,
+      "features_added": 216,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G441",
+      "file": "stm32g441cb-c3afb89d.txt",
+      "features": 8,
+      "features_added": 72,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G473",
+      "file": "stm32g473cb-fc2119bd.txt",
+      "features": 9,
+      "features_added": 243,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G474",
+      "file": "stm32g474cb-20caa101.txt",
+      "features": 9,
+      "features_added": 225,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G483",
+      "file": "stm32g483ce-016f2f58.txt",
+      "features": 9,
+      "features_added": 81,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G484",
+      "file": "stm32g484ce-fe193fff.txt",
+      "features": 9,
+      "features_added": 81,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G491",
+      "file": "stm32g491cc-8f1b0224.txt",
+      "features": 8,
+      "features_added": 152,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32G4A1",
+      "file": "stm32g4a1ce-4ddbc897.txt",
+      "features": 8,
+      "features_added": 72,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H503",
+      "file": "stm32h503eb-e8bdade0.txt",
+      "features": 7,
+      "features_added": 35,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H523",
+      "file": "stm32h523ce-6e008050.txt",
+      "features": 8,
+      "features_added": 120,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H533",
+      "file": "stm32h533ce-5d278bdd.txt",
+      "features": 8,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H562",
+      "file": "stm32h562ag-c0410109.txt",
+      "features": 8,
+      "features_added": 112,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H573",
+      "file": "stm32h573ai-133bfc25.txt",
+      "features": 8,
+      "features_added": 112,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H723",
+      "file": "stm32h723zg-cabc47c3.txt",
+      "features": 8,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H725",
+      "file": "stm32h725ae-79c0ecc9.txt",
+      "features": 8,
+      "features_added": 120,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H730",
+      "file": "stm32h730ab-a5c604a5.txt",
+      "features": 8,
+      "features_added": 56,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H733",
+      "file": "stm32h733vg-bc378cc5.txt",
+      "features": 8,
+      "features_added": 32,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H735",
+      "file": "stm32h735zg-45cc8406.txt",
+      "features": 8,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H743",
+      "file": "stm32h743vi-b433c6ac.txt",
+      "features": 6,
+      "features_added": 96,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H745",
+      "file": "stm32h745zg-cd1a7da6.txt",
+      "features": 6,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H747",
+      "file": "stm32h747ag-7f306fd5.txt",
+      "features": 6,
+      "features_added": 54,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H750",
+      "file": "stm32h750ib-9724ac0c.txt",
+      "features": 6,
+      "features_added": 30,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H753",
+      "file": "stm32h753vi-9f6fa8fc.txt",
+      "features": 6,
+      "features_added": 48,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H755",
+      "file": "stm32h755bi-fd905a4c.txt",
+      "features": 6,
+      "features_added": 30,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H757",
+      "file": "stm32h757ai-5c565e54.txt",
+      "features": 6,
+      "features_added": 30,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H7A3",
+      "file": "stm32h7a3ai-bd0b370a.txt",
+      "features": 7,
+      "features_added": 203,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H7B0",
+      "file": "stm32h7b0ab-fed60afc.txt",
+      "features": 6,
+      "features_added": 36,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H7B3",
+      "file": "stm32h7b3ri-417dda17.txt",
+      "features": 7,
+      "features_added": 105,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H7R3",
+      "file": "stm32h7r3a8-3ba7e654.txt",
+      "features": 6,
+      "features_added": 66,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32H7S3",
+      "file": "stm32h7s3a8-3f07178e.txt",
+      "features": 6,
+      "features_added": 66,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L010",
+      "file": "stm32l010c6-16159b09.txt",
+      "features": 2,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L010",
+      "file": "stm32l010rb-7d6ed482.txt",
+      "features": 2,
+      "features_added": 6,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L011",
+      "file": "stm32l011d4-81271838.txt",
+      "features": 3,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L021",
+      "file": "stm32l021d4-66439223.txt",
+      "features": 3,
+      "features_added": 12,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L031",
+      "file": "stm32l031g4-d4b95bc4.txt",
+      "features": 3,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L041",
+      "file": "stm32l041c6-6319bae3.txt",
+      "features": 3,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L051",
+      "file": "stm32l051c6-100e7096.txt",
+      "features": 3,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L052",
+      "file": "stm32l052c6-637cbfdc.txt",
+      "features": 3,
+      "features_added": 45,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L053",
+      "file": "stm32l053c6-09112094.txt",
+      "features": 3,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L062",
+      "file": "stm32l062k8-0d100fc4.txt",
+      "features": 3,
+      "features_added": 9,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L063",
+      "file": "stm32l063c8-5d37ee09.txt",
+      "features": 3,
+      "features_added": 9,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L071",
+      "file": "stm32l071v8-56cd77d5.txt",
+      "features": 2,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L072",
+      "file": "stm32l072v8-574a864a.txt",
+      "features": 2,
+      "features_added": 44,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L073",
+      "file": "stm32l073v8-250b68c2.txt",
+      "features": 3,
+      "features_added": 42,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L081",
+      "file": "stm32l081cz-c5f6675a.txt",
+      "features": 2,
+      "features_added": 10,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L083",
+      "file": "stm32l083v8-35d09cd5.txt",
+      "features": 2,
+      "features_added": 22,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L100",
+      "file": "stm32l100c6-99031e50.txt",
+      "features": 4,
+      "features_added": 28,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L100",
+      "file": "stm32l100rc-2a38584c.txt",
+      "features": 3,
+      "features_added": 21,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L151",
+      "file": "stm32l151c6-09ddedf2.txt",
+      "features": 3,
+      "features_added": 165,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L151",
+      "file": "stm32l151qc-b36970e6.txt",
+      "features": 3,
+      "features_added": 165,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L151",
+      "file": "stm32l151qd-16ea33f8.txt",
+      "features": 3,
+      "features_added": 165,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L151",
+      "file": "stm32l151qe-9b923047.txt",
+      "features": 3,
+      "features_added": 110,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L162",
+      "file": "stm32l162qc-4ce3a4d5.txt",
+      "features": 3,
+      "features_added": 51,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L162",
+      "file": "stm32l162re-d28afb7e.txt",
+      "features": 3,
+      "features_added": 51,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L162",
+      "file": "stm32l162vc-0a8fdaae.txt",
+      "features": 3,
+      "features_added": 51,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L162",
+      "file": "stm32l162vd-df546913.txt",
+      "features": 3,
+      "features_added": 34,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L412",
+      "file": "stm32l412c8-62872559.txt",
+      "features": 3,
+      "features_added": 57,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L422",
+      "file": "stm32l422cb-5cd6266a.txt",
+      "features": 3,
+      "features_added": 21,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L431",
+      "file": "stm32l431cb-55c1e0bf.txt",
+      "features": 4,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L432",
+      "file": "stm32l432kb-044f9d4f.txt",
+      "features": 4,
+      "features_added": 8,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L433",
+      "file": "stm32l433cc-07a63dbd.txt",
+      "features": 4,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L442",
+      "file": "stm32l442kc-477ecfe6.txt",
+      "features": 4,
+      "features_added": 4,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L443",
+      "file": "stm32l443cc-e6b9031f.txt",
+      "features": 4,
+      "features_added": 36,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L451",
+      "file": "stm32l451cc-43965743.txt",
+      "features": 5,
+      "features_added": 60,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L452",
+      "file": "stm32l452cc-020b891d.txt",
+      "features": 5,
+      "features_added": 75,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L462",
+      "file": "stm32l462ce-b654e6de.txt",
+      "features": 5,
+      "features_added": 35,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L471",
+      "file": "stm32l471qe-fe6700ed.txt",
+      "features": 4,
+      "features_added": 40,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L475",
+      "file": "stm32l475rc-390489f5.txt",
+      "features": 4,
+      "features_added": 24,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L476",
+      "file": "stm32l476je-29559075.txt",
+      "features": 4,
+      "features_added": 72,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L486",
+      "file": "stm32l486jg-44093fca.txt",
+      "features": 4,
+      "features_added": 20,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L496",
+      "file": "stm32l496ae-1c6e1848.txt",
+      "features": 5,
+      "features_added": 95,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L4A6",
+      "file": "stm32l4a6ag-0a0c9b2a.txt",
+      "features": 4,
+      "features_added": 48,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L4P5",
+      "file": "stm32l4p5ae-965c9660.txt",
+      "features": 8,
+      "features_added": 200,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L4Q5",
+      "file": "stm32l4q5ag-d4cc1744.txt",
+      "features": 8,
+      "features_added": 128,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L4R5",
+      "file": "stm32l4r5vi-d162be2f.txt",
+      "features": 6,
+      "features_added": 84,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32L4S5",
+      "file": "stm32l4s5vi-49c562c3.txt",
+      "features": 6,
+      "features_added": 30,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32N657",
+      "file": "stm32n657a0-be8baac9.txt",
+      "features": 6,
+      "features_added": 36,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U031",
+      "file": "stm32u031f4-b883c8cb.txt",
+      "features": 8,
+      "features_added": 128,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U073",
+      "file": "stm32u073c8-616bed1e.txt",
+      "features": 8,
+      "features_added": 192,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U083",
+      "file": "stm32u083kc-fbfe0605.txt",
+      "features": 8,
+      "features_added": 64,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U375",
+      "file": "stm32u375ce-1594fe0f.txt",
+      "features": 7,
+      "features_added": 224,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "STMicroelectronics",
+      "product_line": "STM32U385",
+      "file": "stm32u385cg-ff7db181.txt",
+      "features": 7,
+      "features_added": 112,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Allwinner",
+      "product_line": "XR808",
+      "file": "XR808_Datasheet_V1.1.txt",
+      "features": 3,
+      "features_added": 6,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Allwinner",
+      "product_line": "XR809",
+      "file": "XR809_Datasheet_V1.1.txt",
+      "features": 3,
+      "features_added": 3,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Allwinner",
+      "product_line": "XR871",
+      "file": "XR871_Datasheet_V1.21.txt",
+      "features": 4,
+      "features_added": 8,
+      "documents_added": 0
+    },
+    {
+      "manufacturer": "Allwinner",
+      "product_line": "XR872",
+      "file": "XR872_Datasheet_V1.05.txt",
+      "features": 2,
+      "features_added": 4,
+      "documents_added": 0
+    }
+  ],
+  "features_added": 10818
+}

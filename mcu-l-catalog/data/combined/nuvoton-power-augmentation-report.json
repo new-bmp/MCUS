@@ -1,0 +1,4925 @@
+{
+  "generated_at": "2026-09-05T03:34:02+00:00",
+  "pages_scanned": 618,
+  "models_matched": 281,
+  "features_added": 590,
+  "evidence": [
+    {
+      "model": "M2351CIAAE",
+      "page": "index-html-011042203f1c8d.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "17",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M485SIDAE",
+      "page": "index-html-0242fcc26a043a.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M031GTC2AE",
+      "page": "index-html-0308d1b608f388.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M254SG6AE",
+      "page": "index-html-030e42596932af.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M55M1H2LJAE",
+      "page": "index-html-034d9adc42eb91.html",
+      "values": [
+        [
+          "94.5",
+          "uA",
+          "220"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO110KC2BN",
+      "page": "index-html-03726c8df20a25.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "CM3033HL8AE",
+      "page": "index-html-0469b35036f37f.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M484SGAAE2U",
+      "page": "index-html-048a937717aae3.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M031GTD2AE",
+      "page": "index-html-05cda9babbf82b.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M467J2JHAE",
+      "page": "index-html-065f1ef79dd969.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO130SE3BN",
+      "page": "index-html-07e69e833e8536.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M091YC2AE",
+      "page": "index-html-0848dd83e2df46.html",
+      "values": [
+        [
+          "246",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO102ZB1AN",
+      "page": "index-html-09d40df184abe0.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M481ZE8AE",
+      "page": "index-html-0a3c064cf3a3ab.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO130KD2BN",
+      "page": "index-html-0a4da43e886c43.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M3333LIGAE",
+      "page": "index-html-0b2af60e6d0256.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M263SIAAE",
+      "page": "index-html-0bce93d33f889f.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2351SIAAE",
+      "page": "index-html-0d1d4c4b5c15ee.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "17",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "CM3033HS8AE",
+      "page": "index-html-0dd78db936c44e.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO130KD3BN",
+      "page": "index-html-0eac024f936094.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO130KE3BN",
+      "page": "index-html-0ecb66c144467e.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO120LD2BN",
+      "page": "index-html-0efb2c514cd38f.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M261KIAAE",
+      "page": "index-html-0f86e7c5b170a8.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M483SGCAE2A",
+      "page": "index-html-10c42434a28a67.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO112SC2AN",
+      "page": "index-html-11271addfee460.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M252SE3AE",
+      "page": "index-html-12adfffc059eda.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M254SE3AE",
+      "page": "index-html-1379d63a11bbbe.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO103LD3AE",
+      "page": "index-html-149603baebcd45.html",
+      "values": [
+        [
+          "180",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M251SE3AE",
+      "page": "index-html-14b06693da9776.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M3334YIGAE",
+      "page": "index-html-1524832acff89a.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252ZD2AE",
+      "page": "index-html-15dd1f8bab4063.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M254MD2AE",
+      "page": "index-html-16243a5e602713.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M254KE3AE",
+      "page": "index-html-16a04bc6840409.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2L31LG4AE",
+      "page": "index-html-16b139d273d477.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M2U54KE4AE",
+      "page": "index-html-170d867bcb33fb.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M482LGCAE",
+      "page": "index-html-19b522187c71ff.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO130KC2BN",
+      "page": "index-html-19dcc6adf8c835.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31SGDAE",
+      "page": "index-html-22426ce712d864.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M2L31KIDAE",
+      "page": "index-html-226f9426d65634.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M2L31YGDAE",
+      "page": "index-html-24893cf884d5dd.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M2L31LE4AE",
+      "page": "index-html-25192e7cc27340.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "NANO110KD3BN",
+      "page": "index-html-25b57b56fe7783.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M471VI8AE",
+      "page": "index-html-281c2dff903914.html",
+      "values": [
+        [
+          "353",
+          "uA",
+          "120"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M031GGD2AE",
+      "page": "index-html-28469d60a954c3.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100SD3BN",
+      "page": "index-html-28e45a01f755c2.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO120LD3BN",
+      "page": "index-html-28f582c708dbd3.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2354KJFBE",
+      "page": "index-html-2a0cee5f1bc2f6.html",
+      "values": [
+        [
+          "89.3",
+          "uA",
+          ""
+        ],
+        [
+          "39.6",
+          "uA",
+          ""
+        ],
+        [
+          "31.5",
+          "uA",
+          ""
+        ],
+        [
+          "14.3",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M262ZIAAE",
+      "page": "index-html-2a63b761662c89.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31LGDAE",
+      "page": "index-html-2aad6aabbb6d0f.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "NANO110RE3BN",
+      "page": "index-html-2bf679a9fef96c.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M251EC2AE",
+      "page": "index-html-2d618fe6fd9721.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M481LIDAE",
+      "page": "index-html-2dfdfa368c1c15.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2L31SE4AE",
+      "page": "index-html-2e26d0ff88e34f.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M252LG6AE",
+      "page": "index-html-2f584a6a623faf.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M2354KJFAE",
+      "page": "index-html-3059b8ed187a90.html",
+      "values": [
+        [
+          "89.3",
+          "uA",
+          ""
+        ],
+        [
+          "39.6",
+          "uA",
+          ""
+        ],
+        [
+          "31.5",
+          "uA",
+          ""
+        ],
+        [
+          "14.3",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M487KIDAE",
+      "page": "index-html-32b082fd885a35.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U51YD3AE",
+      "page": "index-html-335019280965e6.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M3351VJCAE",
+      "page": "index-html-33e537db700a8b.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U51EC2AE",
+      "page": "index-html-341fb9a2e1f279.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M3351SJCAE",
+      "page": "index-html-3597e1c1e1dc04.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO110KE3BN",
+      "page": "index-html-35d13af42b53fe.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "CM3034HL3AE",
+      "page": "index-html-3696beba483109.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO130SD3BN",
+      "page": "index-html-376b7def057f5b.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M029GGC0AE",
+      "page": "index-html-38a8ada54b9613.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3333LGAAE",
+      "page": "index-html-39017d1e9977d9.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M258KG6AE",
+      "page": "index-html-391b6d0ddc23f6.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M253ZE3AE",
+      "page": "index-html-39361ac06a8407.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "35",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M463KGCAE",
+      "page": "index-html-397077ed5f4cd1.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252FC2AE",
+      "page": "index-html-3aeb28da87b781.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO112RC2AN",
+      "page": "index-html-3af0ce87696a6b.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M55M1K2LJAE",
+      "page": "index-html-3b7174509cd745.html",
+      "values": [
+        [
+          "94.5",
+          "uA",
+          "220"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO103SD3AE",
+      "page": "index-html-3be6414105367d.html",
+      "values": [
+        [
+          "180",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M482ZGCAE",
+      "page": "index-html-3c8fefe9a14c4e.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M091YD2AE",
+      "page": "index-html-3fffc790a28bce.html",
+      "values": [
+        [
+          "246",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M467SJHAN",
+      "page": "index-html-417bc77be55977.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "CM3034HL8AE",
+      "page": "index-html-42ce3fa4e540cd.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M251KE3AE",
+      "page": "index-html-42faded43248f5.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M463K2GCAC",
+      "page": "index-html-4486afc87a2da8.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M481SIDAE",
+      "page": "index-html-464c22cd240a77.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100ND2BN",
+      "page": "index-html-484810dc1d79de.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31SG4AE",
+      "page": "index-html-4875663188a769.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "NANO102LC2AN",
+      "page": "index-html-492679a00acda2.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M091TD2AE",
+      "page": "index-html-496a9e38c5e9ee.html",
+      "values": [
+        [
+          "246",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3334YGAAE",
+      "page": "index-html-4988557a1af01a.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M467HJHAN",
+      "page": "index-html-49e20ebaa74fde.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100LD2BN",
+      "page": "index-html-49f014c8f1fc41.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2354SJFAE",
+      "page": "index-html-4b56142e509776.html",
+      "values": [
+        [
+          "89.3",
+          "uA",
+          ""
+        ],
+        [
+          "39.6",
+          "uA",
+          ""
+        ],
+        [
+          "31.5",
+          "uA",
+          ""
+        ],
+        [
+          "14.3",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO103ZD3AE",
+      "page": "index-html-5018d0004a3a9e.html",
+      "values": [
+        [
+          "180",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M3334LIGAE",
+      "page": "index-html-506de81c582eb5.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M251KG6AE",
+      "page": "index-html-51444cf591d610.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M3333SGAAE",
+      "page": "index-html-5166013a7ea1e9.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M484SIDAE2U",
+      "page": "index-html-51d737a82af4f4.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M481LGCAE",
+      "page": "index-html-53b0a0c98adb3d.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "CM3034HN8AE",
+      "page": "index-html-540df61e951c30.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M256KE3AE",
+      "page": "index-html-545a8c06af7d88.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100ND3BN",
+      "page": "index-html-5518b4804d0dd0.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M463L2GCAC",
+      "page": "index-html-558ae60850bdec.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M487SIDAE",
+      "page": "index-html-587e1907adee6b.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M253LD3AE",
+      "page": "index-html-58901d8c9bf455.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "35",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M3333YGAAE",
+      "page": "index-html-592a983cf972eb.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M471CI8AE",
+      "page": "index-html-5ab6034fcff70f.html",
+      "values": [
+        [
+          "353",
+          "uA",
+          "120"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252ZC2AE",
+      "page": "index-html-5ad4847180728f.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M482SE8AE",
+      "page": "index-html-5b00cc4c5d8130.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO112SB1AN",
+      "page": "index-html-5b078db2f4a077.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M482LIDAE",
+      "page": "index-html-5b9480850026d2.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100LD3BN",
+      "page": "index-html-5b9e9d8ef5f42e.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO130SD2BN",
+      "page": "index-html-5bfa14e902e21c.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO120SD2BN",
+      "page": "index-html-5ecdea27c3286a.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M261ZIAAE",
+      "page": "index-html-5f4167b5e4be30.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M251ZD2AE",
+      "page": "index-html-60110a7fceac1a.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M483KGCAE2A",
+      "page": "index-html-6175b16f89c7e5.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M463YGCAE",
+      "page": "index-html-6175bc3b2dedfb.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M256SD2AE",
+      "page": "index-html-63bd55f2e988bf.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100SC2BN",
+      "page": "index-html-6451083b772add.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M5531H2LJAE",
+      "page": "index-html-64669aeed2b9e8.html",
+      "values": [
+        [
+          "94.5",
+          "uA",
+          "220"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M263KIAAE",
+      "page": "index-html-666a573308062a.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO110SD3BN",
+      "page": "index-html-66ba6dc4ed7532.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M471R1E6AE",
+      "page": "index-html-66ccc155f80788.html",
+      "values": [
+        [
+          "347",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U54AG6AE",
+      "page": "index-html-66d728c0f5c4eb.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M487JIDAE",
+      "page": "index-html-6713146e930567.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO110SE3BN",
+      "page": "index-html-67e8c4fae3f55c.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M252KG6AE",
+      "page": "index-html-68822a6109b63d.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M482ZE8AE",
+      "page": "index-html-69d72ac7d3df5a.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3334KIGAE",
+      "page": "index-html-69e02791d9806d.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2L31ZD4AE",
+      "page": "index-html-6a69146f27bc53.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "NANO100KD3BN",
+      "page": "index-html-6a8943c6e71b7b.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31LD4AE",
+      "page": "index-html-6ad4f22a6c7a43.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M251LE3AE",
+      "page": "index-html-6b4db9170885e1.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO100LC2BN",
+      "page": "index-html-6b7d903ea144ae.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M251SD2AE",
+      "page": "index-html-6d2f261c221db9.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M481SGCAE",
+      "page": "index-html-6d75e7498b0a26.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252SC2AE",
+      "page": "index-html-6f0d4f78991058.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M3351LICAE",
+      "page": "index-html-6f7d9571170e1a.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M487KMCAN",
+      "page": "index-html-7181a3c51dbb07.html",
+      "values": [
+        [
+          "185",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M091TC2AE",
+      "page": "index-html-731ee7a2472a8b.html",
+      "values": [
+        [
+          "246",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M471SE6AE",
+      "page": "index-html-73336aff7299cf.html",
+      "values": [
+        [
+          "347",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2351ZIAAE",
+      "page": "index-html-7401d9fc130eca.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "17",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M2351SFSIAAP",
+      "page": "index-html-748d5508dc7944.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "17",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M485YIDAE",
+      "page": "index-html-7504d127a3f320.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M467KJHAN",
+      "page": "index-html-752b56684749f4.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100SD2BN",
+      "page": "index-html-75a5c2002a7da2.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M482KGCAE",
+      "page": "index-html-75ca4cf4868399.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100KE3BN",
+      "page": "index-html-7705fa87e5c079.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M030GTC1AE",
+      "page": "index-html-7873025d27c19e.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M482KIDAE",
+      "page": "index-html-78aae5b844429e.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M030GTD1AE",
+      "page": "index-html-7903e66eac469a.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U54YE4AE",
+      "page": "index-html-795bac876f63db.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M2354LJFAE",
+      "page": "index-html-79a62185853b17.html",
+      "values": [
+        [
+          "89.3",
+          "uA",
+          ""
+        ],
+        [
+          "39.6",
+          "uA",
+          ""
+        ],
+        [
+          "31.5",
+          "uA",
+          ""
+        ],
+        [
+          "14.3",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M2L31ZE4AE",
+      "page": "index-html-7ce6519ad399ca.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "NANO110RD3BN",
+      "page": "index-html-7f729b5410d540.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO120SD3BN",
+      "page": "index-html-7f94546de0d2a1.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31YIDAE",
+      "page": "index-html-7fc65e80bfe9a2.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M481LE8AE",
+      "page": "index-html-80b252299a96ac.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M030GGD1AE",
+      "page": "index-html-8130dab27cd655.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO102ZC2AN",
+      "page": "index-html-83ecd5af4c7a0f.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M252LC2AE",
+      "page": "index-html-843aa8deac1f2a.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO110RD2BN",
+      "page": "index-html-8506051760a034.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M482LE8AE",
+      "page": "index-html-868fbb915f3699.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2L31YG4AE",
+      "page": "index-html-869294c5a72dff.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M471KI8AE",
+      "page": "index-html-8701e3b45761b0.html",
+      "values": [
+        [
+          "353",
+          "uA",
+          "120"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M467K2JHAE",
+      "page": "index-html-87421866d3d08c.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3351LJCAE",
+      "page": "index-html-898739313892ff.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100NC2BN",
+      "page": "index-html-8a118e1bf27839.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2354SJFBE",
+      "page": "index-html-8cb2a07c9f58c9.html",
+      "values": [
+        [
+          "89.3",
+          "uA",
+          ""
+        ],
+        [
+          "39.6",
+          "uA",
+          ""
+        ],
+        [
+          "31.5",
+          "uA",
+          ""
+        ],
+        [
+          "14.3",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M252KE3AE",
+      "page": "index-html-8d5374c7043434.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M483SGCAE",
+      "page": "index-html-8ecdee2781c405.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO102LB1AN",
+      "page": "index-html-8f35a8c096220a.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2U54KG6AE",
+      "page": "index-html-8fb91eac494f35.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M2L31SIDAE",
+      "page": "index-html-9113b0d681a7eb.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M262SIAAE",
+      "page": "index-html-91487b2260d744.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO100LE3BN",
+      "page": "index-html-914f10d0fbe947.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M433LE8AE",
+      "page": "index-html-936a6f00f7697a.html",
+      "values": [
+        [
+          "132",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U54AE4AE",
+      "page": "index-html-95fdd7cdd4e30e.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M262KIAAE",
+      "page": "index-html-984a1a7aaaa8b6.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M252LD2AE",
+      "page": "index-html-985c2371d3075c.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M3351YICAE",
+      "page": "index-html-98d0813c2d9dc5.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M253ZE3BE",
+      "page": "index-html-98de8aa462b901.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "35",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M467JJHAN",
+      "page": "index-html-98fb124f42d00c.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U54YG6AE",
+      "page": "index-html-999ce000ca7863.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "NANO110SD2BN",
+      "page": "index-html-99b2d88168143a.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M031GGC2AE",
+      "page": "index-html-9d43964ca3cb26.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M251LG6AE",
+      "page": "index-html-9dd5fe184f9672.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO112RB1AN",
+      "page": "index-html-9de44fa4ce06c8.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M3333YIGAE",
+      "page": "index-html-9f9f18c54fb000.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO120KE3BN",
+      "page": "index-html-9fd65603553295.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M263ZIAAE",
+      "page": "index-html-a62dcde4e4b216.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M254KG6AE",
+      "page": "index-html-a68b0827822dc3.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3351YJCAE",
+      "page": "index-html-a6c2dd4106b273.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M485LIDAE",
+      "page": "index-html-a6fc69af569620.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2003FC1AE",
+      "page": "index-html-a70e550948f6e7.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "40",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M253LE3BE",
+      "page": "index-html-a7d23a47e2083f.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "35",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M463S2GCAC",
+      "page": "index-html-a8677fd9775ca1.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO100NE3BN",
+      "page": "index-html-aa79230f526b36.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31YE4AE",
+      "page": "index-html-ad3a1e7a045963.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M2L31KGDAE",
+      "page": "index-html-af4b03838dd1aa.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M3333TGAAE",
+      "page": "index-html-af817c11902642.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3334SGAAE",
+      "page": "index-html-b1517b94ade507.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3334TGAAE",
+      "page": "index-html-b1e867e0c65524.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3351KICAE",
+      "page": "index-html-b20b7382c156d0.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO110RC2BN",
+      "page": "index-html-b3246037c80a77.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M3334TIGAE",
+      "page": "index-html-b3e418043db8d0.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M55M1R2LJAE",
+      "page": "index-html-b524131cb52012.html",
+      "values": [
+        [
+          "94.5",
+          "uA",
+          "220"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO120LC2BN",
+      "page": "index-html-b5911008fef0ad.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M467H2JHAE",
+      "page": "index-html-b8f74e1dd3a256.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M483KGCAE",
+      "page": "index-html-b90ea85a156dd6.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M5531R2LJAE",
+      "page": "index-html-ba441996d45d7b.html",
+      "values": [
+        [
+          "94.5",
+          "uA",
+          "220"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252EC2AE",
+      "page": "index-html-bb12fc70e250f4.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M258KE3AE",
+      "page": "index-html-bbc825773398da.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M484KIDAE",
+      "page": "index-html-bf9c25e7785dac.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "CM2003CF3AE",
+      "page": "index-html-c0a2817045556a.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "40",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO100SE3BN",
+      "page": "index-html-c21b6baa1d00ef.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO102SC2AN",
+      "page": "index-html-c2336bb2bf55e2.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO120SE3BN",
+      "page": "index-html-c347ff2db3d45e.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "CM3033HL3AE",
+      "page": "index-html-c3ecad75283e05.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M261SIAAE",
+      "page": "index-html-c56a95eaf0066a.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M253LD3BE",
+      "page": "index-html-c5eacf4a43b721.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "35",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M251SC2AE",
+      "page": "index-html-c6e1509fc1816b.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M3351KJCAE",
+      "page": "index-html-c802753b57fcc0.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M256SE3AE",
+      "page": "index-html-c88ed90014925c.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO120SC2BN",
+      "page": "index-html-c998e5e6228c2b.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M482ZIDAE",
+      "page": "index-html-c9acdb4321f259.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M483KIDAE",
+      "page": "index-html-caf9a7ec2ebd65.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2003XC1AE",
+      "page": "index-html-cf22574dfc2532.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "40",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO130SC2BN",
+      "page": "index-html-cf3e49a3421099.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2L31LIDAE",
+      "page": "index-html-d001da5a67aa8c.html",
+      "values": [
+        [
+          "60",
+          "uA",
+          "72"
+        ],
+        [
+          "60",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M481ZGCAE",
+      "page": "index-html-d0f093b2424de7.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M030GGC1AE",
+      "page": "index-html-d323626126c2d0.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M482SIDAE",
+      "page": "index-html-d3e88e3252208f.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "CM3033HN8AE",
+      "page": "index-html-d5386af76ffea4.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U51FC2AE",
+      "page": "index-html-d73ec7cc7850ce.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "NANO112VC2AN",
+      "page": "index-html-d75f9f72254db0.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "NANO112LB1AN",
+      "page": "index-html-d8103fe148b7e7.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M251LC2AE",
+      "page": "index-html-d8d9b7c81b8d39.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M2L31YD4AE",
+      "page": "index-html-d91f1d2f3a6e86.html",
+      "values": [
+        [
+          "66",
+          "uA",
+          "72"
+        ],
+        [
+          "66",
+          "uA",
+          "144"
+        ],
+        [
+          "33",
+          "uA",
+          "144"
+        ]
+      ],
+      "features_added": 3
+    },
+    {
+      "model": "M2354LJFBE",
+      "page": "index-html-d9ae0e0957ed13.html",
+      "values": [
+        [
+          "89.3",
+          "uA",
+          ""
+        ],
+        [
+          "39.6",
+          "uA",
+          ""
+        ],
+        [
+          "31.5",
+          "uA",
+          ""
+        ],
+        [
+          "14.3",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M463SGCAE",
+      "page": "index-html-da90aaee4897ce.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U51YC2AE",
+      "page": "index-html-dc1cbf74c8cbf6.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M251ZC2AE",
+      "page": "index-html-df498442b8fd8e.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M2351KIAAE",
+      "page": "index-html-df5e83551e5477.html",
+      "values": [
+        [
+          "97",
+          "uA",
+          ""
+        ],
+        [
+          "45",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "17",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO120KD3BN",
+      "page": "index-html-e25e1dc237b52b.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M3351VICAE",
+      "page": "index-html-e2eb6530b3a19d.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO110SC2BN",
+      "page": "index-html-e31fa3d699c43c.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M483SIDAE",
+      "page": "index-html-e3ab3384ff6ff0.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M258SG6AE",
+      "page": "index-html-e3ac0eb20df341.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M481SGCAE2A",
+      "page": "index-html-e3d10f3f82bf35.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M463LGCAE",
+      "page": "index-html-e4c12782bd0a58.html",
+      "values": [
+        [
+          "135",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252SG6AE",
+      "page": "index-html-e4c22ff1d0d6a8.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "NANO120LE3BN",
+      "page": "index-html-e519015759b9f9.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2U54SE4AE",
+      "page": "index-html-e51b3c22f9e540.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M484SIDAE",
+      "page": "index-html-e5f82034131eeb.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M484SGAAE",
+      "page": "index-html-e69d9a3abb5161.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M251SG6AE",
+      "page": "index-html-e835a674e1af43.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M3333KIGAE",
+      "page": "index-html-e935238ee561fc.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO112LC2AN",
+      "page": "index-html-e97a2a08982109.html",
+      "values": [
+        [
+          "150",
+          "uA",
+          ""
+        ],
+        [
+          "65",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M5531K2LJAE",
+      "page": "index-html-ea16c5e907d509.html",
+      "values": [
+        [
+          "94.5",
+          "uA",
+          "220"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M481SE8AE",
+      "page": "index-html-eafd2c92b19cd9.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3333TIGAE",
+      "page": "index-html-ebabe2145059e9.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3351SICAE",
+      "page": "index-html-ebc15c28bdc4ae.html",
+      "values": [
+        [
+          "87.08",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M433SE8AE",
+      "page": "index-html-ec7c727194a8de.html",
+      "values": [
+        [
+          "132",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M2U54SG6AE",
+      "page": "index-html-ed75f715d83dac.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M256MD2AE",
+      "page": "index-html-ed85b467f45767.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3333SIGAE",
+      "page": "index-html-ee8021934d67da.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M251FC2AE",
+      "page": "index-html-f01c486500dead.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M485ZIDAE",
+      "page": "index-html-f0741fcfdcf405.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M483SE8AE",
+      "page": "index-html-f112b667b28c31.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M482SGCAE",
+      "page": "index-html-f13dbacc5ce2dc.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3334SIGAE",
+      "page": "index-html-f317e57a4442a5.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M254SD2AE",
+      "page": "index-html-f3c51c8b8fa3ad.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M485KIDAE",
+      "page": "index-html-f4830eee58f477.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "192"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M471MD6AE",
+      "page": "index-html-f5192cb9d94983.html",
+      "values": [
+        [
+          "347",
+          "uA",
+          "72"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M3334LGAAE",
+      "page": "index-html-f56577c5d5723e.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M467S2JHAE",
+      "page": "index-html-f6ea6c0035c7e2.html",
+      "values": [
+        [
+          "175",
+          "uA",
+          "200"
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "NANO110KD2BN",
+      "page": "index-html-f84ce2991a0eac.html",
+      "values": [
+        [
+          "200",
+          "uA",
+          ""
+        ],
+        [
+          "75",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "CM2003CF2AE",
+      "page": "index-html-f8ff551863d2f4.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "40",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M2U51TC2AE",
+      "page": "index-html-fbcc3c129031ee.html",
+      "values": [
+        [
+          "67.5",
+          "uA",
+          ""
+        ],
+        [
+          "36",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          ""
+        ],
+        [
+          "67",
+          "uA",
+          "40"
+        ],
+        [
+          "36",
+          "uA",
+          "40"
+        ],
+        [
+          "13",
+          "uA",
+          "40"
+        ],
+        [
+          "8",
+          "uA",
+          "40"
+        ]
+      ],
+      "features_added": 7
+    },
+    {
+      "model": "M252SD2AE",
+      "page": "index-html-fbdd4b90e30309.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M251LD2AE",
+      "page": "index-html-fbe157d2778929.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "M253LE3AE",
+      "page": "index-html-fdf9e0e7e38198.html",
+      "values": [
+        [
+          "130",
+          "uA",
+          ""
+        ],
+        [
+          "35",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 2
+    },
+    {
+      "model": "M258SE3AE",
+      "page": "index-html-fe32c9aa30d772.html",
+      "values": [
+        [
+          "110",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 1
+    },
+    {
+      "model": "M252LE3AE",
+      "page": "index-html-fee57e71541967.html",
+      "values": [
+        [
+          "138",
+          "uA",
+          "48"
+        ],
+        [
+          "60",
+          "uA",
+          "48"
+        ],
+        [
+          "138",
+          "uA",
+          ""
+        ],
+        [
+          "60",
+          "uA",
+          ""
+        ]
+      ],
+      "features_added": 4
+    },
+    {
+      "model": "CM3034HS8AE",
+      "page": "index-html-ff07ab4e5fcf27.html",
+      "values": [
+        [
+          "91",
+          "uA",
+          "180"
+        ]
+      ],
+      "features_added": 1
+    }
+  ]
+}

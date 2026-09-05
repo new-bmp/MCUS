@@ -29,7 +29,7 @@ ARCHITECTURE_NO_FPU = {
 EXACT_DEVICE_SOURCE_KINDS = {
     "cubemx_device_db", "microchip_atdf", "puya_device_header",
     "infineon_device_db", "espressif_idf_soc_caps",
-    "hpmicro_product_selector", "renesas_product_selector",
+    "hpmicro_product_selector", "renesas_product_selector", "ti_datasheet",
 }
 
 
@@ -110,7 +110,10 @@ def bit_widths(features: list[dict[str, str]], feature_types: set[str]) -> list[
         if feature.get("type", "").lower() not in {value.lower() for value in feature_types}:
             continue
         name = feature.get("name", "")
-        for value in re.findall(r"(?<!\d)(8|10|12|14|16|24|32)(?:-?[Bb]it)?", name):
+        # A bare number in a peripheral description is usually a channel
+        # count or sample rate, not a resolution.  Require an explicit bit
+        # suffix so e.g. "16 external channels" cannot become "16-bit ADC".
+        for value in re.findall(r"(?<!\d)(8|10|12|14|16|24|32)\s*-?[Bb]it\b", name):
             result.add(int(value))
         raw = feature.get("m", "")
         for value in re.findall(r"\d+(?:\.\d+)?", raw):
@@ -118,6 +121,195 @@ def bit_widths(features: list[dict[str, str]], feature_types: set[str]) -> list[
             if numeric <= 32:
                 result.add(int(numeric))
     return sorted(result)
+
+
+def engineering_feature_text(features: list[dict[str, str]], types: set[str]) -> str:
+    """Join only explicitly tagged engineering evidence records.
+
+    Keeping this separate from the generic inventory prevents an unrelated
+    clock, register, or package number from becoming an ADC/timer metric.
+    """
+    wanted = {value.lower() for value in types}
+    return " | ".join(
+        str(item.get("name") or "")
+        for item in features
+        if str(item.get("type") or "").lower() in wanted and item.get("name")
+    )
+
+
+def engineering_metrics(features: list[dict[str, str]]) -> dict[str, Any]:
+    """Extract conservative, source-backed engineering metrics.
+
+    Empty values mean that the official source did not publish a comparable
+    value.  We intentionally do not convert a family-level clock or a GPIO
+    electrical limit into a peripheral speed unless the evidence names that
+    block and its unit.
+    """
+    adc_text = engineering_feature_text(features, {"ADCPerformance"})
+    dac_text = engineering_feature_text(features, {"DACPerformance"})
+    io_text = engineering_feature_text(features, {"IOSpeed"})
+    timer_text = engineering_feature_text(features, {"TimerArchitecture"})
+    memory_text = engineering_feature_text(features, {"MemoryArchitecture"})
+
+    def max_rate(text: str, pattern: str) -> int | None:
+        values: list[int] = []
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            unit = match.group("unit").lower().replace(" ", "")
+            factors = {"gsps": 1_000_000_000, "msps": 1_000_000, "ksps": 1_000, "sps": 1}
+            if unit in factors:
+                values.append(round(float(match.group("value")) * factors[unit]))
+        return max(values) if values else None
+
+    adc_rate = max_rate(adc_text, r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>GSPS|MSPS|KSPS|SPS)")
+    dac_rate = max_rate(dac_text, r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>GSPS|MSPS|KSPS|SPS)")
+    io_rate = max_rate(io_text, r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>MSPS|KSPS|SPS)")
+    if io_rate is None:
+        io_values = [round(float(item.group("value")) * 1_000_000) for item in re.finditer(r"(?P<value>\d+(?:\.\d+)?)\s*MHz", io_text, re.IGNORECASE)]
+        io_rate = max(io_values) if io_values else None
+
+    timer_widths = sorted({int(value) for value in re.findall(r"(?<!\d)(8|16|24|32)\s*-?\s*bit(?=[^|]{0,80}(?:timer|tmr|counter))", timer_text, re.IGNORECASE)})
+    timer_widths.extend(int(value) for value in re.findall(r"(?:timer|tmr|counter)[^|]{0,80}?(?<!\d)(8|16|24|32)\s*-?\s*bit", timer_text, re.IGNORECASE) if int(value) not in timer_widths)
+    timer_widths = sorted(set(timer_widths))
+
+    flash_lower = memory_text.lower()
+    flash_bank_count = 2 if re.search(r"dual[- ]?bank|two[- ]?bank|双区", flash_lower) else 1 if re.search(r"single[- ]?bank|one[- ]?bank|单区", flash_lower) else None
+    flash_wait_states = 0 if re.search(r"zero[- ]?wait|0[- ]?wait|零等待", flash_lower) else None
+    wait_match = re.search(r"(?P<value>\d+)\s*[- ]?wait(?:ing)?\s*states?", flash_lower, re.IGNORECASE)
+    if wait_match:
+        flash_wait_states = int(wait_match.group("value"))
+    flash_ecc = "yes" if re.search(r"(?:flash|nvm)[^|]{0,90}\becc\b|\becc\b[^|]{0,90}(?:flash|nvm)", flash_lower) else "unknown"
+    cache = "yes" if re.search(r"(?:i-?cache|d-?cache|instruction cache|data cache|cache controller)", flash_lower) else "unknown"
+    ram_ecc = "yes" if re.search(r"(?:ram|sram)[^|]{0,90}\becc\b|\becc\b[^|]{0,90}(?:ram|sram)", flash_lower) else "unknown"
+    ram_types = sorted({value.upper() for value in re.findall(r"\b(?:ITCM|DTCM|TCM|CCM|AXI\s+SRAM|SRAM[12]|OCRAM|PSRAM)\b", flash_lower, re.IGNORECASE)})
+    ram_exclusive = "yes" if re.search(r"(?:dedicated|private|exclusive|per[- ]core)[^|]{0,120}(?:ram|sram|memory)", flash_lower) else "unknown"
+    return {
+        "adc_sample_rate_hz": adc_rate,
+        "dac_sample_rate_hz": dac_rate,
+        "io_speed_hz": io_rate,
+        "timer_engineering_width_bits": ";".join(str(value) for value in timer_widths),
+        "flash_wait_states": flash_wait_states,
+        "flash_bank_count": flash_bank_count,
+        "flash_ecc_present": flash_ecc,
+        "cache_present": cache,
+        "ram_ecc_present": ram_ecc,
+        "ram_architecture": ";".join(ram_types),
+        "ram_exclusive_present": ram_exclusive,
+    }
+
+
+POWER_CURRENT_RE = re.compile(
+    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<prefix>[mnuμµ]?)\s*A"
+    r"(?:\s*/\s*(?P<per>MHz|kHz))?",
+    re.IGNORECASE,
+)
+POWER_WATT_RE = re.compile(
+    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<prefix>[mnuμµ]?)\s*W",
+    re.IGNORECASE,
+)
+POWER_CLOCK_RE = re.compile(
+    r"(?:at|@|\(|,|，|在)\s*(?P<value>\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>GHz|MHz|kHz|Hz)",
+    re.IGNORECASE,
+)
+POWER_VOLTAGE_RE = re.compile(
+    r"(?:at|@|vdd|vcc|供电|电压)\s*[=:]?\s*"
+    r"(?P<value>\d+(?:\.\d+)?)\s*V\b",
+    re.IGNORECASE,
+)
+POWER_TEMPERATURE_RE = re.compile(
+    r"(?P<value>-?\d+(?:\.\d+)?)\s*(?:°\s*)?(?:C|℃)\b",
+    re.IGNORECASE,
+)
+
+
+def _power_mode(name: str) -> str:
+    lowered = name.lower()
+    if any(token in lowered for token in ("sleep", "standby", "stop", "lpm", "deep power-down", "low-power")):
+        return "sleep"
+    if any(token in lowered for token in ("active", "run", "operating")):
+        return "run"
+    return "other"
+
+
+def _power_quality(name: str) -> str:
+    lowered = name.lower()
+    if re.search(r"\btyp(?:ical)?\b|典型", lowered, re.IGNORECASE):
+        return "typical"
+    if re.search(r"\bmax(?:imum)?\b|最大", lowered, re.IGNORECASE):
+        return "maximum"
+    if re.search(r"\bmin(?:imum)?\b|最小", lowered, re.IGNORECASE):
+        return "minimum"
+    return "unknown"
+
+
+def _power_frequency_hz(value: str, unit: str) -> int:
+    multipliers = {"ghz": 1_000_000_000, "mhz": 1_000_000, "khz": 1_000, "hz": 1}
+    return round(float(value) * multipliers[unit.lower()])
+
+
+def power_measurements(
+    features: list[dict[str, str]],
+    source_document_id: str,
+    verification_status: str = "cmsis_pack_metadata",
+) -> list[dict[str, Any]]:
+    """Extract only source text that contains an explicit power unit.
+
+    CMSIS feature records often contain mode counts or unitless power hints.
+    Those are intentionally ignored here: a number without an explicit A/W
+    unit cannot be compared as a current or power measurement.
+    """
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for feature in features:
+        feature_type = str(feature.get("type") or "").strip().lower()
+        if feature_type not in {"consumption", "powerother", "power"}:
+            continue
+        name = str(feature.get("name") or "").strip()
+        if not name:
+            continue
+        match = POWER_CURRENT_RE.search(name) or POWER_WATT_RE.search(name)
+        if not match:
+            continue
+        raw_value = float(match.group("value"))
+        prefix = (match.groupdict().get("prefix") or "").replace("μ", "u").replace("µ", "u")
+        current_match = POWER_CURRENT_RE.search(name)
+        if current_match:
+            unit = f"{prefix}A" if prefix else "A"
+            per = current_match.groupdict().get("per")
+            if per:
+                unit = f"{unit}_per_{per}"
+        else:
+            unit = f"{prefix}W" if prefix else "W"
+        conditions: dict[str, Any] = {}
+        clock = POWER_CLOCK_RE.search(name)
+        if clock:
+            conditions["clock_hz"] = _power_frequency_hz(clock.group("value"), clock.group("unit"))
+        voltage = POWER_VOLTAGE_RE.search(name)
+        if voltage:
+            conditions["voltage_v"] = float(voltage.group("value"))
+        temperature = POWER_TEMPERATURE_RE.search(name)
+        if temperature:
+            conditions["temperature_c"] = float(temperature.group("value"))
+        if not conditions:
+            conditions["note"] = "条件未完整披露"
+        record: dict[str, Any] = {
+            "mode": _power_mode(name),
+            "label": name,
+            "value": compact_number(raw_value),
+            "unit": unit,
+            "typical_or_max": _power_quality(name),
+            "conditions": conditions,
+            "source_document_id": str(feature.get("source_document_id") or source_document_id or "unknown"),
+            "verification_status": str(feature.get("verification_status") or verification_status),
+        }
+        key = (
+            record["mode"], record["label"], record["value"], record["unit"],
+            json.dumps(conditions, sort_keys=True, ensure_ascii=False),
+        )
+        if key not in seen:
+            seen.add(key)
+            result.append(record)
+    return result
 
 
 def bool_from_processors(processors: list[dict[str, str]], key: str) -> str:
@@ -207,17 +399,36 @@ def auto_features(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     accelerators: list[dict[str, Any]] = []
     special: list[dict[str, Any]] = []
-    accelerator_types = {"npu", "crypto", "accelerator"}
+    # These blocks are useful selection signals even when a vendor names them
+    # only by the IP block acronym. Keep them source-backed; do not infer
+    # support from the product family name.
+    accelerator_types = {
+        "npu", "crypto", "accelerator", "dma2d", "cordic", "fmac", "mdf", "dfsdm",
+        "jpeg", "divas", "hsp_engine", "hsp1", "neochrom", "chrom-art", "gfx",
+        "gpu", "openvg", "pdmic", "spdifrx", "otfdec", "ramecc", "flexramecc",
+        "aes", "aesb", "pka", "crccu", "crcscan", "bsec", "hsm",
+        "dmamux", "linkedlist", "lpbam", "lpbamqueue", "lpbamadc",
+        "lpbamdac", "lpbami2c", "lpbamlptim", "lpbamlpuart", "lpbamspi",
+    }
     accelerator_phrases = (
         "accelerator", "neural", "chrom-art",
         "dma2d", "graphics", "gpu", "openvg", "trigonometric", "math unit",
-        "jpeg codec", "fft", "filter accelerator",
+        "jpeg codec", "fft", "filter accelerator", "vector graphics", "neochrom",
+        "pdm microphone", "spdif", "ecc", "on-the-fly decryption", "cache controller",
     )
     accelerator_token_pattern = re.compile(
         r"(?<![a-z0-9])(?:npu|tmu|cordic|fmac|crc|aes|sha|hash|pka)\d*(?![a-z0-9])",
         re.I,
     )
-    special_types = {"rng", "touch", "camera", "lcd", "glcd", "application", "security", "vendorcapability"}
+    special_types = {
+        "rng", "touch", "camera", "lcd", "glcd", "display", "audio", "sai", "pdmic",
+        "spdifrx", "application", "security", "vendorcapability", "mipi", "i3c",
+        "canfd", "flexray", "ucpd", "usbpd", "usbss", "usbhs", "usb_otg_hs",
+        "ethphy", "sqi", "psram", "rtc_ram", "pdec", "evsys", "ccl", "swpmi",
+        "subghz", "ieee802154", "pio", "hsem", "icache", "dcache", "ramecc",
+        "otfdec", "vrefbuf", "gtzc", "sau", "idau", "dts",
+        "lpbamlpgpio", "lpbamcomp", "lpbamopamp", "lpbamvrefbuf", "lpbamqueue",
+    }
     for feature in features:
         if quantity(feature) == 0:
             continue
@@ -267,8 +478,51 @@ PERIPHERAL_CATEGORIES = {
     "nvic": "system", "extint": "system", "pll": "clock", "xtal": "clock",
     "intrc": "clock", "clockother": "clock", "powermode": "power",
     "powerother": "power", "consumption": "power", "ios": "gpio", "i/o": "gpio",
-    "gpiopadcount": "gpio", "spiperipheraltotal": "connectivity",
+    "gpiopadcount": "gpio", "gpioport": "gpio", "gpio": "gpio", "spiperipheraltotal": "connectivity",
+    "pwr": "power", "rcc": "clock", "sys": "system", "debug": "system", "jtag": "system",
+    "dwt": "system", "fpu": "accelerator", "mpu": "system", "cortex_m33": "system",
+    # Advanced peripherals and vendor IP blocks found in CMSIS/device-db
+    # records. They remain visible in the inventory even when no flat metric
+    # exists for them.
+    "dma2d": "accelerator", "cordic": "accelerator", "fmac": "accelerator",
+    "mdf": "display_multimedia", "dfsdm": "display_multimedia", "jpeg": "display_multimedia",
+    "sai": "display_multimedia", "pdmic": "display_multimedia", "spdifrx": "display_multimedia",
+    "display": "display_multimedia", "mipi": "display_multimedia", "hdmi_cec": "display_multimedia",
+    "canfd": "connectivity", "flexray": "connectivity", "ucpd": "connectivity",
+    "usbpd": "connectivity", "usbss": "connectivity", "usbhs": "connectivity",
+    "usb_otg_hs": "connectivity", "lin_uart": "connectivity", "linuart": "connectivity",
+    "swpmi": "connectivity", "subghz": "wireless", "zigbee": "wireless",
+    "ble": "wireless", "ieee802154": "wireless", "ethphy": "connectivity",
+    "dmamux": "memory_bus", "dmachannels": "memory_bus", "linkedlist": "memory_bus",
+    "mem2mem": "memory_bus", "psram": "memory_bus", "rtc_ram": "memory_bus",
+    "icache": "memory_bus", "dcache": "memory_bus", "ramecc": "memory_bus",
+    "flexramecc": "memory_bus", "otfdec": "security", "gtzc": "security", "sau": "security",
+    "idau": "security", "aes": "security", "aesb": "security", "pka": "security",
+    "crccu": "security", "crcscan": "security", "bsec": "security", "hsm": "security",
+    "hsem": "system", "evsys": "system", "ccl": "system",
+    "pdec": "timing", "qei": "timing", "pio": "accelerator", "hsp_engine": "accelerator",
+    "hsp1": "accelerator", "divas": "accelerator", "gfx": "accelerator", "rcc": "clock",
+    "vrefbuf": "analog", "sdadc": "analog", "bandgap": "analog", "zcd": "analog",
+    "battery_protection": "power", "charger_detect": "power", "voltage_regulator": "power",
 }
+
+
+EXTERNAL_BUS_TOKEN_RE = re.compile(
+    r"(?<![A-Z0-9])(?:OCTOSPI\d*|OCTOSPIM|OSPI\d*|XSPI\d*|XSPIM|"
+    r"QUADSPI\d*|QSPI\d*|FLEXSPI\d*|HYPERBUS|EMIF\d*|EBI\d*|FMC\d*|FSMC\d*|SMC\d*|SQI\d*)(?![A-Z0-9])",
+    re.IGNORECASE,
+)
+
+
+def external_bus_types(features: list[dict[str, str]]) -> list[str]:
+    """Keep explicitly named external-memory interfaces as source evidence."""
+    result: set[str] = set()
+    for item in features:
+        if item.get("type", "").lower() not in {"extbus", "comother", "other", "vendorcapability"}:
+            continue
+        source = " ".join(str(item.get(key) or "") for key in ("name", "n", "description"))
+        result.update(match.group(0).upper() for match in EXTERNAL_BUS_TOKEN_RE.finditer(source))
+    return sorted(result)
 
 
 def peripheral_inventory(
@@ -309,6 +563,21 @@ def preferred_count(
     if direct is not None:
         return direct
     return sum_features(features, name_tokens=name_tokens)
+
+
+def operating_voltage_range(features: list[dict[str, str]]) -> tuple[float | None, float | None]:
+    """Extract an explicit MCU supply range from VCC/VDD source records."""
+    for feature in features:
+        if str(feature.get("type") or "").strip().lower() not in {"vcc", "vdd"}:
+            continue
+        lower = number(feature.get("n"))
+        upper = number(feature.get("m"))
+        if lower is None or upper is None:
+            lower = number(feature.get("min") or feature.get("minimum") or feature.get("vmin"))
+            upper = number(feature.get("max") or feature.get("maximum") or feature.get("vmax"))
+        if lower is not None and upper is not None and 0 < lower <= upper <= 20:
+            return lower, upper
+    return None, None
 
 
 def feature_present(
@@ -359,6 +628,7 @@ def main() -> int:
         core_names = sorted({item.get("Dcore", "") for item in processors if item.get("Dcore")})
         fpu_present = fpu_from_processors(processors)
         max_clock_hz = number(row.get("max_clock_hz"))
+        operating_voltage_min_v, operating_voltage_max_v = operating_voltage_range(features)
 
         timer_count = sum_features(
             features,
@@ -423,6 +693,9 @@ def main() -> int:
         )
         source_verification = row.get("verification_status") or "cmsis_pack_metadata"
         inventory = peripheral_inventory(features, source_verification)
+        named_external_buses = external_bus_types(features)
+        power = power_measurements(features, row.get("source_id", ""), source_verification)
+        engineering = engineering_metrics(features)
 
         adc_features = [
             item for item in features
@@ -535,20 +808,35 @@ def main() -> int:
             "primary_core": core_names[0] if len(core_names) == 1 else "+".join(core_names),
             "core_count": processor_core_count(processors),
             "max_clock_hz": compact_number(max_clock_hz),
+            "operating_voltage_min_v": compact_number(operating_voltage_min_v),
+            "operating_voltage_max_v": compact_number(operating_voltage_max_v),
             "fpu_present": fpu_present,
             "mpu_present": bool_from_processors(processors, "Dmpu"),
             "dsp_extension_present": bool_from_processors(processors, "Ddsp"),
             "trustzone_present": bool_from_processors(processors, "Dtz"),
             "timer_count": compact_number(timer_count),
-            "timer_width_bits": ";".join(str(value) for value in bit_widths(features, {"Timer"})),
+            "timer_width_bits": ";".join(str(value) for value in sorted(set(
+                bit_widths(features, {"Timer", "TimerArchitecture"})
+                + [int(value) for value in engineering["timer_engineering_width_bits"].split(";") if value]
+            ))),
             "pwm_source_quantity": compact_number(pwm_count),
             "adc_source_quantity": compact_number(adc_source_quantity),
             "adc_quantity_semantics": adc_semantics,
             "adc_unit_count": compact_number(adc_unit_count),
             "adc_channel_count": compact_number(adc_channel_count),
-            "adc_resolution_bits": ";".join(str(value) for value in bit_widths(features, {"ADC", "ADCUnits", "A/D"})),
+            "adc_resolution_bits": ";".join(str(value) for value in bit_widths(features, {"ADC", "ADCUnits", "A/D", "ADCPerformance"})),
             "dac_source_quantity": compact_number(dac_source_quantity),
-            "dac_resolution_bits": ";".join(str(value) for value in bit_widths(features, {"DAC", "D/A"})),
+            "dac_resolution_bits": ";".join(str(value) for value in bit_widths(features, {"DAC", "D/A", "DACPerformance"})),
+            "adc_sample_rate_hz": compact_number(engineering["adc_sample_rate_hz"]),
+            "dac_sample_rate_hz": compact_number(engineering["dac_sample_rate_hz"]),
+            "io_speed_hz": compact_number(engineering["io_speed_hz"]),
+            "flash_wait_states": compact_number(engineering["flash_wait_states"]),
+            "flash_bank_count": compact_number(engineering["flash_bank_count"]),
+            "flash_ecc_present": engineering["flash_ecc_present"],
+            "cache_present": engineering["cache_present"],
+            "ram_ecc_present": engineering["ram_ecc_present"],
+            "ram_architecture": engineering["ram_architecture"],
+            "ram_exclusive_present": engineering["ram_exclusive_present"],
             "gpio_count": compact_number(gpio_count),
             "spi_count": compact_number(spi_count),
             "i2c_count": compact_number(i2c_count),
@@ -575,9 +863,12 @@ def main() -> int:
             "camera_interface_count": compact_number(camera_count),
             "display_controller_count": compact_number(display_count),
             "external_bus_count": compact_number(external_bus_count),
+            "external_bus_types_json": json.dumps(named_external_buses, ensure_ascii=False),
             "external_interrupt_count": compact_number(external_interrupt_count),
             "temperature_sensor_count": compact_number(temperature_sensor_count),
             "crypto_accelerator_present": crypto_present,
+            "power_measurements_json": json.dumps(power, ensure_ascii=False, sort_keys=True),
+            "power_data_status": "official_source_measurement" if power else "not_found",
             "peripheral_inventory_json": json.dumps(inventory, ensure_ascii=False, sort_keys=True),
             "accelerators_json": json.dumps(accelerators, ensure_ascii=False, sort_keys=True),
             "special_features_json": json.dumps(special_features, ensure_ascii=False, sort_keys=True),
@@ -665,18 +956,23 @@ def main() -> int:
 
     capability_fields = [
         "device_id", "manufacturer", "device_name", "core_names", "primary_core",
-        "core_count", "max_clock_hz", "fpu_present", "mpu_present",
+        "core_count", "max_clock_hz", "operating_voltage_min_v", "operating_voltage_max_v",
+        "fpu_present", "mpu_present",
         "dsp_extension_present", "trustzone_present", "timer_count", "timer_width_bits",
         "pwm_source_quantity", "adc_source_quantity", "adc_quantity_semantics",
         "adc_unit_count", "adc_channel_count",
         "adc_resolution_bits", "dac_source_quantity", "dac_resolution_bits", "gpio_count",
+        "adc_sample_rate_hz", "dac_sample_rate_hz", "io_speed_hz", "flash_wait_states",
+        "flash_bank_count", "flash_ecc_present", "cache_present", "ram_ecc_present",
+        "ram_architecture", "ram_exclusive_present",
         "spi_count", "i2c_count", "usart_count", "uart_count", "can_count",
         "can_fd_present", "usb_count", "usb_device_count", "usb_host_count", "ethernet_count",
         "dma_source_quantity", "rng_count", "i2s_count", "lin_count", "configurable_serial_count", "usb_otg_count",
         "sdio_count", "watchdog_count", "rtc_present", "comparator_count", "opamp_count",
         "touch_source_quantity", "camera_interface_count", "display_controller_count",
-        "external_bus_count", "external_interrupt_count", "temperature_sensor_count",
-        "crypto_accelerator_present", "peripheral_inventory_json", "accelerators_json",
+        "external_bus_count", "external_bus_types_json", "external_interrupt_count", "temperature_sensor_count",
+        "crypto_accelerator_present", "power_measurements_json", "power_data_status",
+        "peripheral_inventory_json", "accelerators_json",
         "special_features_json", "pending_feature_candidates_json", "missing_key_fields",
         "source_id", "verification_status",
     ]

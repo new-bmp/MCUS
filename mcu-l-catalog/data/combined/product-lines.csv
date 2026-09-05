@@ -190,47 +190,47 @@ gigadevice::gd32::gd32f4xx::gd32f450,GigaDevice,general_purpose_mcu,Cortex-M4,GD
 gigadevice::gd32::gd32f4xx::gd32f470,GigaDevice,general_purpose_mcu,Cortex-M4,GD32,GD32F4xx,GD32F470,11,cmsis:GigaDevice.GD32F4xx_DFP@3.0.3,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
 gigadevice::gd32::gd32l23x::gd32l233,GigaDevice,general_purpose_mcu,Cortex-M23,GD32,GD32L23x,GD32L233,8,cmsis:GigaDevice.GD32L23x_DFP@1.0.3,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
 gigadevice::gd32::gd32w51x::gd32w515,GigaDevice,general_purpose_mcu,Cortex-M33,GD32,GD32W51x,GD32W515,4,cmsis:GigaDevice.GD32W51x_DFP@1.0.3,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
-hpmicro::hpm5301,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5301,1,hpmicro:sdk:v1.12.1:hpm5301;hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm5321,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5321,3,hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm5331,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5331,3,hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm5361,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5361,3,hpmicro:sdk:v1.12.1:hpm5361;hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm53m1,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM53M1,1,hpmicro:sdk:v1.12.1:hpm53m1;hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm5e11,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5E00,HPM5E11,3,hpmicro:selector:hpm5e00;hpmicro:series:hpm5e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm5e31,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5E00,HPM5E31,3,hpmicro:sdk:v1.12.1:hpm5e31;hpmicro:selector:hpm5e00;hpmicro:series:hpm5e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm5e3y,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5E00,HPM5E3Y,2,hpmicro:sdk:v1.12.1:hpm5e3y;hpmicro:selector:hpm5e00;hpmicro:series:hpm5e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6220,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6220,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6240,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6240,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6260,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6260,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6264,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6264,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6280,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6280,2,hpmicro:sdk:v1.12.1:hpm6280;hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6284,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6284,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6320,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6320,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6330,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6330,1,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6340,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6340,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6350,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6350,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6360,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6360,2,hpmicro:sdk:v1.12.1:hpm6360;hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6364,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6364,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6430,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM6430,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6450,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM6450,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6454,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM6454,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm64a0,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM64A0,1,hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm64g0,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM64G0,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6730,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6700,HPM6730,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6750,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6700,HPM6750,2,hpmicro:sdk:v1.12.1:hpm6750;hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6754,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6700,HPM6754,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6830,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6800,HPM6830,1,hpmicro:selector:hpm6800;hpmicro:series:hpm6800,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6850,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6800,HPM6850,1,hpmicro:selector:hpm6800;hpmicro:series:hpm6800,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6880,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6800,HPM6880,1,hpmicro:sdk:v1.12.1:hpm6880;hpmicro:selector:hpm6800;hpmicro:series:hpm6800,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e50,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E50,1,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e60,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E60,2,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e6y,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E6Y,1,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e70,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E70,2,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e80,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E80,2,hpmicro:sdk:v1.12.1:hpm6e80;hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e84,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E84,1,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6e8y,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E8Y,2,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6p31,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6P00,HPM6P31,1,hpmicro:selector:hpm6p00;hpmicro:series:hpm6p00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6p41,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6P00,HPM6P41,1,hpmicro:selector:hpm6p00;hpmicro:series:hpm6p00,2026-08-14T07:54:09+00:00,manufacturer_product_page
-hpmicro::hpm6p81,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6P00,HPM6P81,1,hpmicro:sdk:v1.12.1:hpm6p81;hpmicro:selector:hpm6p00;hpmicro:series:hpm6p00,2026-08-14T07:54:09+00:00,manufacturer_product_page
+hpmicro::hpm5301,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5301,1,hpmicro:sdk:v1.12.1:hpm5301;hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm5321,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5321,3,hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm5331,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5331,3,hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm5361,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM5361,3,hpmicro:sdk:v1.12.1:hpm5361;hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm53m1,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5300,HPM53M1,1,hpmicro:sdk:v1.12.1:hpm53m1;hpmicro:selector:hpm5300;hpmicro:series:hpm5300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm5e11,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5E00,HPM5E11,3,hpmicro:selector:hpm5e00;hpmicro:series:hpm5e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm5e31,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5E00,HPM5E31,3,hpmicro:sdk:v1.12.1:hpm5e31;hpmicro:selector:hpm5e00;hpmicro:series:hpm5e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm5e3y,HPMicro,general_purpose_mcu,RISC-V,HPM5,HPM5E00,HPM5E3Y,2,hpmicro:sdk:v1.12.1:hpm5e3y;hpmicro:selector:hpm5e00;hpmicro:series:hpm5e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6220,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6220,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6240,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6240,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6260,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6260,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6264,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6264,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6280,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6280,2,hpmicro:sdk:v1.12.1:hpm6280;hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6284,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6200,HPM6284,2,hpmicro:selector:hpm6200;hpmicro:series:hpm6200,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6320,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6320,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6330,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6330,1,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6340,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6340,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6350,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6350,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6360,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6360,2,hpmicro:sdk:v1.12.1:hpm6360;hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6364,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6300,HPM6364,2,hpmicro:selector:hpm6300;hpmicro:series:hpm6300,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6430,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM6430,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6450,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM6450,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6454,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM6454,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm64a0,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM64A0,1,hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm64g0,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6400,HPM64G0,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6730,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6700,HPM6730,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6750,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6700,HPM6750,2,hpmicro:sdk:v1.12.1:hpm6750;hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6754,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6700,HPM6754,2,hpmicro:selector:hpm6700;hpmicro:series:hpm6700,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6830,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6800,HPM6830,1,hpmicro:selector:hpm6800;hpmicro:series:hpm6800,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6850,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6800,HPM6850,1,hpmicro:selector:hpm6800;hpmicro:series:hpm6800,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6880,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6800,HPM6880,1,hpmicro:sdk:v1.12.1:hpm6880;hpmicro:selector:hpm6800;hpmicro:series:hpm6800,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e50,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E50,1,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e60,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E60,2,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e6y,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E6Y,1,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e70,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E70,2,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e80,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E80,2,hpmicro:sdk:v1.12.1:hpm6e80;hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e84,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E84,1,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6e8y,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6E00,HPM6E8Y,2,hpmicro:selector:hpm6e00;hpmicro:series:hpm6e00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6p31,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6P00,HPM6P31,1,hpmicro:selector:hpm6p00;hpmicro:series:hpm6p00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6p41,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6P00,HPM6P41,1,hpmicro:selector:hpm6p00;hpmicro:series:hpm6p00,2026-09-05T03:28:18+00:00,manufacturer_product_page
+hpmicro::hpm6p81,HPMicro,general_purpose_mcu,RISC-V,HPM6,HPM6P00,HPM6P81,1,hpmicro:sdk:v1.12.1:hpm6p81;hpmicro:selector:hpm6p00;hpmicro:series:hpm6p00,2026-09-05T03:28:18+00:00,manufacturer_product_page
 infineon::airoc-connectivity::20706::20706,Infineon,wireless_mcu,Cortex-M3,AIROC Connectivity,20706,20706,1,infineon-device-db:1e7589fe5ce5,2026-08-12T10:06:32+00:00,manufacturer_device_database
 infineon::airoc-connectivity::20707::20707,Infineon,wireless_mcu,Cortex-M3,AIROC Connectivity,20707,20707,1,infineon-device-db:1e7589fe5ce5,2026-08-12T10:06:32+00:00,manufacturer_device_database
 infineon::airoc-connectivity::20719::20719,Infineon,wireless_mcu,Cortex-M4,AIROC Connectivity,20719,20719,2,infineon-device-db:1e7589fe5ce5,2026-08-12T10:06:32+00:00,manufacturer_device_database
@@ -657,41 +657,41 @@ puya::py32t0::py32t0::py32t020,Puya,general_purpose_mcu,Cortex-M0+,PY32T0,PY32T0
 puya::py32t0::py32t0::py32t020b,Puya,general_purpose_mcu,Cortex-M0+,PY32T0,PY32T0,PY32T020B,2,cmsis:Puya.PY32T0xx_DFP@1.0.7;puya-device-header:PY32T0xx_DFP@1.0.7,2026-08-11T12:17:48+00:00,multi_source_manufacturer_device_header
 puya::py32t0::py32t0::py32t090,Puya,general_purpose_mcu,Cortex-M0+,PY32T0,PY32T0,PY32T090,2,cmsis:Puya.PY32T0xx_DFP@1.0.7;puya-device-header:PY32T0xx_DFP@1.0.7,2026-08-11T12:17:48+00:00,multi_source_manufacturer_device_header
 puya::py32t0::py32t0::py32t092,Puya,general_purpose_mcu,Cortex-M0+,PY32T0,PY32T0,PY32T092,1,cmsis:Puya.PY32T0xx_DFP@1.0.7;puya-device-header:PY32T0xx_DFP@1.0.7,2026-08-11T12:17:48+00:00,multi_source_manufacturer_device_header
-qinheng::ch::ch561,Qinheng,general_purpose_mcu,RISC-V,CH,CH561,CH561,1,qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch563,Qinheng,general_purpose_mcu,RISC-V,CH,CH563,CH563,1,qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch564,Qinheng,general_purpose_mcu,RISC-V,CH,CH564,CH564,3,qinheng:ch32-data-yaml:CH564.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch565,Qinheng,general_purpose_mcu,RISC-V,CH,CH565,CH565,2,qinheng:ch32-data-yaml:CH569.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch567,Qinheng,general_purpose_mcu,RISC-V,CH,CH567,CH567,1,qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch568,Qinheng,general_purpose_mcu,RISC-V,CH,CH568,CH568,1,qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch569,Qinheng,general_purpose_mcu,RISC-V,CH,CH569,CH569,2,qinheng:ch32-data-yaml:CH569.yaml;qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch571,Qinheng,general_purpose_mcu,RISC-V,CH,CH571,CH571,3,qinheng:ch32-data-yaml:CH571.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch573,Qinheng,general_purpose_mcu,RISC-V,CH,CH573,CH573,2,qinheng:ch32-data-yaml:CH573.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch581,Qinheng,general_purpose_mcu,RISC-V,CH,CH581,CH581,1,qinheng:ch32-data-yaml:CH581.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch582,Qinheng,general_purpose_mcu,RISC-V,CH,CH582,CH582,2,qinheng:ch32-data-yaml:CH582.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch583,Qinheng,general_purpose_mcu,RISC-V,CH,CH583,CH583,1,qinheng:ch32-data-yaml:CH583.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch591,Qinheng,general_purpose_mcu,RISC-V,CH,CH591,CH591,3,qinheng:ch32-data-yaml:CH591.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch592,Qinheng,general_purpose_mcu,RISC-V,CH,CH592,CH592,1,qinheng:ch32-data-yaml:CH592.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch::ch641,Qinheng,general_purpose_mcu,RISC-V,CH,CH641,CH641,5,qinheng:ch32-data-yaml:CH641.yaml;qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch643,Qinheng,general_purpose_mcu,RISC-V,CH,CH643,CH643,5,qinheng:ch32-data-yaml:CH643.yaml;qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch::ch645,Qinheng,general_purpose_mcu,RISC-V,CH,CH645,CH645,3,qinheng:ch32-data-yaml:CH645.yaml;qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32f103,Qinheng,general_purpose_mcu,Cortex-M3,CH32,CH32F103,CH32F103,3,qinheng:ch32-data-yaml:CH32F103C6T6.yaml;qinheng:ch32-data-yaml:CH32F103C8T6.yaml;qinheng:ch32-data-yaml:CH32F103R8T6.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch32::ch32f205,Qinheng,general_purpose_mcu,Cortex-M3,CH32,CH32F205,CH32F205,1,qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32f207,Qinheng,general_purpose_mcu,Cortex-M3,CH32,CH32F207,CH32F207,1,qinheng:special-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32h415,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32H415,CH32H415,1,qinheng:ch32-data-yaml:CH32H415REU6.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch32::ch32h416,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32H416,CH32H416,1,qinheng:ch32-data-yaml:CH32H416RDU6.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch32::ch32h417,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32H417,CH32H417,3,qinheng:ch32-data-yaml:CH32H417MEU6.yaml;qinheng:ch32-data-yaml:CH32H417QEU6.yaml;qinheng:ch32-data-yaml:CH32H417WEU6.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch32::ch32l103,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32L103,CH32L103,5,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v003,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V003,CH32V003,3,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v103,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V103,CH32V103,3,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v203,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V203,CH32V203,9,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v208,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V208,CH32V208,4,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v303,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V303,CH32V303,4,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v305,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V305,CH32V305,3,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v307,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V307,CH32V307,3,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32v317,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V317,CH32V317,2,qinheng:ch32-data-yaml:CH32V317VCT6.yaml;qinheng:ch32-data-yaml:CH32V317WCU6.yaml,2026-08-13T10:42:24+00:00,manufacturer_device_database
-qinheng::ch32::ch32x033,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32X033,CH32X033,1,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32x034,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32X034,CH32X034,1,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
-qinheng::ch32::ch32x035,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32X035,CH32X035,5,qinheng:ch32-table,2026-08-13T10:42:24+00:00,manufacturer_product_page
+qinheng::ch::ch561,Qinheng,general_purpose_mcu,RISC-V,CH,CH561,CH561,1,qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch563,Qinheng,general_purpose_mcu,RISC-V,CH,CH563,CH563,1,qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch564,Qinheng,general_purpose_mcu,RISC-V,CH,CH564,CH564,3,qinheng:ch32-data-yaml:CH564.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch565,Qinheng,general_purpose_mcu,RISC-V,CH,CH565,CH565,2,qinheng:ch32-data-yaml:CH569.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch567,Qinheng,general_purpose_mcu,RISC-V,CH,CH567,CH567,1,qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch568,Qinheng,general_purpose_mcu,RISC-V,CH,CH568,CH568,1,qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch569,Qinheng,general_purpose_mcu,RISC-V,CH,CH569,CH569,2,qinheng:ch32-data-yaml:CH569.yaml;qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch571,Qinheng,general_purpose_mcu,RISC-V,CH,CH571,CH571,3,qinheng:ch32-data-yaml:CH571.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch573,Qinheng,general_purpose_mcu,RISC-V,CH,CH573,CH573,2,qinheng:ch32-data-yaml:CH573.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch581,Qinheng,general_purpose_mcu,RISC-V,CH,CH581,CH581,1,qinheng:ch32-data-yaml:CH581.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch582,Qinheng,general_purpose_mcu,RISC-V,CH,CH582,CH582,2,qinheng:ch32-data-yaml:CH582.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch583,Qinheng,general_purpose_mcu,RISC-V,CH,CH583,CH583,1,qinheng:ch32-data-yaml:CH583.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch591,Qinheng,general_purpose_mcu,RISC-V,CH,CH591,CH591,3,qinheng:ch32-data-yaml:CH591.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch592,Qinheng,general_purpose_mcu,RISC-V,CH,CH592,CH592,1,qinheng:ch32-data-yaml:CH592.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch::ch641,Qinheng,general_purpose_mcu,RISC-V,CH,CH641,CH641,5,qinheng:ch32-data-yaml:CH641.yaml;qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch643,Qinheng,general_purpose_mcu,RISC-V,CH,CH643,CH643,5,qinheng:ch32-data-yaml:CH643.yaml;qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch::ch645,Qinheng,general_purpose_mcu,RISC-V,CH,CH645,CH645,3,qinheng:ch32-data-yaml:CH645.yaml;qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32f103,Qinheng,general_purpose_mcu,Cortex-M3,CH32,CH32F103,CH32F103,3,qinheng:ch32-data-yaml:CH32F103C6T6.yaml;qinheng:ch32-data-yaml:CH32F103C8T6.yaml;qinheng:ch32-data-yaml:CH32F103R8T6.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch32::ch32f205,Qinheng,general_purpose_mcu,Cortex-M3,CH32,CH32F205,CH32F205,1,qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32f207,Qinheng,general_purpose_mcu,Cortex-M3,CH32,CH32F207,CH32F207,1,qinheng:special-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32h415,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32H415,CH32H415,1,qinheng:ch32-data-yaml:CH32H415REU6.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch32::ch32h416,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32H416,CH32H416,1,qinheng:ch32-data-yaml:CH32H416RDU6.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch32::ch32h417,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32H417,CH32H417,3,qinheng:ch32-data-yaml:CH32H417MEU6.yaml;qinheng:ch32-data-yaml:CH32H417QEU6.yaml;qinheng:ch32-data-yaml:CH32H417WEU6.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch32::ch32l103,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32L103,CH32L103,5,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v003,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V003,CH32V003,3,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v103,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V103,CH32V103,3,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v203,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V203,CH32V203,9,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v208,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V208,CH32V208,4,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v303,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V303,CH32V303,4,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v305,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V305,CH32V305,3,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v307,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V307,CH32V307,3,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32v317,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32V317,CH32V317,2,qinheng:ch32-data-yaml:CH32V317VCT6.yaml;qinheng:ch32-data-yaml:CH32V317WCU6.yaml,2026-08-30T15:23:23+00:00,manufacturer_device_database
+qinheng::ch32::ch32x033,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32X033,CH32X033,1,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32x034,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32X034,CH32X034,1,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
+qinheng::ch32::ch32x035,Qinheng,general_purpose_mcu,RISC-V,CH32,CH32X035,CH32X035,5,qinheng:ch32-table,2026-08-30T15:23:23+00:00,manufacturer_product_page
 renesas::ra::ra0::ra0e1,Renesas,general_purpose_mcu,Cortex-M23,RA,RA0,RA0E1,11,cmsis:Renesas.RA_DFP@6.5.1;renesas:options:ra:ra0e1@36038149,2026-08-25T06:50:16+00:00,manufacturer_product_selector_api
 renesas::ra::ra0::ra0e2,Renesas,general_purpose_mcu,Cortex-M23,RA,RA0,RA0E2,20,cmsis:Renesas.RA_DFP@6.5.1;renesas:options:ra:ra0e2@36072318,2026-08-25T06:50:16+00:00,manufacturer_product_selector_api
 renesas::ra::ra0::ra0e3,Renesas,general_purpose_mcu,Cortex-M23,RA,RA0,RA0E3,1,cmsis:Renesas.RA_DFP@6.5.1;renesas:options:ra:ra0e3@35968331,2026-08-25T06:50:16+00:00,manufacturer_product_selector_api
@@ -1080,6 +1080,18 @@ stmicroelectronics::stm32::stm32wl3::stm32wl33,STMicroelectronics,wireless_mcu,C
 stmicroelectronics::stm32::stm32wl3::stm32wl3r,STMicroelectronics,wireless_mcu,Cortex-M0+,STM32,STM32WL3,STM32WL3R,4,cmsis:Keil.STM32WL3x_DFP@1.2.0;st-cubemx-device-db:DB.6.0.181,2026-08-12T08:02:16+00:00,multi_source_manufacturer_device_database
 stmicroelectronics::stm32::stm32wl4::stm32wl43,STMicroelectronics,wireless_mcu,Cortex-M33,STM32,STM32WL4,STM32WL43,4,cmsis:Keil.STM32WL4x_DFP@1.0.0;st-cubemx-device-db:DB.6.0.181,2026-08-12T08:02:16+00:00,multi_source_manufacturer_device_database
 texas-instruments::am13e230x::am13e230x::am13e230x,Texas Instruments,general_purpose_mcu,Cortex-M33,AM13E230X,AM13E230X,AM13E230X,3,cmsis:TexasInstruments.AM13E230X_DFP@1.0.0,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
+texas-instruments::c2000::f280013x::tms320f280013x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F280013x,TMS320F280013x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f2800137,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f280015x::tms320f280015x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F280015x,TMS320F280015x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f2800157,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f28002x::tms320f28002x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F28002x,TMS320F28002x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f280025c,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f28003x::tms320f28003x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F28003x,TMS320F28003x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f280039c,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f28004x::tms320f28004x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F28004x,TMS320F28004x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f280049c,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2802x::tms320f2802x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2802x,TMS320F2802x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28027,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2803x::tms320f2803x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2803x,TMS320F2803x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28035,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2806x::tms320f2806x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2806x,TMS320F2806x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28069,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2807x::tms320f2807x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2807x,TMS320F2807x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28075,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2833x::tms320f2833x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2833x,TMS320F2833x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28335,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2837xd::tms320f2837xd,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2837xD,TMS320F2837xD,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28379d,2026-08-31T11:48:48+00:00,manufacturer_datasheet
+texas-instruments::c2000::f2838x::tms320f2838x,Texas Instruments,dsp_mcu,C28x DSP,C2000,F2838x,TMS320F2838x,1,ti:c2000ware-core-sdk;ti:datasheet:tms320f28388d,2026-08-31T11:48:48+00:00,manufacturer_datasheet
 texas-instruments::msp432e4::msp432e4::msp432e4,Texas Instruments,general_purpose_mcu,Cortex-M4,MSP432E4,MSP432E4,MSP432E4,2,cmsis:TexasInstruments.MSP432E4_DFP@3.2.6,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
 texas-instruments::msp432p4xx::msp432p4xx::msp432p4xx,Texas Instruments,general_purpose_mcu,Cortex-M4,MSP432P4xx,MSP432P4xx,MSP432P4xx,8,cmsis:TexasInstruments.MSP432P4xx_DFP@3.2.6,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
 texas-instruments::mspm0::mspm0c1103-4::mspm0c110x,Texas Instruments,general_purpose_mcu,Cortex-M0+,MSPM0,MSPM0C1103/4,MSPM0C110X,2,cmsis:TexasInstruments.MSPM0C110X_DFP@1.2.0,2026-08-12T07:48:53+00:00,cmsis_pack_metadata
