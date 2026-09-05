@@ -1135,9 +1135,14 @@
       layer.querySelectorAll('[data-spec-expand]').forEach(button=>{
         const cell=button.closest('.spec-cell'),specValue=cell?.querySelector('.spec-value');
         if(!cell||!specValue)return;
+        const valueLength=Array.from(specValue.textContent.trim()).length;
         const overflows=specValue.scrollWidth>specValue.clientWidth+1;
-        button.hidden=!overflows;
-        if(!overflows)return;
+        // Layout can still be settling when the detail panel slides in. Long
+        // engineering summaries remain expandable even if that first measure
+        // reports a false negative.
+        const expandable=overflows||valueLength>=12;
+        button.hidden=!expandable;
+        if(!expandable)return;
         button.onclick=()=>{
           const expanded=cell.classList.toggle('expanded');
           button.textContent=expanded?'收起':'展开';
@@ -1145,7 +1150,11 @@
         };
       });
     };
-    requestAnimationFrame(()=>{layer.classList.add('open');setupSpecExpanders()});
+    requestAnimationFrame(()=>{
+      layer.classList.add('open');
+      setupSpecExpanders();
+      requestAnimationFrame(setupSpecExpanders);
+    });
     layer.querySelector('.back-btn').onclick=closeDetail;
     layer.querySelector('.detail-backdrop').onclick=closeDetail;
     $('#detail-compare').onclick=()=>{toggleCompare(d.id);openDetail(d.id)};
