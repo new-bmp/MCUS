@@ -768,7 +768,7 @@
     $('#view').innerHTML=`<div class="page-heading"><h1>关于 MCUS</h1><p>一个面向工程师的离线 MCU 选型目录。</p></div><div class="author-card"><div class="chip-logo">M</div><h2>作者：new.bmp</h2><p>MCUS 汇总厂商 MCU、器件变体、外设资源、核心能力与官方订货号，帮助工程师快速筛选和比较。</p><p>当前版本：${esc(catalog.meta.version)} · 数据器件：${count(catalog.meta.devices)}</p><a class="author-link" href="https://github.com/new-bmp/MCUS">项目主页<br>https://github.com/new-bmp/MCUS ↗</a></div>`;
     updateNav();
   }
-  function spec(v,label){const text=String(v??'—');return `<div class="spec-cell"><b title="${esc(text)}">${esc(text)}</b><span>${esc(label)}</span></div>`}
+  function spec(v,label){const text=String(v??'—');return `<div class="spec-cell"><b class="spec-value" title="${esc(text)}">${esc(text)}</b><button class="spec-expand" type="button" data-spec-expand aria-expanded="false" hidden>展开</button><span>${esc(label)}</span></div>`}
   function engineeringFacts(d){
     const items=(d?.pi||[]).map(item=>[item?.n,item?.d,item?.t].filter(Boolean).join(' '));
     const text=[...items,d?.acc,d?.feat,d?.pending].flat().filter(Boolean).join(' | ').toLowerCase();
@@ -813,7 +813,7 @@
   function powerSection(d){
     const items=powerMeasurements(d);
     if(!items.length)return detailAccordion('功耗与电源','<div class="feature-panel"><div class="feature-label">当前官方来源没有可比较的典型功耗或电流测量值。模式名称、模式数量和无单位参数不会被当作功耗。</div></div>',false,'未核验');
-    const body=`<div class="inventory-note"><b>功耗必须连同测试条件一起看。</b> 仅展示来源中带明确 A/W 单位的测量；不同电压、主频、温度和外设状态不能直接比较。</div><div class="power-content" data-expandable-list><div class="power-grid">${items.map((item,index)=>{const label=item.l||powerModeLabel(item.m),conditions=powerConditions(item);return `<article class="power-card${index>=4?' is-overflow':''}"><div><span>${esc(powerModeLabel(item.m))}</span><em>${esc(powerQualityLabel(item.q))}</em></div><b>${esc(powerValue(item))}</b><p>${esc(label)}</p><small>${esc(conditions)}</small></article>`}).join('')}</div>${items.length>1?`<button class="section-expand" type="button" data-expand-list aria-expanded="false"><span>展开完整测试条件</span><i aria-hidden="true">⌄</i></button>`:''}</div>`;
+    const body=`<div class="inventory-note"><b>功耗必须连同测试条件一起看。</b> 仅展示来源中带明确 A/W 单位的测量；不同电压、主频、温度和外设状态不能直接比较。</div><div class="power-grid">${items.map(item=>{const label=item.l||powerModeLabel(item.m),conditions=powerConditions(item);return `<details class="power-card"><summary title="${esc(label)}"><div><span>${esc(powerModeLabel(item.m))}</span><em>${esc(powerQualityLabel(item.q))}</em></div><b>${esc(powerValue(item))}</b><p>${esc(label)}</p><i class="power-chevron" aria-hidden="true">⌄</i></summary><div class="power-card-detail"><p>${esc(label)}</p>${conditions?`<small>${esc(conditions)}</small>`:''}</div></details>`}).join('')}</div>`;
     const typical=items.filter(item=>item.q==='typical').length;
     return detailAccordion('功耗与电源',body,false,typical?`${typical} 项典型值`:`${items.length} 项测量`);
   }
@@ -830,9 +830,8 @@
     const order=['timing','analog','gpio','connectivity','wireless','memory_bus','display_multimedia','security','accelerator','clock','power','system','other'];
     if(!items.length)return detailAccordion('来源外设清单','<div class="feature-panel"><div class="feature-label">当前来源没有可展开的外设特征；不代表芯片没有外设。</div></div>',false,'暂无记录');
     const grouped=new Map();items.forEach(item=>{const key=item.g||'other';if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(item)});
-    const inventoryItem=(item,index)=>{const name=String(item?.n||'未命名资源'),detail=String(item?.d||'').trim();return `<article class="inventory-item${index>=6?' is-overflow':''}" title="${esc(name)}"><b>${esc(name)}</b>${detail?`<span>${esc(detail)}</span>`:''}</article>`};
-    const inventoryGroup=key=>{const groupItems=grouped.get(key),extra=Math.max(0,groupItems.length-6);return `<details class="inventory-group"><summary><span>${esc(categoryLabels[key]||key)}</span><em>${groupItems.length} 项</em><b class="accordion-chevron" aria-hidden="true">⌄</b></summary><div class="inventory-group-body" data-expandable-list><div class="inventory-list">${groupItems.map(inventoryItem).join('')}</div>${extra?`<button class="section-expand" type="button" data-expand-list aria-expanded="false"><span>展开其余 ${extra} 项</span><i aria-hidden="true">⌄</i></button>`:''}</div></details>`};
-    return detailAccordion('来源外设清单',`<div class="inventory-note">这里逐项展示来源明确列出的资源。ADC 以转换器单元和通道为选型参数，不统计 ADC 引脚数量。</div>${order.filter(key=>grouped.has(key)).map(inventoryGroup).join('')}`,false,`${items.length} 项`);
+    const inventoryItem=item=>{const name=String(item?.n||'未命名资源'),detail=String(item?.d||'').trim();return `<details class="inventory-item"><summary title="${esc(name)}"><b>${esc(name)}</b><i class="inventory-item-chevron" aria-hidden="true">⌄</i></summary>${detail?`<p>${esc(detail)}</p>`:''}</details>`};
+    return detailAccordion('来源外设清单',`<div class="inventory-note">这里逐项展示来源明确列出的资源。ADC 以转换器单元和通道为选型参数，不统计 ADC 引脚数量。</div>${order.filter(key=>grouped.has(key)).map(key=>`<details class="inventory-group"><summary><span>${esc(categoryLabels[key]||key)}</span><em>${grouped.get(key).length} 项</em><b class="accordion-chevron" aria-hidden="true">⌄</b></summary><div class="inventory-list">${grouped.get(key).map(inventoryItem).join('')}</div></details>`).join('')}`,false,`${items.length} 项`);
   }
   function packageNames(d){
     const names=String(d.pkg||'').split(/[;,]/).map(item=>item.trim()).filter(Boolean);
@@ -1132,7 +1131,40 @@
       const path=layer.querySelector('.detail-path');path.textContent=path.textContent.replace(/^Microchip/,vendorName(d.m));
     }
     if((d.boards||[]).length)layer.querySelector('.detail-hero').insertAdjacentHTML('beforeend',boardTags(d,true));
-    requestAnimationFrame(()=>layer.classList.add('open'));layer.querySelector('.back-btn').onclick=closeDetail;layer.querySelector('.detail-backdrop').onclick=closeDetail;$('#detail-compare').onclick=()=>{toggleCompare(d.id);openDetail(d.id)};layer.querySelectorAll('[data-expand-list]').forEach(button=>button.onclick=()=>{const container=button.closest('[data-expandable-list]');if(!container)return;const expanded=container.classList.toggle('expanded');button.setAttribute('aria-expanded',String(expanded));const label=button.querySelector('span');if(label){const overflow=container.querySelectorAll('.is-overflow').length;label.textContent=expanded?(overflow?`收起其余 ${overflow} 项`:'收起完整测试条件'):(overflow?`展开其余 ${overflow} 项`:'展开完整测试条件')}});layer.querySelectorAll('[data-accelerator-toggle]').forEach(button=>button.onclick=()=>{const card=button.closest('[data-accelerator-card]'),expanded=card.classList.toggle('active');button.setAttribute('aria-expanded',String(expanded));const explanation=card.querySelector('[data-accelerator-explanation]');if(explanation)explanation.hidden=!expanded;if(expanded)layer.querySelectorAll('[data-accelerator-card].active').forEach(other=>{if(other===card)return;other.classList.remove('active');const toggle=other.querySelector('[data-accelerator-toggle]');const body=other.querySelector('[data-accelerator-explanation]');if(toggle)toggle.setAttribute('aria-expanded','false');if(body)body.hidden=true})});layer.querySelectorAll('[data-quote-part]').forEach(button=>button.onclick=()=>requestQuotes(button.dataset.quotePart));const manualForm=layer.querySelector('#quote-manual');if(manualForm)manualForm.onsubmit=event=>{event.preventDefault();requestQuotes(layer.querySelector('#quote-manual-part').value)};
+    const setupSpecExpanders=()=>{
+      layer.querySelectorAll('[data-spec-expand]').forEach(button=>{
+        const cell=button.closest('.spec-cell'),specValue=cell?.querySelector('.spec-value');
+        if(!cell||!specValue)return;
+        const overflows=specValue.scrollWidth>specValue.clientWidth+1;
+        button.hidden=!overflows;
+        if(!overflows)return;
+        button.onclick=()=>{
+          const expanded=cell.classList.toggle('expanded');
+          button.textContent=expanded?'收起':'展开';
+          button.setAttribute('aria-expanded',String(expanded));
+        };
+      });
+    };
+    requestAnimationFrame(()=>{layer.classList.add('open');setupSpecExpanders()});
+    layer.querySelector('.back-btn').onclick=closeDetail;
+    layer.querySelector('.detail-backdrop').onclick=closeDetail;
+    $('#detail-compare').onclick=()=>{toggleCompare(d.id);openDetail(d.id)};
+    layer.querySelectorAll('[data-accelerator-toggle]').forEach(button=>button.onclick=()=>{
+      const card=button.closest('[data-accelerator-card]'),expanded=card.classList.toggle('active');
+      button.setAttribute('aria-expanded',String(expanded));
+      const explanation=card.querySelector('[data-accelerator-explanation]');
+      if(explanation)explanation.hidden=!expanded;
+      if(expanded)layer.querySelectorAll('[data-accelerator-card].active').forEach(other=>{
+        if(other===card)return;
+        other.classList.remove('active');
+        const toggle=other.querySelector('[data-accelerator-toggle]'),body=other.querySelector('[data-accelerator-explanation]');
+        if(toggle)toggle.setAttribute('aria-expanded','false');
+        if(body)body.hidden=true;
+      });
+    });
+    layer.querySelectorAll('[data-quote-part]').forEach(button=>button.onclick=()=>requestQuotes(button.dataset.quotePart));
+    const manualForm=layer.querySelector('#quote-manual');
+    if(manualForm)manualForm.onsubmit=event=>{event.preventDefault();requestQuotes(layer.querySelector('#quote-manual-part').value)};
   }
   function closeDetail(){state.detail=null;if(quoteAbort){quoteAbort.abort();quoteAbort=null}const layer=$('#detail-layer');layer.classList.remove('open');setTimeout(()=>{if(!state.detail)layer.innerHTML=''},220)}
   function render(){renderHeader();if(state.tab==='catalog')renderCatalog();else if(state.tab==='search')renderSearch(false);else if(state.tab==='assistant')renderAssistant();else if(state.tab==='compare')renderCompare();else if(state.tab==='data')renderData();else renderAuthor();updateNav()}
