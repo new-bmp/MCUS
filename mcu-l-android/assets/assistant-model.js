@@ -4,7 +4,7 @@
  */
 window.MCUS_LOCAL_MODEL = {
   name: "MCUS MCU 选型槽位模型",
-  version: "0.6.0",
+  version: "0.8.0",
   type: "natural-language-slot-constraint",
   vendors: [
     {label:"STMicroelectronics", terms:["stmicroelectronics","stm32","意法"]},
@@ -19,8 +19,9 @@ window.MCUS_LOCAL_MODEL = {
     {label:"Puya", terms:["puya","py32","普冉"]},
     {label:"Geehy", terms:["geehy","apm32","极海"]},
     {label:"Infineon", terms:["infineon","psoc","xmc","英飞凌"]},
-    {label:"Texas Instruments", terms:["texas instruments","ti芯片","mspm","msp430","德州仪器"]},
+    {label:"Texas Instruments", terms:["texas instruments","ti芯片","mspm","msp430","c2000","tms320","c28x","dsp","实时控制器","德州仪器"]},
     {label:"Renesas", terms:["renesas","瑞萨","瑞萨电子","ra系列","rx系列","rl78","rh850","synergy"]},
+    {label:"Artery", terms:["artery","arterytek","雅特力","at32","at32f","at32a","at32l","at32m","at32wb"]},
     {label:"Allwinner", terms:["allwinner","xradio","xr806","全志"]},
     {label:"MicroPy MCU", terms:["micropython","micro python","micropy","canmv","rp2040","rp2350","rp2354","k210","k230","k510","kendryte","树莓派"]}
   ],
@@ -33,6 +34,7 @@ window.MCUS_LOCAL_MODEL = {
     {label:"Cortex-M23", terms:["cortex-m23","cortex m23","arm m23","m23"]},
     {label:"Cortex-M33", terms:["cortex-m33","cortex m33","arm m33","m33"]},
     {label:"Cortex-M55", terms:["cortex-m55","cortex m55","arm m55","m55"]},
+    {label:"C28x DSP", terms:["c28x dsp","c28x","c2000","tms320","dsp","实时控制器"]},
     {label:"RISC-V", terms:["risc-v","risc v","riscv","青稞","c908","hazard3"]},
     {label:"8051", terms:["8051","mcs-51","mcs51"]}
   ],
@@ -51,13 +53,13 @@ window.MCUS_LOCAL_MODEL = {
     {key:"pwm", terms:["pwm","脉宽","电机控制"]},
     {key:"adch", terms:["adc","模拟通道","模数转换"]},
     {key:"gpio", terms:["gpio","通用io","通用 i/o"]},
-    {key:"tim", terms:["timer","定时器","计数器"]}
+    {key:"tim", terms:["timer","定时器","计数器","定时资源"]}
   ],
   aliases: {
     serial: ["串行口","通信口","通讯口","调试口","调试串口","异步串口","多串口","串行接口","几路串口","两三路串口","一两个串口"],
-    timer: ["计时器","定时资源","定时器资源","高级定时器"],
+    timer: ["计时器","定时资源","定时器资源","高级定时器","32位定时器","16位定时器"],
     memory: ["运行内存","片上内存","片上ram","内存容量"],
-    storage: ["程序存储","程序空间","代码空间","闪存容量"],
+    storage: ["程序存储","程序空间","代码空间","闪存容量","双区flash","双bank","零等待flash"],
     wireless: ["无线网络","无线连接","联网","无线上网"],
     display: ["屏幕","显示屏","接屏","带屏","带显示","带屏的小设备","液晶","人机界面","图形界面"],
     camera: ["图像采集","图像传感器","接摄像头","需要接摄像头","视觉","摄像头接口"],

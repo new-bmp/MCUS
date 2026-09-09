@@ -1,3 +1,9 @@
 TAOBAO_APP_KEY=
 TAOBAO_APP_SECRET=
 TAOBAO_ADZONE_ID=
+
+# LCSC / 立创商城: use an authorized API gateway, never storefront scraping.
+MCUS_LCSC_QUOTES_ENABLED=false
+LCSC_API_BASE=
+LCSC_API_KEY=
+LCSC_API_PATH=/v1/quotes

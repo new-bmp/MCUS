@@ -311,8 +311,17 @@ def numeric_feature(
     *,
     bits: int | None = None,
     category: str = "",
+    group: dict[str, Any] | None = None,
 ) -> None:
     value = number(row.get(field))
+    # A product-group table often has one value for a resource even when a
+    # different resource varies by package.  Use that field-level singleton
+    # as authoritative evidence; never select the first value from a list of
+    # package-dependent alternatives.
+    if value is None and group is not None:
+        candidates = distinct_source_values(group.get(field))
+        if len(candidates) == 1:
+            value = number(candidates[0])
     if value is not None:
         result.append(exact_feature(feature_type, label, value, bits=bits, category=category))
 
@@ -325,8 +334,14 @@ def boolean_feature(
     label: str,
     *,
     category: str = "",
+    group: dict[str, Any] | None = None,
 ) -> None:
-    value = boolean_count(row.get(field))
+    raw = row.get(field)
+    if not populated(raw) and group is not None:
+        candidates = distinct_source_values(group.get(field))
+        if len(candidates) == 1:
+            raw = candidates[0]
+    value = boolean_count(raw)
     if value is not None:
         result.append(exact_feature(feature_type, label, value, category=category))
 
@@ -487,7 +502,7 @@ def selector_features(row: dict[str, Any], group: dict[str, Any] | None = None) 
     for field, feature_type, label, bits, category in mappings:
         if field == "field__i2c" and ("I2C" in comm_text or "IIC" in comm_text):
             continue
-        numeric_feature(result, row, field, feature_type, label, bits=bits, category=category)
+        numeric_feature(result, row, field, feature_type, label, bits=bits, category=category, group=group)
 
     booleans = (
         ("field__rtc", "RTC", "Real-time clock", "timing"),
@@ -503,7 +518,7 @@ def selector_features(row: dict[str, Any], group: dict[str, Any] | None = None) 
         ("field__memory_interface", "ExtBus", "External memory interface", "memory_bus"),
     )
     for field, feature_type, label, category in booleans:
-        boolean_feature(result, row, field, feature_type, label, category=category)
+        boolean_feature(result, row, field, feature_type, label, category=category, group=group)
 
     role_counts_found = False
     for field, speed in (

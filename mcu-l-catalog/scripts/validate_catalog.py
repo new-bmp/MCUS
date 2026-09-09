@@ -6,9 +6,11 @@ from __future__ import annotations
 import csv
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -21,6 +23,36 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 def duplicates(rows: list[dict[str, str]], key: str) -> list[str]:
     counts = Counter(row.get(key, "") for row in rows)
     return sorted(value for value, count in counts.items() if value and count > 1)
+
+
+MANUAL_KINDS = {"datasheet", "reference_manual", "user_manual", "technical_manual"}
+
+
+def inferred_document_kind(item: dict[str, object]) -> str:
+    explicit = str(item.get("kind") or "").strip()
+    url = document_url(item).lower()
+    if "/product/" in url or "#documentation" in url or "product-selector" in url:
+        return "product_page"
+    if explicit:
+        return explicit
+    evidence = " ".join(str(item.get(key) or "") for key in ("title", "name", "url", "href", "path", "file")).lower()
+    if "datasheet" in evidence or "data sheet" in evidence or "数据手册" in evidence:
+        return "datasheet"
+    if "reference manual" in evidence or "technical reference" in evidence or "参考手册" in evidence:
+        return "reference_manual"
+    if "user manual" in evidence or "user guide" in evidence or "用户手册" in evidence:
+        return "user_manual"
+    if any(token in evidence for token in (".pdsc", ".pack", ".atpack", "cmsis driver", "github.com")):
+        return "source_pack"
+    if "product page" in evidence or "/product/" in evidence or "product-selector" in evidence:
+        return "product_page"
+    return "source"
+
+
+def document_url(item: dict[str, object]) -> str:
+    value = str(item.get("url") or item.get("href") or "").strip()
+    name = str(item.get("name") or "").strip()
+    return value or (name if name.startswith(("http://", "https://")) else "")
 
 
 def main() -> int:
@@ -39,6 +71,12 @@ def main() -> int:
 
     errors: list[str] = []
     warnings: list[str] = []
+    document_status_counts: Counter[str] = Counter()
+    manual_url_devices = 0
+    any_document_url_devices = 0
+    source_pack_only_devices = 0
+    missing_packages_by_manufacturer: Counter[str] = Counter()
+    missing_manuals_by_manufacturer: Counter[str] = Counter()
     for rows, key, label in (
         (product_lines, "product_line_id", "product line"),
         (devices, "device_id", "device"),
@@ -71,6 +109,62 @@ def main() -> int:
         for source_id in device.get("source_id", "").split(";"):
             if source_id and source_id not in source_ids:
                 errors.append(f"device {device['device_name']} references missing source {source_id}")
+        if not device.get("package_types"):
+            missing_packages_by_manufacturer[device.get("manufacturer", "")] += 1
+        try:
+            documents = json.loads(device.get("documents_json") or "[]")
+        except json.JSONDecodeError:
+            errors.append(f"device {device['device_name']} has invalid documents_json")
+            documents = []
+        if not isinstance(documents, list):
+            errors.append(f"device {device['device_name']} documents_json must be a list")
+            documents = []
+        has_manual_url = False
+        has_any_url = False
+        has_source_pack = False
+        for item in documents:
+            if not isinstance(item, dict):
+                errors.append(f"device {device['device_name']} has a non-object document record")
+                continue
+            kind = inferred_document_kind(item)
+            url = document_url(item)
+            explicit_kind = str(item.get("kind") or "").strip()
+            status = str(item.get("verification_status") or "unverified")
+            document_status_counts[status] += 1
+            if url:
+                parsed = urlparse(url)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    errors.append(f"device {device['device_name']} has non-HTTP document URL {url!r}")
+                else:
+                    has_any_url = True
+                    if kind in MANUAL_KINDS:
+                        has_manual_url = True
+            if kind == "source_pack" or (not url and (item.get("path") or item.get("file") or item.get("name"))):
+                has_source_pack = True
+            evidence = " ".join(str(item.get(key) or "") for key in ("title", "name", "url", "href")).lower()
+            product_or_source_url = (
+                "product page" in evidence
+                or "/product/" in evidence
+                or "#documentation" in evidence
+                or re.search(r"\.(?:pdsc|pack|atpack)(?:$|[?#])", url, re.IGNORECASE)
+                or "github.com" in url.lower()
+            )
+            if (kind in MANUAL_KINDS or explicit_kind in MANUAL_KINDS) and product_or_source_url:
+                errors.append(
+                    f"device {device['device_name']} labels a product/source page as "
+                    f"{explicit_kind or kind}: {url or evidence[:80]}"
+                )
+            http_status = str(item.get("http_status") or "")
+            if status == "invalid" or http_status in {"404", "410"}:
+                errors.append(f"device {device['device_name']} retains a confirmed dead document URL: {url}")
+        if has_manual_url:
+            manual_url_devices += 1
+        else:
+            missing_manuals_by_manufacturer[device.get("manufacturer", "")] += 1
+        if has_any_url:
+            any_document_url_devices += 1
+        elif has_source_pack:
+            source_pack_only_devices += 1
 
     wildcard_characters = {"*", "?"}
     for part in parts:
@@ -122,10 +216,12 @@ def main() -> int:
                     errors.append(f"capability {capability.get('device_name')} has invalid {key}={value!r}")
         for key in (
             "peripheral_inventory_json", "accelerators_json", "special_features_json",
-            "pending_feature_candidates_json",
+            "pending_feature_candidates_json", "power_measurements_json",
         ):
             try:
-                json.loads(capability.get(key) or "[]")
+                parsed = json.loads(capability.get(key) or "[]")
+                if not isinstance(parsed, list):
+                    errors.append(f"capability {capability.get('device_name')} has non-list {key}")
             except json.JSONDecodeError:
                 errors.append(f"capability {capability.get('device_name')} has invalid {key}")
 
@@ -206,6 +302,20 @@ def main() -> int:
             "fpu_verified_records": sum(
                 row.get("fpu_present") in {"yes", "no"} for row in capabilities
             ),
+            "package_type_records": sum(bool(row.get("package_types")) for row in devices),
+            "package_type_coverage_percent": round(
+                100 * sum(bool(row.get("package_types")) for row in devices) / len(devices), 2
+            ) if devices else 0.0,
+            "pin_count_records": sum(bool(row.get("pin_counts")) for row in devices),
+            "direct_manual_url_devices": manual_url_devices,
+            "direct_manual_url_coverage_percent": round(100 * manual_url_devices / len(devices), 2) if devices else 0.0,
+            "any_document_url_devices": any_document_url_devices,
+            "source_pack_only_devices": source_pack_only_devices,
+        },
+        "document_status_counts": dict(document_status_counts.most_common()),
+        "coverage_gaps": {
+            "missing_packages_by_manufacturer": dict(missing_packages_by_manufacturer.most_common()),
+            "missing_direct_manuals_by_manufacturer": dict(missing_manuals_by_manufacturer.most_common()),
         },
         "errors": errors,
         "warnings": warnings,

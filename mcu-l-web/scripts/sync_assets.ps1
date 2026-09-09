@@ -15,8 +15,13 @@ $logos = Join-Path $source "vendor-logos"
 Get-ChildItem -LiteralPath $logos -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $public ("vendor-" + $_.Name)) -Force
 }
-if (Test-Path -LiteralPath $staticFiles) { Remove-Item -LiteralPath $staticFiles -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $staticFiles | Out-Null
+if (Test-Path -LiteralPath $staticFiles) {
+    # A running static server can keep the directory handle open on Windows.
+    # Preserve the root and replace its contents so deployment sync still works.
+    Get-ChildItem -LiteralPath $staticFiles -Force | Remove-Item -Recurse -Force
+} else {
+    New-Item -ItemType Directory -Force -Path $staticFiles | Out-Null
+}
 Get-ChildItem -LiteralPath $public -File | Where-Object { $_.Name -notin @("catalog.js", "index.html") } | Copy-Item -Destination $staticFiles -Force
 python (Join-Path $PSScriptRoot "build_staticfiles.py") --source $public --output $staticFiles
 if ($LASTEXITCODE -ne 0) { throw 'Static catalog bundle generation failed.' }
