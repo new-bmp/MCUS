@@ -659,8 +659,99 @@
     const targets=[['clockTarget',d.hz,'主频'],['ramTarget',d.ra,'RAM'],['flashTarget',d.fl,'Flash']];targets.forEach(([key,got,label])=>{const target=req[key];if(!target||typeof got!=='number')return;const ratio=Math.abs(got-target)/Math.max(1,target);if(ratio<=0.25)add(8,label+' 接近目标');else if(ratio<=0.5)add(3,label+' 略偏目标');else add(-Math.min(12,Math.max(4,Math.round(ratio*4))),label+' 偏离目标')});
     return {score,reasons};
   }
-  function aiRecommend(prompt){
-    const req=aiParse(prompt),pool=devices.slice(),scoped=pool.filter(d=>aiHardScope(d,req));let direct=scoped.filter(d=>aiMeets(d,req));let relaxed=false,scopeUnavailable=!scoped.length;
+  /* Optional local WebLLM adapter. The model translates difficult prose into
+   * a small JSON intent; the deterministic parser and catalog evaluator stay
+   * authoritative for every electrical/resource constraint. */
+  const assistantModelStateLegacy={enabled:readStoredString('mcul_assistant_model')==='webllm',status:'规则引擎',engine:null,loading:false,error:''};
+  function assistantModelEnabled(){return assistantModelState.enabled&&Boolean(assistantModelState.engine||window.MCUS_WEBLLM_INFER)}
+  function assistantModelJson(raw){
+    if(!raw)return null;
+    try{return typeof raw==='object'?raw:JSON.parse(String(raw).replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))}catch(_){const match=String(raw).match(/\{[\s\S]*\}/);try{return match?JSON.parse(match[0]):null}catch(__){return null}}
+  }
+  async function loadAssistantWebLLM(){
+    if(assistantModelState.engine||window.MCUS_WEBLLM_INFER)return true;
+    if(assistantModelState.loading)return false;
+    assistantModelState.loading=true;assistantModelState.status='正在准备本地模型…';assistantModelState.error='';
+    try{
+      const importer=Function('u','return import(u)');
+      const mod=await importer('https://esm.run/@mlc-ai/web-llm');
+      const create=mod.CreateMLCEngine||mod.default?.CreateMLCEngine;if(typeof create!=='function')throw new Error('WebLLM 不可用');
+      const modelId='Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+      assistantModelState.engine=await create(modelId,{initProgressCallback:progress=>{const pct=Number(progress?.progress);assistantModelState.status=Number.isFinite(pct)?`正在下载本地模型 ${Math.round(pct*100)}%`:'正在下载本地模型…'}});
+      assistantModelState.status='本地 0.5B 模型已就绪';writeStoredString('mcul_assistant_model','webllm');return true;
+    }catch(error){assistantModelState.error=String(error?.message||error);assistantModelState.status='本地模型不可用，已回退规则引擎';assistantModelState.engine=null;return false}
+    finally{assistantModelState.loading=false}
+  }
+  async function aiLocalModelInfer(prompt){
+    if(!assistantModelEnabled())return null;
+    const instruction='你是 MCU 选型语义解析器。只输出 JSON，不要解释。字段可选：vendor（厂商原名）、core（Cortex-M0/M0+/M3/M4/M7/M23/M33/M55/C28x DSP/RISC-V/8051）、clockMinHz、clockMaxHz、ramMinBytes、flashMinBytes、adcResolution、adcSampleRate、minimums（serial/spi/i2c/can/usbAny/adch/adcu/tim/dac/gpio 的数量）、preferences（lowPower/highPerformance/compact/ecosystem/domestic/largeMemory/morePeripherals）。不确定就省略，不要猜测。用户：'+String(prompt);
+    try{
+      if(typeof window.MCUS_WEBLLM_INFER==='function')return assistantModelJson(await window.MCUS_WEBLLM_INFER(instruction));
+      const response=await assistantModelState.engine.chat.completions.create({messages:[{role:'system',content:'输出严格 JSON。'},{role:'user',content:instruction}],temperature:0,max_tokens:420});
+      return assistantModelJson(response?.choices?.[0]?.message?.content);
+    }catch(error){assistantModelState.error=String(error?.message||error);return null}
+  }
+  function aiMergeModelIntent(base,intent){
+    const req=JSON.parse(JSON.stringify(base||{})),model=intent&&typeof intent==='object'?intent:{};
+    const knownCores=['cortex-m0','cortex-m0+','cortex-m3','cortex-m4','cortex-m7','cortex-m23','cortex-m33','cortex-m55','c28x dsp','risc-v','8051'];
+    const core=String(model.core||'').toLowerCase().replace(/\s+/g,'-');if(!req.core&&knownCores.includes(core)){req.core=core;req.coreAny=[core]}
+    const vendorLabels=(localModel.vendors||[]).map(v=>v.label);if(!req.vendor&&vendorLabels.includes(model.vendor))req.vendor=model.vendor;
+    const assign=(field,value)=>{if((req[field]===null||req[field]===undefined)&&Number.isFinite(Number(value))&&Number(value)>=0)req[field]=Number(value)};
+    assign('clock',model.clockMinHz);assign('clockMax',model.clockMaxHz);assign('ram',model.ramMinBytes);assign('flash',model.flashMinBytes);assign('adcResolution',model.adcResolution);assign('adcSampleRate',model.adcSampleRate);
+    if(model.minimums&&typeof model.minimums==='object')Object.entries(model.minimums).forEach(([key,value])=>{if(['serial','spi','i2c','can','usbAny','adch','adcu','tim','dac','gpio'].includes(key)&&req.minimums[key]===undefined&&Number.isFinite(Number(value))&&Number(value)>0)req.minimums[key]=Number(value)});
+    if(Array.isArray(model.preferences))model.preferences.filter(key=>['lowPower','highPerformance','compact','ecosystem','domestic','largeMemory','morePeripherals'].includes(key)).forEach(key=>{if(!req.preferences.includes(key))req.preferences.push(key)});
+    req.modelUsed=true;return req;
+  }
+  /* Optional local WebLLM adapter. The model translates difficult prose into
+   * a small JSON intent; the deterministic parser and catalog evaluator stay
+   * authoritative for every electrical/resource constraint. */
+  const assistantModelState={enabled:readStoredString('mcul_assistant_model')==='webllm',status:'规则引擎',engine:null,loading:false,error:''};
+  function assistantModelEnabled(){return assistantModelState.enabled&&Boolean(assistantModelState.engine||window.MCUS_WEBLLM_INFER)}
+  function assistantModelJson(raw){
+    if(!raw)return null;
+    try{return typeof raw==='object'?raw:JSON.parse(String(raw).replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))}catch(_){const match=String(raw).match(/\{[\s\S]*\}/);try{return match?JSON.parse(match[0]):null}catch(__){return null}}
+  }
+  async function loadAssistantWebLLM(){
+    if(assistantModelState.engine||window.MCUS_WEBLLM_INFER)return true;
+    if(assistantModelState.loading)return false;
+    assistantModelState.loading=true;assistantModelState.status='正在准备本地模型…';assistantModelState.error='';
+    try{
+      const importer=Function('u','return import(u)');
+      const mod=await importer('https://esm.run/@mlc-ai/web-llm');
+      const create=mod.CreateMLCEngine||mod.default?.CreateMLCEngine;if(typeof create!=='function')throw new Error('WebLLM 不可用');
+      const modelId='Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+      assistantModelState.engine=await create(modelId,{initProgressCallback:progress=>{const pct=Number(progress?.progress);assistantModelState.status=Number.isFinite(pct)?`正在下载本地模型 ${Math.round(pct*100)}%`:'正在下载本地模型…'}});
+      assistantModelState.status='本地 0.5B 模型已就绪';writeStoredString('mcul_assistant_model','webllm');return true;
+    }catch(error){assistantModelState.error=String(error?.message||error);assistantModelState.status='本地模型不可用，已回退规则引擎';assistantModelState.engine=null;return false}
+    finally{assistantModelState.loading=false}
+  }
+  async function aiLocalModelInfer(prompt){
+    if(!assistantModelEnabled())return null;
+    const instruction='你是 MCU 选型语义解析器。只输出 JSON，不要解释。字段可选：vendor（厂商原名）、core（Cortex-M0/M0+/M3/M4/M7/M23/M33/M55/C28x DSP/RISC-V/8051）、clockMinHz、clockMaxHz、ramMinBytes、flashMinBytes、adcResolution、adcSampleRate、minimums（serial/spi/i2c/can/usbAny/adch/adcu/tim/dac/gpio 的数量）、preferences（lowPower/highPerformance/compact/ecosystem/domestic/largeMemory/morePeripherals）。不确定就省略，不要猜测。用户：'+String(prompt);
+    try{
+      if(typeof window.MCUS_WEBLLM_INFER==='function')return assistantModelJson(await window.MCUS_WEBLLM_INFER(instruction));
+      const response=await assistantModelState.engine.chat.completions.create({messages:[{role:'system',content:'输出严格 JSON。'},{role:'user',content:instruction}],temperature:0,max_tokens:420});
+      return assistantModelJson(response?.choices?.[0]?.message?.content);
+    }catch(error){assistantModelState.error=String(error?.message||error);return null}
+  }
+  function aiMergeModelIntent(base,intent){
+    const req=JSON.parse(JSON.stringify(base||{})),model=intent&&typeof intent==='object'?intent:{};
+    const knownCores=['cortex-m0','cortex-m0+','cortex-m3','cortex-m4','cortex-m7','cortex-m23','cortex-m33','cortex-m55','c28x dsp','risc-v','8051'];
+    const core=String(model.core||'').toLowerCase().replace(/\s+/g,'-');if(!req.core&&knownCores.includes(core)){req.core=core;req.coreAny=[core]}
+    const vendorLabels=(localModel.vendors||[]).map(v=>v.label);if(!req.vendor&&vendorLabels.includes(model.vendor))req.vendor=model.vendor;
+    const assign=(field,value)=>{if((req[field]===null||req[field]===undefined)&&Number.isFinite(Number(value))&&Number(value)>=0)req[field]=Number(value)};
+    assign('clock',model.clockMinHz);assign('clockMax',model.clockMaxHz);assign('ram',model.ramMinBytes);assign('flash',model.flashMinBytes);assign('adcResolution',model.adcResolution);assign('adcSampleRate',model.adcSampleRate);
+    if(model.minimums&&typeof model.minimums==='object')Object.entries(model.minimums).forEach(([key,value])=>{if(['serial','spi','i2c','can','usbAny','adch','adcu','tim','dac','gpio'].includes(key)&&req.minimums[key]===undefined&&Number.isFinite(Number(value))&&Number(value)>0)req.minimums[key]=Number(value)});
+    if(Array.isArray(model.preferences))model.preferences.filter(key=>['lowPower','highPerformance','compact','ecosystem','domestic','largeMemory','morePeripherals'].includes(key)).forEach(key=>{if(!req.preferences.includes(key))req.preferences.push(key)});
+    req.modelUsed=true;return req;
+  }
+  async function aiRecommendHybrid(prompt){
+    const current=aiRecommend(prompt);if(!assistantModelEnabled())return {...current,model:'规则引擎'};
+    const intent=await aiLocalModelInfer(prompt);if(!intent)return {...current,model:'规则引擎（本地模型回退）'};
+    const merged=aiMergeModelIntent(current.req,intent),rerun=aiRecommend(prompt,merged);return {...rerun,model:'本地 0.5B + 规则核验'};
+  }
+  function aiRecommend(prompt,providedReq){
+    const req=providedReq||aiParse(prompt),pool=devices.slice(),scoped=pool.filter(d=>aiHardScope(d,req));let direct=scoped.filter(d=>aiMeets(d,req));let relaxed=false,scopeUnavailable=!scoped.length;
     if(!direct.length&&!scopeUnavailable){relaxed=true;direct=scoped}
     if(scopeUnavailable){return {req,relaxed:false,scopeUnavailable:true,text:`当前目录没有找到可核验的 ${req.core||req.vendor||req.exact||'目标范围'} 器件，已停止跨核心 / 跨厂商推荐，避免给出看似相近但实际不符合的结果。请放宽核心、厂商或型号条件后重试。`,results:[]}}
     let scored=direct.map(d=>{let score=(Number(d.idx)||0)*.38+(Number(d.cov)||0)*.16+((d.parts||[]).length?4:0);const reasons=[];const deviceCore=String(d.c||d.a||'').toLowerCase();if(req.vendor){if(d.m===req.vendor){score+=18;reasons.push('厂商匹配')}else score-=14}if(req.coreAny?.length){if(req.coreAny.some(core=>deviceCore.includes(String(core).toLowerCase()))){score+=15;reasons.push('核心匹配')}else score-=12}else if(req.core){if(deviceCore.includes(String(req.core).toLowerCase())){score+=15;reasons.push('核心匹配')}else score-=12}if(req.micropython){if(d.pt==='micropython_mcu'){score+=18;reasons.push('MicroPython 生态')}else score-=20}if(req.exact&&aiExactMatches(d,req)){score+=35;reasons.push('型号命中')}if(req.clock){if(d.hz>=req.clock){score+=12;reasons.push(clock(d.hz)+' 达标')}else if(d.hz)score-=18;else reasons.push('主频未核验')}if(req.clockMax){if(d.hz<=req.clockMax){score+=8;reasons.push(clock(d.hz)+' 未超上限')}else if(d.hz)score-=14;else reasons.push('主频未核验')}if(req.ram){if(d.ra>=req.ram){score+=8;reasons.push(memory(d.ra)+' RAM')}else if(d.ra)score-=14;else reasons.push('RAM 未核验')}if(req.ramMax){if(d.ra<=req.ramMax){score+=6;reasons.push('RAM 在上限内')}else if(d.ra)score-=10;else reasons.push('RAM 未核验')}if(req.flash){if(d.fl>=req.flash){score+=6;reasons.push(memory(d.fl)+' Flash')}else if(d.fl)score-=10;else reasons.push('Flash 未核验')}if(req.flashMax){if(d.fl<=req.flashMax){score+=5;reasons.push('Flash 在上限内')}else if(d.fl)score-=9;else reasons.push('Flash 未核验')}if(req.fpu){if(d.fpu==='yes'){score+=10;reasons.push('FPU')}else if(d.fpu==='no')score-=18;else reasons.push('FPU 未核验')}if(req.fpuExcluded){if(d.fpu==='no'){score+=8;reasons.push('无 FPU')}else if(d.fpu==='yes')score-=12;else reasons.push('FPU 未核验')}if(req.pins){if(Number(d.pin)===req.pins){score+=5;reasons.push(req.pins+' 引脚')}else if(d.pin)score-=4}if(req.pinsMin){if(Number(d.pin)>=req.pinsMin){score+=5;reasons.push(req.pinsMin+' 引脚以上')}else if(d.pin)score-=4}if(req.pinsMax){if(Number(d.pin)<=req.pinsMax){score+=5;reasons.push(req.pinsMax+' 引脚以内')}else if(d.pin)score-=4}Object.entries(req.minimums).forEach(([key,min])=>{const got=aiMetric(d,key);const label=key==='serial'?'串口':key==='usbAny'?'USB':(peripheralByKey.get(key)?.label||key);if(typeof got==='number'&&got>=min){score+=10;reasons.push(label+' '+got+' 路')}else if(typeof got==='number')score-=12;else reasons.push(label+' 未核验')});Object.entries(req.maximums).forEach(([key,max])=>{const got=aiMetric(d,key);const label=key==='serial'?'串口':key==='usbAny'?'USB':(peripheralByKey.get(key)?.label||key);if(typeof got==='number'&&got<=max){score+=7;reasons.push(label+' 在上限内')}else if(typeof got==='number')score-=10;else reasons.push(label+' 未核验')});const technical=aiApplyTechnicalSignals(d,req,score,reasons);score=technical.score;reasons.splice(0,reasons.length,...technical.reasons);const soft=aiApplySoftSignals(d,req,score,reasons);score=soft.score;reasons.splice(0,reasons.length,...soft.reasons);if(!reasons.length)reasons.push('选型指数 '+value(d.idx));return {device:d,score:Math.max(0,Math.min(100,Math.round(score))),reasons:reasons.slice(0,5)}}).sort((a,b)=>b.score-a.score||((b.device.idx||0)-(a.device.idx||0))||natural(a.device.n,b.device.n));
@@ -744,10 +835,19 @@
   function aiMessageHtml(message){if(message.role==='user')return `<div class="assistant-message user"><div>${esc(message.text)}</div></div>`;return `<div class="assistant-message bot"><div class="assistant-avatar">✦</div><div class="assistant-bubble"><p>${esc(message.text).replace(/\n/g,'<br>')}</p>${message.req?`<div class="assistant-constraints"><span>识别条件</span><b>${esc(aiConstraintText(message.req))}</b></div>`:''}${message.results?.length?`<div class="assistant-results">${message.results.map(aiResultCard).join('')}</div>`:''}</div></div>`}
   function saveAssistant(){writeStored('mcul_assistant_history',state.assistantMessages.slice(-12).map(message=>({role:message.role,text:message.text,req:message.req,results:(message.results||[]).map(item=>({id:item.device.id,score:item.score,reasons:item.reasons}))})))}
   function restoreAssistant(){return readStoredArray('mcul_assistant_history').filter(message=>message&&typeof message==='object').map(message=>({...message,req:message.req?{...message.req,coreAny:message.req.coreAny||[],excludedCores:message.req.excludedCores||[],softExcludedCores:message.req.softExcludedCores||[],excludedVendors:message.req.excludedVendors||[],minimums:message.req.minimums||{},maximums:message.req.maximums||{},excludedFeatures:message.req.excludedFeatures||[],softExcludedFeatures:message.req.softExcludedFeatures||[],vagueFeatures:message.req.vagueFeatures||[],flashArchitecture:message.req.flashArchitecture||[],ramTypes:message.req.ramTypes||[],ramTypeAny:message.req.ramTypeAny||[],technicalPreferences:message.req.technicalPreferences||[],technicalRequirements:message.req.technicalRequirements||[]}:null,results:(Array.isArray(message.results)?message.results:[]).filter(item=>item&&item.id).map(item=>{const device=byId.get(item.id);return device?{...item,device}:null}).filter(Boolean)}))}
+  function assistantModelPanelHtml(){
+    const ready=assistantModelState.engine||window.MCUS_WEBLLM_INFER;
+    const label=ready?'本地 0.5B 模型已启用':assistantModelState.status;
+    return `<div class="assistant-model-panel"><div><b>理解模式</b><span>${esc(label)}</span></div><button id="assistant-model-toggle" type="button" ${assistantModelState.loading?'disabled':''}>${ready?'停用本地模型':assistantModelState.loading?'准备中…':'启用本地模型'}</button><small>规则引擎始终在线；本地模型仅补充复杂口语理解，硬约束仍由目录核验。</small></div>`;
+  }
   function renderAssistant(){
-    const messages=state.assistantMessages.length?state.assistantMessages:[{role:'assistant',text:'告诉我你的资源约束，我会从当前离线目录中给出可核对的候选。',req:null,results:[]}];
-    $('#view').innerHTML=`<div class="assistant-heading page-heading"><div><h1>选型助手 <span class="ai-badge">AI</span></h1><p>本地轻量模型 v${esc(localModel.version)} · 目录约束离线核验</p></div><button id="assistant-reset" class="assistant-reset" title="清空对话">清空</button></div><div class="assistant-shell"><div class="assistant-messages" id="assistant-messages">${messages.map(aiMessageHtml).join('')}</div><div class="assistant-quick"><button data-ai-prompt="需要 120MHz 以上、2 个 UART、CAN、64KB RAM 的 Cortex-M4">Cortex-M4 + CAN</button><button data-ai-prompt="需要 Wi-Fi、蓝牙和 USB，优先低功耗">Wi-Fi + 蓝牙</button><button data-ai-prompt="MicroPython，至少 2 个串口，带摄像头接口">MicroPython + 摄像头</button></div><form class="assistant-composer" id="assistant-form"><textarea id="assistant-input" rows="2" placeholder="例如：需要 120MHz、2 个 UART、CAN、64KB RAM 的 Cortex-M4"></textarea><button class="assistant-send" type="submit">生成候选 <span>↵</span></button></form></div>`;
-    const form=$('#assistant-form'),input=$('#assistant-input'),messagesEl=$('#assistant-messages');form.onsubmit=e=>{e.preventDefault();const prompt=input.value.trim();if(!prompt)return;const result=aiRecommend(aiContextualPrompt(prompt));state.assistantMessages.push({role:'user',text:prompt},{role:'assistant',text:result.text,req:result.req,results:result.results});saveAssistant();renderAssistant()};input.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')form.requestSubmit()};$('#assistant-reset').onclick=()=>{state.assistantMessages=[];try{localStorage.removeItem('mcul_assistant_history')}catch(_){}renderAssistant()};document.querySelectorAll('[data-ai-prompt]').forEach(button=>button.onclick=()=>{input.value=button.dataset.aiPrompt;input.focus()});document.querySelectorAll('[data-ai-device]').forEach(card=>{card.onclick=()=>openDetail(card.dataset.aiDevice);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openDetail(card.dataset.aiDevice)}}});document.querySelectorAll('[data-ai-compare]').forEach(button=>button.onclick=e=>{e.stopPropagation();toggleCompare(button.dataset.aiCompare);button.textContent=state.compare.has(button.dataset.aiCompare)?'已对比':'＋ 对比';button.classList.toggle('selected',state.compare.has(button.dataset.aiCompare))});if(messagesEl)messagesEl.scrollTop=messagesEl.scrollHeight;updateNav();
+    const messages=state.assistantMessages.length?state.assistantMessages:[{role:'assistant',text:'告诉我你的资源约束，我会先解析硬约束，再从离线目录给出可核对候选。',req:null,results:[]}];
+    $('#view').innerHTML=`<div class="assistant-heading page-heading"><div><h1>选型助手 <span class="ai-badge">AI</span></h1><p>混合语义助手 · 规则引擎 + 可选本地 0.5B</p></div><button id="assistant-reset" class="assistant-reset" title="清空对话">清空</button></div>${assistantModelPanelHtml()}<div class="assistant-shell"><div class="assistant-messages" id="assistant-messages">${messages.map(aiMessageHtml).join('')}</div><div class="assistant-quick"><button data-ai-prompt="我要 M33 内核，主频高一点，至少 2 路串口和 CAN">M33 + 高频 + CAN</button><button data-ai-prompt="16 位 ADC，采样要快，低功耗，最好有 DAC">16 位 ADC + 低功耗</button><button data-ai-prompt="MicroPython，至少 2 个串口，带摄像头接口">MicroPython + 摄像头</button></div><form class="assistant-composer" id="assistant-form"><textarea id="assistant-input" rows="2" placeholder="例如：我要 M33 内核高频 MCU，16 位 ADC，两个串口"></textarea><button class="assistant-send" type="submit">生成候选 <span>↵</span></button></form></div>`;
+    const form=$('#assistant-form'),input=$('#assistant-input'),messagesEl=$('#assistant-messages'),toggle=$('#assistant-model-toggle');
+    form.onsubmit=async e=>{e.preventDefault();const prompt=input.value.trim();if(!prompt||state.assistantBusy)return;state.assistantBusy=true;input.disabled=true;const contextual=aiContextualPrompt(prompt);const result=await aiRecommendHybrid(contextual);state.assistantMessages.push({role:'user',text:prompt},{role:'assistant',text:result.text+(result.model?'\n\n解析方式：'+result.model:''),req:result.req,results:result.results});state.assistantBusy=false;saveAssistant();renderAssistant()};
+    input.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')form.requestSubmit()};
+    if(toggle)toggle.onclick=async()=>{if(assistantModelState.engine||window.MCUS_WEBLLM_INFER){assistantModelState.enabled=false;assistantModelState.engine=null;assistantModelState.status='规则引擎';writeStoredString('mcul_assistant_model','');renderAssistant();return}assistantModelState.enabled=true;renderAssistant();await loadAssistantWebLLM();renderAssistant()};
+    $('#assistant-reset').onclick=()=>{state.assistantMessages=[];try{localStorage.removeItem('mcul_assistant_history')}catch(_){}renderAssistant()};document.querySelectorAll('[data-ai-prompt]').forEach(button=>button.onclick=()=>{input.value=button.dataset.aiPrompt;input.focus()});document.querySelectorAll('[data-ai-device]').forEach(card=>{card.onclick=()=>openDetail(card.dataset.aiDevice);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openDetail(card.dataset.aiDevice)}}});document.querySelectorAll('[data-ai-compare]').forEach(button=>button.onclick=e=>{e.stopPropagation();toggleCompare(button.dataset.aiCompare);button.textContent=state.compare.has(button.dataset.aiCompare)?'已对比':'＋ 对比';button.classList.toggle('selected',state.compare.has(button.dataset.aiCompare))});if(messagesEl)messagesEl.scrollTop=messagesEl.scrollHeight;updateNav();
   }
   function renderCompare(){
     const list=[...state.compare].map(id=>byId.get(id)).filter(Boolean);if(!list.length){$('#view').innerHTML='<div class="page-heading"><h1>参数对比</h1><p>最多同时比较四款器件。</p></div><div class="empty"><strong>尚未加入对比</strong>在器件详情或搜索结果中点击“对比”。</div>';updateNav();return}

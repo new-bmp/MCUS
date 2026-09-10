@@ -79,7 +79,7 @@ $CompiledResources = Join-Path $BuildRoot 'resources.zip'
 if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed.' }
 
 $UnsignedApk = Join-Path $BuildRoot 'MCUS-unsigned.apk'
-& $Aapt2 link -o $UnsignedApk --manifest (Join-Path $ProjectRoot 'AndroidManifest.xml') -I $AndroidJar -A $AssetRoot --min-sdk-version 24 --target-sdk-version 35 --version-code 28 --version-name '1.5pre2' $CompiledResources
+& $Aapt2 link -o $UnsignedApk --manifest (Join-Path $ProjectRoot 'AndroidManifest.xml') -I $AndroidJar -A $AssetRoot --min-sdk-version 24 --target-sdk-version 35 --version-code 29 --version-name '1.5pre3' $CompiledResources
 if ($LASTEXITCODE -ne 0) { throw 'APK resource linking failed.' }
 
 $JavaFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'src') -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
@@ -108,7 +108,7 @@ if (-not (Test-Path -LiteralPath $KeyStore)) {
     if ($LASTEXITCODE -ne 0) { throw 'Debug keystore creation failed.' }
 }
 
-$FinalApk = Join-Path $DistRoot 'MCUS-1.5pre2-debug.apk'
+$FinalApk = Join-Path $DistRoot 'MCUS-1.5pre3-debug.apk'
 & $ApkSigner sign --ks $KeyStore --ks-pass pass:android --key-pass pass:android --out $FinalApk $AlignedApk
 if ($LASTEXITCODE -ne 0) { throw 'APK signing failed.' }
 & $ApkSigner verify --verbose --print-certs $FinalApk

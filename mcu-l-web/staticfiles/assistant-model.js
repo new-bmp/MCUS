@@ -4,8 +4,9 @@
  */
 window.MCUS_LOCAL_MODEL = {
   name: "MCUS MCU 选型槽位模型",
-  version: "0.8.0",
-  type: "natural-language-slot-constraint",
+  version: "1.0.0-hybrid",
+  type: "natural-language-slot-constraint + optional-webllm",
+  description: "规则引擎负责硬约束核验；可选本地 0.5B 模型负责复杂口语理解，不直接决定推荐结果。",
   vendors: [
     {label:"STMicroelectronics", terms:["stmicroelectronics","stm32","意法"]},
     {label:"Espressif", terms:["espressif","esp32","esp8266","乐鑫"]},

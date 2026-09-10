@@ -27,7 +27,7 @@ function element() {
 async function loadAssistant() {
   const modelSource = await readFile(new URL("../staticfiles/assistant-model.js", import.meta.url), "utf8");
   let appSource = await readFile(new URL("../staticfiles/app.js", import.meta.url), "utf8");
-  appSource = appSource.replace(/\}\)\(\);\s*$/, "window.__MCUS_TEST__={aiParse,aiRecommend,safeHttpUrls};})();");
+  appSource = appSource.replace(/\}\)\(\);\s*$/, "window.__MCUS_TEST__={aiParse,aiRecommend,aiRecommendHybrid,safeHttpUrls};})();");
 
   const devices = [
     { id: "m33", m: "VendorA", f: "A", s: "A", l: "A", n: "M33-160", a: "Cortex-M33", c: "Cortex-M33", pt: "general_purpose_mcu", hz: 160000000, fl: 524288, ra: 262144, pin: "64", idx: 80, cov: 100, uart: 4, can: 2, tw: 16, tim: 1, adch: 16, adr: "16", pwr: [{ m: "run", v: 90, u: "uA", q: "typical", l: "Active current" }, { m: "run", v: 80, u: "uA_per_MHz", q: "typical", l: "Active current density" }, { m: "sleep", v: 800, u: "uA", q: "typical", l: "Sleep current" }], mem: [{ n: "Flash", s: 524288 }, { n: "ITCM", s: 65536 }, { n: "SRAM1", s: 196608 }], pi: [{ t: "Timer", n: "32-bit general purpose timer", d: "数量 1" }, { t: "ADC", n: "16-bit ADC", d: "采样率 2 MSPS" }] },
@@ -57,6 +57,13 @@ test("assistant keeps M33 as a hard core constraint", async () => {
   const assistant = await loadAssistant();
   const result = assistant.aiRecommend("我要 M33 内核高频 MCU");
   assert.ok(result.results.length > 0);
+  assert.ok(result.results.every(item => item.device.c.includes("Cortex-M33")));
+});
+
+test("hybrid assistant safely falls back to rules when local model is unavailable", async () => {
+  const assistant = await loadAssistant();
+  const result = await assistant.aiRecommendHybrid("我要 M33 内核高频 MCU");
+  assert.equal(result.model, "规则引擎");
   assert.ok(result.results.every(item => item.device.c.includes("Cortex-M33")));
 });
 
