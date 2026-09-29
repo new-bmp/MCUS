@@ -72,6 +72,7 @@ def main() -> int:
     parser.add_argument("--base-data", type=Path, default=root / "data")
     parser.add_argument("--vendor-packs", type=Path, default=root / "data" / "vendor-packs")
     parser.add_argument("--output-dir", type=Path, default=root / "data" / "combined")
+    parser.add_argument("--vendor-pack", action="append", help="Merge only these vendor directory names; use --base-data data/combined to preserve previously enriched vendors.")
     args = parser.parse_args()
 
     directories = [args.base_data]
@@ -79,6 +80,7 @@ def main() -> int:
         directories.extend(sorted(
             path for path in args.vendor_packs.iterdir()
             if path.is_dir() and not (path.name == "ti" and (args.vendor_packs / "texas-instruments").exists())
+            and (not args.vendor_pack or path.name in args.vendor_pack)
         ))
 
     devices, device_collisions = merge_unique(directories, "device-variants.csv", "device_id")
@@ -143,6 +145,7 @@ def main() -> int:
             "STC": "stc",
             "Artery": "artery",
             "Renesas": "renesas",
+            "Nationz": "nationz",
         }.get(manufacturer, manufacturer.lower().replace(" ", "-"))
         adapter_report_path = vendor_dir / "official-adapter-report.json"
         if not adapter_report_path.exists():
@@ -166,16 +169,16 @@ def main() -> int:
                 "last_observed": utc_now(),
                 "device_coverage_status": (
                     "official_product_selector_api_snapshot"
-                    if manufacturer in {"Espressif", "Renesas"}
-                    else ("official_product_selector_page_snapshot" if manufacturer == "HPMicro"
+                    if manufacturer in {"Espressif", "Renesas", "Nationz"}
+                    else ("official_product_selector_page_snapshot" if manufacturer in {"HPMicro", "MindMotion"}
                     else ("official_product_page_and_datasheet_snapshot" if manufacturer == "Allwinner"
                     else "official_cmsis_pack_scope_snapshot")
                     )
                 ) if adapter_report else "indexed_from_available_cmsis_packs",
                 "orderable_coverage_status": (
                     "official_selector_api_scope"
-                    if manufacturer in {"Espressif", "Renesas"}
-                    else ("official_exact_model_scope" if manufacturer == "Allwinner"
+                    if manufacturer in {"Espressif", "Renesas", "Nationz"}
+                    else ("official_exact_model_scope" if manufacturer in {"Allwinner", "MindMotion"}
                     else ("partial_official_sources" if part_counts[manufacturer] else "not_imported"))
                 ),
                 "notes": (
@@ -187,10 +190,15 @@ def main() -> int:
         )
 
     import_errors: list[dict[str, str]] = []
+    seen_errors: set[str] = set()
     for directory in directories:
         for row in read_csv(directory / "import-errors.csv"):
             if row.get("error"):
-                import_errors.append({"vendor_pack": directory.name, **row})
+                record = {"vendor_pack": directory.name, **row}
+                identity = json.dumps({k: v for k, v in record.items() if v}, sort_keys=True)
+                if identity not in seen_errors:
+                    seen_errors.add(identity)
+                    import_errors.append(record)
 
     product_line_fields = [
         "product_line_id", "manufacturer", "product_type", "architecture_class",

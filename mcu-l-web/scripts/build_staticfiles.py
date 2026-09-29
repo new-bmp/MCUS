@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -59,6 +60,7 @@ def main() -> int:
         part_names.append(name)
 
     version = str(catalog.get("meta", {}).get("version", "current"))
+    app_version = hashlib.sha256((source / "app.js").read_bytes()).hexdigest()[:12]
     scripts = [f'  <script src="catalog-base.js?v={version}"></script>']
     scripts.extend(f'  <script src="{name}?v={version}"></script>' for name in part_names)
     scripts.append(
@@ -71,7 +73,7 @@ def main() -> int:
         f'  <script src="quote-config.js?v={version}"></script>'
     )
     scripts.append(
-        f'  <script src="app.js?v={version}" '
+        f'  <script src="app.js?v={app_version}" '
         "onerror=\"document.querySelector('.splash-sub').textContent='界面脚本载入失败，请确认已上传 app.js';\"></script>"
     )
 

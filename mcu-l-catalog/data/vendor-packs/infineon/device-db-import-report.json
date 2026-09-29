@@ -21,7 +21,7 @@
   "scalar_conflicts_resolved": 140,
   "provenance_records": 11647,
   "parse_errors": [],
-  "observed_at": "2026-08-12T10:06:32+00:00",
+  "observed_at": "2026-09-07T03:58:55+00:00",
   "accuracy_policy": [
     "Only leaf records explicitly typed as mcu in the official device-db are accepted.",
     "Existing devices are joined only by case-insensitive exact part number.",

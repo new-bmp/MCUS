@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-08T08:12:45+00:00",
+  "publisher": "STMicroelectronics",
+  "policy": "Only a relative CMSIS-Pack Documents/CDxxxx.pdf entry with a Data Sheet or Reference Manual title is resolved to the same ST official CD document ID URL after HTTP verification.",
+  "unique_candidate_documents": 15,
+  "official_urls_http_verified": 0,
+  "official_urls_resolved_by_exact_document_id": 15,
+  "models_with_official_document_link": 95,
+  "document_records_updated": 190,
+  "updated_by_kind": {
+    "datasheet": 95,
+    "reference_manual": 95
+  },
+  "skipped_unclassified_cd_paths": 0,
+  "failed_urls": [
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00161561.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00161566.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00191174.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00191185.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210831.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210833.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210837.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210843.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00212417.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00220364.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00251732.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00253739.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00253742.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/reference_manual/cd00171190.pdf",
+      "status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/reference_manual/cd00246267.pdf",
+      "status": 567,
+      "method": "GET"
+    }
+  ],
+  "documents": [
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00161561.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00161561.pdf",
+      "affected_device_count": 8,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00161566.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00161566.pdf",
+      "affected_device_count": 8,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00191174.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00191174.pdf",
+      "affected_device_count": 9,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00191185.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00191185.pdf",
+      "affected_device_count": 9,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210831.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00210831.pdf",
+      "affected_device_count": 4,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210833.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00210833.pdf",
+      "affected_device_count": 4,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210837.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00210837.pdf",
+      "affected_device_count": 6,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00210843.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00210843.pdf",
+      "affected_device_count": 6,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00212417.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00212417.pdf",
+      "affected_device_count": 9,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00220364.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00220364.pdf",
+      "affected_device_count": 10,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00251732.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00251732.pdf",
+      "affected_device_count": 10,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00253739.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00253739.pdf",
+      "affected_device_count": 6,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/datasheet/cd00253742.pdf",
+      "kind": "datasheet",
+      "pack_path": "Documents/CD00253742.pdf",
+      "affected_device_count": 6,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/reference_manual/cd00171190.pdf",
+      "kind": "reference_manual",
+      "pack_path": "Documents/CD00171190.pdf",
+      "affected_device_count": 76,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    },
+    {
+      "url": "https://www.st.com/resource/en/reference_manual/cd00246267.pdf",
+      "kind": "reference_manual",
+      "pack_path": "Documents/CD00246267.pdf",
+      "affected_device_count": 19,
+      "verified": false,
+      "http_status": 567,
+      "method": "GET"
+    }
+  ]
+}

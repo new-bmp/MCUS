@@ -1,0 +1,120 @@
+{
+  "status": "ok",
+  "selected_packs": 12,
+  "successful_packs": 12,
+  "failed_packs": 0,
+  "augmented_device_records": 388,
+  "unique_svd_payloads": 22,
+  "errors": 0,
+  "proxy_mode": "environment_or_direct",
+  "packs": [
+    {
+      "source_id": "cmsis:GigaDevice.GD32C10x_DFP@1.0.1",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32C10x_DFP.1.0.1.pack",
+      "sha256": "87d4b170dde9bd3e4b2cc6078a3e13e5c6e0a286da402c1831d59b3792ccb888",
+      "archive_bytes": 728272,
+      "devices": 4,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32E10x_DFP@1.2.1",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32E10x_DFP.1.2.1.pack",
+      "sha256": "013f8af90be584db343a64a2e3d650c89da762b4ecee31352322c88ae7af3952",
+      "archive_bytes": 344280,
+      "devices": 8,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32E23x_DFP@1.0.2",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32E23x_DFP.1.0.2.pack",
+      "sha256": "95f6db1f0b0669ee910ea2d28ad8d340a80502b352b9d94ec0f561d56c574330",
+      "archive_bytes": 402690,
+      "devices": 15,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32E50x_DFP@1.3.2",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32E50x_DFP.1.3.2.pack",
+      "sha256": "f3ded2cc12001054467fd957f48687091e6576d97b0c6f6296d1b4cdb29dc512",
+      "archive_bytes": 2828055,
+      "devices": 24,
+      "unique_svd_files": 3,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32F10x_DFP@2.0.3",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32F10x_DFP.2.0.3.pack",
+      "sha256": "c10224e9bf59f1fbe0a2cf067d65a061eb51ed489e043b99e1c115617e664633",
+      "archive_bytes": 1008353,
+      "devices": 106,
+      "unique_svd_files": 4,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32F1x0_DFP@3.2.1",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32F1x0_DFP.3.2.1.pack",
+      "sha256": "45c21938884bfa3ae23f3e01f2f71da0b87edf48aabbb5c1962eebf04d25e77a",
+      "archive_bytes": 1680819,
+      "devices": 41,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32F20x_DFP@2.2.3",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32F20x_DFP.2.2.3.pack",
+      "sha256": "f9ed72f0840059bb566c95e9d6b942f02f637e10dda3f2b869bbe6c1468e3672",
+      "archive_bytes": 952028,
+      "devices": 27,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32F30x_DFP@2.2.1",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32F30x_DFP.2.2.1.pack",
+      "sha256": "640b4867d3c6e7e799c89cb78935ec1412021e00b210e5ed73d0a030ace7f9d5",
+      "archive_bytes": 900116,
+      "devices": 40,
+      "unique_svd_files": 3,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32F3x0_DFP@3.0.2",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32F3x0_DFP.3.0.2.pack",
+      "sha256": "24346c31eeaa15a8cee5906678276d24793da0673c4663a698961ccb6baa3f20",
+      "archive_bytes": 370084,
+      "devices": 36,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32F4xx_DFP@3.0.3",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32F4xx_DFP.3.0.3.pack",
+      "sha256": "f569a6acfdd04bdbb6eaa98a5ec575abe517c53f54a306dc41007c31d4ba52f0",
+      "archive_bytes": 1131438,
+      "devices": 75,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32L23x_DFP@1.0.3",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32L23x_DFP.1.0.3.pack",
+      "sha256": "de8c3c3b2d037ebd5458f86644315108ff52cc93bb665c775deb42783364c8a7",
+      "archive_bytes": 413835,
+      "devices": 8,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:GigaDevice.GD32W51x_DFP@1.0.3",
+      "pack_url": "https://gd32mcu.com/data/documents/pack/GigaDevice.GD32W51x_DFP.1.0.3.pack",
+      "sha256": "217510a14cab38d5b18fe75953a24e5cc0c49e2effb57b88b70bfa161e76ef77",
+      "archive_bytes": 2564489,
+      "devices": 4,
+      "unique_svd_files": 2,
+      "status": "ok"
+    }
+  ]
+}

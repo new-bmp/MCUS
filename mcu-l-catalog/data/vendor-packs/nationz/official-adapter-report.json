@@ -1,0 +1,8 @@
+{
+  "devices": 273,
+  "product_lines": 47,
+  "datasheet_devices": 243,
+  "verified_pdf_urls": 154,
+  "failed_pdf_urls": [],
+  "completeness_claim": "Snapshot of all 273 exact rows returned by six public MCU selector categories; not a claim of all historical N32 models."
+}

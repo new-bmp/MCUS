@@ -1,0 +1,33 @@
+{
+  "devices": 286,
+  "added": 0,
+  "exact_selector_models": 162,
+  "pages": 82,
+  "conflicts": 0,
+  "errors": [],
+  "verified_pdf_urls": 147,
+  "unverified_pdf_urls": [
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=1006&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=1571&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=1582&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=2200&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=2483&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=2540&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=2629&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=312&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=3158&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=3290&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=3390&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=3896&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=3971&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=3979&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=4026&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=4071&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=4108&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=6050&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=6121&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=6315&typeid=5",
+    "https://www.mindmotion.com.cn/download1.aspx?itemid=6440&typeid=5"
+  ],
+  "completeness_claim": "Current official product tables plus retained historical Pack variants; not all historical or future models."
+}

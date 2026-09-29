@@ -4,14 +4,16 @@
 
 ## 当前版本
 
-- Android：`1.0.1`
+- Android：`1.5`
 - Web：可直接上传 `mcu-l-web/staticfiles/`
 - 包名：`com.newbmp.mcus`
-- 数据快照：7,916 个器件、4,811 个官方订货号
-- 覆盖率 ≥ 90%：7,482 个器件；FPU 已核验：7,770 个
-- 支持 Arduino / Atmel AVR、SAM、Espressif ESP、沁恒 CH32/CH、STC32、雅特力 AT32 等系列
+- 数据快照：13,791 个器件、20,853 个订货号
+- 平均数据覆盖率：97.9%；覆盖率 ≥ 90%：12,967 个器件；FPU 已核验：13,509 个
+- 支持 STM32、ESP、CH32、HPM、AT32、MM32、国民技术、瑞萨、Microchip/Atmel、TI DSP 等系列
+- 详情页提供 Flash / RAM 架构、ECC、Bank、RWW、Swap、等待周期、擦写寿命、保护及外部 XIP 等工程信息
+- 内置固件升级适配评估，辅助判断 A/B 升级、外部 Flash 暂存和单区 Bootloader 条件
 
-APK：[`release/MCUS-1.0.1-debug.apk`](release/MCUS-1.0.1-debug.apk)
+APK 与 Web 静态包请从 [GitHub Releases](https://github.com/new-bmp/MCUS/releases/latest) 下载。
 
 ## 目录结构
 

@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "selected_packs": 1,
+  "successful_packs": 1,
+  "failed_packs": 0,
+  "augmented_device_records": 572,
+  "unique_svd_payloads": 39,
+  "errors": 0,
+  "proxy_mode": "environment_or_direct",
+  "packs": [
+    {
+      "source_id": "cmsis:Renesas.RA_DFP@6.5.1",
+      "pack_url": "https://www2.renesas.eu/Keil_MDK_Packs/Renesas.RA_DFP.6.5.1.pack",
+      "sha256": "c5f3a3308426cb7667d599d9b88c810c4f4c6c2627baf33b8f7d050b8a72afd9",
+      "archive_bytes": 90558212,
+      "devices": 572,
+      "unique_svd_files": 39,
+      "status": "ok"
+    }
+  ]
+}

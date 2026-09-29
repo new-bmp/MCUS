@@ -66,7 +66,11 @@ def pack_url(source: dict[str, str]) -> str:
     stem = filename[:-5] if filename.lower().endswith(".pdsc") else filename
     version = source["version"]
     path = str(PurePosixPath(parsed.path).parent / f"{stem}.{version}.pack")
-    return urllib.parse.urlunparse(parsed._replace(path=path))
+    # Some official MindMotion PDSCs still publish an http URL even though
+    # the same artifact is available over HTTPS.  Keep the source host/path
+    # unchanged and upgrade only that known manufacturer endpoint.
+    scheme = "https" if parsed.hostname and parsed.hostname.lower() == "www.mindmotion.com.cn" else parsed.scheme
+    return urllib.parse.urlunparse(parsed._replace(scheme=scheme, path=path))
 
 
 def fetch_pack(
@@ -78,7 +82,7 @@ def fetch_pack(
     proxy: str,
 ) -> tuple[str, int]:
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
+    if not parsed.hostname or parsed.scheme != "https":
         raise ValueError(f"SVD pack must use official HTTPS URL: {url}")
     if output.exists() and not refresh:
         payload = output.read_bytes()
@@ -146,7 +150,11 @@ def peripheral_type(name: str, group_name: str) -> str | None:
 
 
 def parse_svd(payload: bytes) -> tuple[list[dict[str, Any]], int]:
-    root = ET.fromstring(payload)
+    # A few vendor packs contain an XML declaration preceded by a UTF-8 BOM
+    # or a couple of whitespace bytes.  Normalize that harmless framing
+    # without changing the SVD document itself.
+    normalized = payload.decode("utf-8-sig", errors="replace").lstrip("\ufeff\r\n \t")
+    root = ET.fromstring(normalized)
     instances: dict[str, set[str]] = defaultdict(set)
     peripheral_nodes = [node for node in root.iter() if local_name(node.tag) == "peripheral"]
     for peripheral in peripheral_nodes:

@@ -1,6 +1,9 @@
 param(
     [switch]$SkipCatalog,
+    [switch]$EnableQuotes,
     [string]$QuoteApiEndpoint = "",
+    [switch]$EnableLCSCQuotes,
+    [string]$LCSCQuoteApiEndpoint = "",
     [string]$AndroidToolRoot = ""
 )
 
@@ -45,15 +48,37 @@ New-Item -ItemType Directory -Force -Path $BuildRoot, $ClassRoot, $DexRoot, $Dis
 # URL paths with forward slashes, so stage vendor logos as flat asset names.
 $AssetRoot = Join-Path $BuildRoot 'assets'
 New-Item -ItemType Directory -Force -Path $AssetRoot | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'assets') -File | Copy-Item -Destination $AssetRoot
+$RemovedAssistantAssets = @(
+    'assistant-model.js', 'assistant.css', 'model-pack.js',
+    'wllama.js', 'wllama.wasm', 'wllama-LICENSE.txt',
+    'llama-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt'
+)
+Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'assets') -File |
+    Where-Object { $_.Name -notin $RemovedAssistantAssets } |
+    Copy-Item -Destination $AssetRoot
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'assets\vendor-logos') -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $AssetRoot ("vendor-" + $_.Name))
 }
-if ($QuoteApiEndpoint) {
-    $QuoteApiUri = [Uri]$QuoteApiEndpoint
-    if ($QuoteApiUri.Scheme -ne 'https') { throw 'Quote API endpoint must use HTTPS.' }
-    $QuoteApiJson = $QuoteApiEndpoint | ConvertTo-Json -Compress
-    Set-Content -LiteralPath (Join-Path $AssetRoot 'quote-config.js') -Value "window.MCUS_QUOTES_ENABLED=false;window.MCUS_QUOTE_API=$QuoteApiJson;" -Encoding UTF8
+if ($EnableQuotes -and -not $QuoteApiEndpoint) {
+    throw 'QuoteApiEndpoint is required when EnableQuotes is set.'
+}
+if ($EnableLCSCQuotes -and -not $LCSCQuoteApiEndpoint) {
+    throw 'LCSCQuoteApiEndpoint is required when EnableLCSCQuotes is set.'
+}
+if ($QuoteApiEndpoint -or $LCSCQuoteApiEndpoint -or $EnableQuotes -or $EnableLCSCQuotes) {
+    if ($QuoteApiEndpoint) {
+        $QuoteApiUri = [Uri]$QuoteApiEndpoint
+        if ($QuoteApiUri.Scheme -ne 'https') { throw 'Quote API endpoint must use HTTPS.' }
+    }
+    if ($LCSCQuoteApiEndpoint) {
+        $LCSCQuoteApiUri = [Uri]$LCSCQuoteApiEndpoint
+        if ($LCSCQuoteApiUri.Scheme -ne 'https') { throw 'LCSC quote API endpoint must use HTTPS.' }
+    }
+    $QuoteApiJson = ($QuoteApiEndpoint | ConvertTo-Json -Compress)
+    $LCSCQuoteApiJson = ($LCSCQuoteApiEndpoint | ConvertTo-Json -Compress)
+    $QuoteEnabledJson = if ($EnableQuotes) { 'true' } else { 'false' }
+    $LCSCQuoteEnabledJson = if ($EnableLCSCQuotes) { 'true' } else { 'false' }
+    Set-Content -LiteralPath (Join-Path $AssetRoot 'quote-config.js') -Value "window.MCUS_QUOTES_ENABLED=$QuoteEnabledJson;window.MCUS_LCSC_QUOTES_ENABLED=$LCSCQuoteEnabledJson;window.MCUS_QUOTE_PROVIDER='lcsc';window.MCUS_QUOTE_API=$QuoteApiJson;window.MCUS_LCSC_QUOTE_API=$LCSCQuoteApiJson;" -Encoding UTF8
 }
 
 $CompiledResources = Join-Path $BuildRoot 'resources.zip'
@@ -61,10 +86,10 @@ $CompiledResources = Join-Path $BuildRoot 'resources.zip'
 if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed.' }
 
 $UnsignedApk = Join-Path $BuildRoot 'MCUS-unsigned.apk'
-& $Aapt2 link -o $UnsignedApk --manifest (Join-Path $ProjectRoot 'AndroidManifest.xml') -I $AndroidJar -A $AssetRoot --min-sdk-version 24 --target-sdk-version 35 --version-code 23 --version-name '1.0.2' $CompiledResources
+& $Aapt2 link -o $UnsignedApk --manifest (Join-Path $ProjectRoot 'AndroidManifest.xml') -I $AndroidJar -A $AssetRoot -0 gguf --min-sdk-version 24 --target-sdk-version 35 --version-code 32 --version-name '1.5' $CompiledResources
 if ($LASTEXITCODE -ne 0) { throw 'APK resource linking failed.' }
 
-$JavaFiles = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'src') -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
+$JavaFiles = @((Join-Path $ProjectRoot 'src\com\newbmp\mcus\MainActivity.java'))
 & $Javac -encoding UTF-8 -source 8 -target 8 -bootclasspath $AndroidJar -d $ClassRoot $JavaFiles
 if ($LASTEXITCODE -ne 0) { throw 'Java compilation failed.' }
 
@@ -90,7 +115,7 @@ if (-not (Test-Path -LiteralPath $KeyStore)) {
     if ($LASTEXITCODE -ne 0) { throw 'Debug keystore creation failed.' }
 }
 
-$FinalApk = Join-Path $DistRoot 'MCUS-1.0.2-debug.apk'
+$FinalApk = Join-Path $DistRoot 'MCUS-1.5-debug.apk'
 & $ApkSigner sign --ks $KeyStore --ks-pass pass:android --key-pass pass:android --out $FinalApk $AlignedApk
 if ($LASTEXITCODE -ne 0) { throw 'APK signing failed.' }
 & $ApkSigner verify --verbose --print-certs $FinalApk

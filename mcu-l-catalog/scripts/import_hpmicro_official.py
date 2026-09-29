@@ -120,6 +120,8 @@ def fetch_snapshot(
     *,
     cache_name: str,
     headers: dict[str, str] | None = None,
+    method: str = "GET",
+    body: bytes | None = None,
 ) -> Snapshot:
     """Fetch normally, with a Windows web-stack fallback for hpmicro.com.
 
@@ -129,7 +131,13 @@ def fetch_snapshot(
     to the rest of the importer.
     """
     try:
-        return fetcher.fetch(url, cache_name=cache_name, headers=headers)
+        return fetcher.fetch(
+            url,
+            cache_name=cache_name,
+            headers=headers,
+            method=method,
+            body=body,
+        )
     except Exception:
         host = (urllib.parse.urlparse(url).hostname or "").lower()
         powershell = shutil.which("powershell") or shutil.which("powershell.exe")
@@ -141,13 +149,16 @@ def fetch_snapshot(
         environment = dict(os.environ)
         environment["MCUS_FETCH_URL"] = url
         environment["MCUS_FETCH_OUT"] = str(cache_path.resolve())
+        body_clause = "-Body ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:MCUS_FETCH_BODY))) " if body else ""
         command = (
             "$ErrorActionPreference='Stop';"
             "$headers=@{'User-Agent'='Mozilla/5.0 (Windows NT 10.0; Win64; x64) MCUS/0.8';"
             "'Accept-Language'='zh-CN,zh;q=0.9,en;q=0.6'};"
-            "Invoke-WebRequest -UseBasicParsing -Headers $headers "
+            f"Invoke-WebRequest -UseBasicParsing -Headers $headers -Method {method} {body_clause}"
             "-Uri $env:MCUS_FETCH_URL -OutFile $env:MCUS_FETCH_OUT -TimeoutSec 60"
         )
+        if body:
+            environment["MCUS_FETCH_BODY"] = base64.b64encode(body).decode("ascii")
         subprocess.run(
             [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
             check=True,
@@ -341,6 +352,24 @@ def selector_features(row: dict[str, str]) -> list[dict[str, Any]]:
     def counted(feature_type: str, name: str, value: str, *, bits: int | None = None) -> None:
         add_feature(features, feature_type, name, source_count(value), raw=value, bits=bits, source_parameter=name)
 
+    # The selector's voltage column is an exact per-model operating range.
+    # Store it separately from power-measurement conditions so the derived
+    # catalog can expose the range without treating it as a current value.
+    voltage = column(row, "电源输入")
+    voltage_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:-|~|～|–|—)\s*(\d+(?:\.\d+)?)\s*V", voltage, re.I)
+    if voltage_match:
+        lower, upper = voltage_match.groups()
+        add_feature(
+            features,
+            "VCC",
+            f"Operating supply range: {lower}-{upper} V",
+            None,
+            raw=voltage,
+            source_parameter="电源输入（V）",
+        )
+        features[-1]["n"] = lower
+        features[-1]["m"] = upper
+
     counted("I2S", "I²S controllers", column(row, "i²s"))
     counted("Audio", "Digital audio output", column(row, "数字音频输出"))
     counted("ExtBus", "DDR controller", column(row, "ddr"))
@@ -463,6 +492,103 @@ def purchase_cards(page: str) -> list[tuple[str, str]]:
     ))
 
 
+def official_document_url(href: str) -> str:
+    """Normalize an HPMicro document URL without losing non-ASCII paths."""
+    absolute = urllib.parse.urljoin("https://www.hpmicro.com/", html.unescape(href))
+    parsed = urllib.parse.urlsplit(absolute)
+    return urllib.parse.urlunsplit((
+        "https",
+        "www.hpmicro.com",
+        urllib.parse.quote(urllib.parse.unquote(parsed.path), safe="/%:@!$&'()*+,;=-._~"),
+        parsed.query,
+        "",
+    ))
+
+
+def document_kind(label: str, type_label: str) -> str:
+    evidence = f"{label} {type_label}"
+    if re.search(r"数据手册|data[- ]?sheet", evidence, re.I):
+        return "datasheet"
+    if re.search(r"用户手册|参考手册|技术手册|user[- ]?manual|reference[- ]?manual", evidence, re.I):
+        return "reference_manual"
+    if re.search(r"勘误|errata", evidence, re.I):
+        return "errata"
+    if re.search(r"应用文档|应用指南|application", evidence, re.I):
+        return "application_note"
+    if re.search(r"cad|cae|封装|library|lib", evidence, re.I):
+        return "package_drawing"
+    return "official_document"
+
+
+def official_document_rows(payload: bytes) -> list[dict[str, str]]:
+    """Parse the HTML fragment returned by /Cn/Index/newmicrochip."""
+    try:
+        record = json.loads(payload.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    fragment = str(record.get("data") or "") if isinstance(record, dict) else ""
+    # The endpoint JSON-encodes its HTML fragment a second time.  Decode only
+    # escaped Unicode/slashes so document titles remain readable without
+    # applying a broad codec to already-decoded UTF-8 text.
+    fragment = fragment.replace("\\/", "/")
+    fragment = re.sub(
+        r"\\u([0-9a-fA-F]{4})",
+        lambda match: chr(int(match.group(1), 16)),
+        fragment,
+    )
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in re.findall(r"<li\b[^>]*>.*?</li>", fragment, re.I | re.S):
+        link = re.search(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", item, re.I | re.S)
+        if not link:
+            continue
+        url = official_document_url(link.group(1))
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        title = clean_html(link.group(2))
+        type_match = re.search(r"类型：\s*</span>\s*([^<]+)", item, re.I)
+        date_match = re.search(r"日期：\s*</span>\s*([^<]+)", item, re.I)
+        type_label = clean_html(type_match.group(1)) if type_match else ""
+        date = clean_html(date_match.group(1)) if date_match else ""
+        result.append({
+            "title": title or "HPMicro official document",
+            "url": url,
+            "kind": document_kind(title, type_label),
+            "version": date,
+            "verification_status": "official_document_api",
+        })
+    return result
+
+
+def document_category_id(page: str) -> str:
+    match = re.search(r"\bvar\s+catid\s*=\s*[\"'](\d+)[\"']", page)
+    return match.group(1) if match else ""
+
+
+def documents_for_device(
+    documents: list[dict[str, str]],
+    *,
+    product_line: str,
+    series: str,
+) -> list[dict[str, str]]:
+    """Keep documents whose official title names this line or its series.
+
+    Generic HPM application notes are retained as supporting references, but
+    a datasheet/manual is never copied from an unrelated product line.
+    """
+    line_tokens = {product_line.upper(), series.upper()}
+    result: list[dict[str, str]] = []
+    for document in documents:
+        title = str(document.get("title") or "").upper()
+        kind = str(document.get("kind") or "")
+        named_for_device = any(token and token in title for token in line_tokens)
+        generic_support = kind in {"application_note", "package_drawing"} and "HPM" in title
+        if named_for_device or generic_support:
+            result.append(dict(document))
+    return result
+
+
 def sdk_payload(payload: bytes) -> str:
     record = json.loads(payload.decode("utf-8"))
     return base64.b64decode(re.sub(r"\s+", "", record["content"])).decode("utf-8")
@@ -494,6 +620,7 @@ def device_row(
     series_url: str,
     series_source_id: str,
     series_text: str,
+    official_documents: list[dict[str, str]],
     observed_at: str,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     product_line = product_line_for(model)
@@ -523,8 +650,14 @@ def device_row(
         {"title": f"HPMicro {series} official selector", "url": selection_url},
         {"title": f"HPMicro {series} series page", "url": series_url},
     ]
+    documents.extend(official_documents)
     device_id = f"hpmicro::{slug(model)}"
     source_ids = [selection_source_id, series_source_id]
+    source_ids.extend(
+        document["source_id"]
+        for document in official_documents
+        if document.get("source_id")
+    )
     result = {
         "device_id": device_id,
         "product_line_id": f"hpmicro::{slug(product_line)}",
@@ -570,6 +703,7 @@ def mention_device(
     series_source_id: str,
     source_version: str,
     series_text: str,
+    official_documents: list[dict[str, str]],
     observed_at: str,
 ) -> dict[str, Any]:
     product_line = product_line_for(model)
@@ -603,10 +737,17 @@ def mention_device(
         "pin_counts": pin_count(package),
         "memory_regions_json": "[]",
         "features_json": "[]",
-        "documents_json": json.dumps([{"title": f"HPMicro {series} series page", "url": series_url}], ensure_ascii=False),
+        "documents_json": json.dumps(
+            [{"title": f"HPMicro {series} series page", "url": series_url}, *official_documents],
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
         "svd_files": "",
         "lifecycle": "active",
-        "source_id": series_source_id,
+        "source_id": ";".join(dict.fromkeys([
+            series_source_id,
+            *[document.get("source_id", "") for document in official_documents if document.get("source_id")],
+        ])),
         "source_url": series_url,
         "source_version": source_version,
         "observed_at": observed_at,
@@ -636,6 +777,7 @@ def main() -> int:
     auxiliary: dict[str, dict[str, str]] = {}
     provenance: list[dict[str, Any]] = []
     purchase_records: list[tuple[str, str, str, str, str, str]] = []
+    series_documents: dict[str, list[dict[str, str]]] = {}
 
     sitemap = fetch_snapshot(fetcher, SITEMAP_URL, cache_name="sitemap.xml", headers=HPM_WEB_HEADERS)
     sources["hpmicro:sitemap"] = {
@@ -709,6 +851,62 @@ def main() -> int:
                     overview_text,
                     overview.payload.decode("utf-8", errors="replace"),
                 )
+                # The visible page loads its document list through the same
+                # official AJAX endpoint used by the browser.  Capture only
+                # real manufacturer download controls and retain their kind,
+                # date and source category for the detail page.
+                series_documents[series_slug] = []
+                category_id = document_category_id(overview.payload.decode("utf-8", errors="replace"))
+                if category_id:
+                    for category in (2, 3, 6):
+                        body = urllib.parse.urlencode({"result": str(category), "catid": category_id}).encode("utf-8")
+                        try:
+                            document_snapshot = fetch_snapshot(
+                                fetcher,
+                                "https://www.hpmicro.com/Cn/Index/newmicrochip",
+                                cache_name=f"documents-{series_slug}-{category}.json",
+                                method="POST",
+                                body=body,
+                                headers={
+                                    **HPM_WEB_HEADERS,
+                                    "Accept": "application/json",
+                                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                    "Origin": "https://www.hpmicro.com",
+                                    "Referer": series_url,
+                                },
+                            )
+                            docs = official_document_rows(document_snapshot.payload)
+                            if docs:
+                                source_id = f"hpmicro:documents:{series_slug}:{category}"
+                                source_kind = {
+                                    2: "datasheet",
+                                    3: "reference_manual",
+                                    6: "application_note",
+                                }[category]
+                                sources[source_id] = {
+                                    "source_id": source_id,
+                                    "source_type": "manufacturer_document_api",
+                                    "publisher": "HPMicro",
+                                    "title": f"HPMicro {series_slug.upper()} official {source_kind} list",
+                                    "url": f"https://www.hpmicro.com/Cn/Index/newmicrochip?catid={category_id}&result={category}",
+                                    "version": f"sha256:{document_snapshot.sha256}",
+                                    "observed_at": document_snapshot.observed_at,
+                                    "verification_scope": f"Official HPMicro document download controls for category {category}; links are not inferred from model suffixes.",
+                                }
+                                for document in docs:
+                                    document["source_id"] = source_id
+                                series_documents[series_slug].extend(docs)
+                        except Exception as exc:
+                            errors.append({
+                                "scope": series_slug,
+                                "source_url": "https://www.hpmicro.com/Cn/Index/newmicrochip",
+                                "item": f"document-category-{category}",
+                                "error": repr(exc),
+                            })
+                    deduped: dict[str, dict[str, str]] = {}
+                    for document in series_documents[series_slug]:
+                        deduped.setdefault(document["url"], document)
+                    series_documents[series_slug] = list(deduped.values())
             series_url, series_source_id, _, series_text, series_page = series_snapshots[series_slug]
             for raw in rows:
                 model = raw.get("型号", "").upper()
@@ -724,10 +922,28 @@ def main() -> int:
                     series_url=series_url,
                     series_source_id=series_source_id,
                     series_text=series_text,
+                    official_documents=documents_for_device(
+                        series_documents.get(series_slug, []),
+                        product_line=product_line_for(model),
+                        series=series_for(product_line_for(model)),
+                    ),
                     observed_at=observed,
                 )
                 devices[device["device_id"]] = device
                 auxiliary[device["device_id"]] = extra
+                for document in json.loads(device["documents_json"]):
+                    if document.get("source_id"):
+                        provenance.append({
+                            "record_type": "device",
+                            "record_id": device["device_id"],
+                            "field_name": "documents_json",
+                            "source_id": document["source_id"],
+                            "source_url": document["url"],
+                            "source_path": "official document API",
+                            "source_value_json": json.dumps(document, ensure_ascii=False),
+                            "observed_at": observed,
+                            "verification_status": "official_document_api",
+                        })
                 for field_name, value in raw.items():
                     if value not in (None, ""):
                         provenance.append({
@@ -821,6 +1037,11 @@ def main() -> int:
                 series_source_id=series_source_id,
                 source_version=source_version,
                 series_text=series_text,
+                official_documents=documents_for_device(
+                    series_documents.get(series_slug, []),
+                    product_line=product_line_for(model),
+                    series=series_for(product_line_for(model)),
+                ),
                 observed_at=observed,
             )
             devices[device["device_id"]] = device

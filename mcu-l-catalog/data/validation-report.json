@@ -12,7 +12,25 @@
     "score_records": 0,
     "average_score_coverage_percent": 0.0,
     "devices_at_or_above_90_percent": 0,
-    "fpu_verified_records": 0
+    "fpu_verified_records": 0,
+    "package_type_records": 2771,
+    "package_type_coverage_percent": 99.75,
+    "pin_count_records": 2771,
+    "direct_manual_url_devices": 2426,
+    "direct_manual_url_coverage_percent": 87.33,
+    "any_document_url_devices": 2504,
+    "source_pack_only_devices": 95
+  },
+  "document_status_counts": {
+    "unverified": 7992
+  },
+  "coverage_gaps": {
+    "missing_packages_by_manufacturer": {
+      "STMicroelectronics": 7
+    },
+    "missing_direct_manuals_by_manufacturer": {
+      "STMicroelectronics": 352
+    }
   },
   "errors": [],
   "warnings": []

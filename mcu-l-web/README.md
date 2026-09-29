@@ -1,8 +1,22 @@
 # MCUS Web
 
-这是 MCUS 的 Web 版，静态页面与 Android 应用共用同一份离线目录快照、厂商头像和手机本地自然语言槽位模型（v0.6.0）。内置离线选型助手，可用口语化中文描述应用场景、主频、存储、核心、软偏好和外设约束；支持“跑得快、吃电少、两三路串口、够用就行、别带无线”等表达，近似推荐仍锁定在明确的核心 / 厂商 / 型号范围内。
+这是 MCUS 的 Web 版，静态页面与 Android 应用共用同一份离线目录快照和厂商头像。
 
-1.0.2 暂不开放商品询价：页面不显示询价入口，Worker 的 `/api/quotes` 也固定返回未开放状态。相关实现暂时保留，后续完成数据源和合规验证后再启用。
+目录包含雅特力（Artery / ArteryTek）AT32F、AT32A、AT32L、AT32M、AT32WB 26 条产品线、222 个官方型号变体，支持“雅特力 / Artery / AT32”搜索。
+
+当前目录共 18 家厂商、13,791 个器件变体。新增国民技术（Nationz / NSING / N32）273 个精确型号，灵动微电子（MindMotion / MM32）扩充到 286 个变体；搜索支持中文厂商名和 N32 / MM32 型号前缀。
+
+1.5 已移除助手页面、自然语言推荐功能、本地模型和推理运行库。网页 app.js 按文件内容生成缓存标识，界面更新不再沿用目录快照的旧版本号。
+
+器件详情采用摘要优先的分组折叠布局；核心与外设摘要默认展开，封装、手册、来源外设、厂商特性、评分和订货号按需展开，来源外设内部还可按类别继续展开。
+
+详情页新增“功耗与电源”分组。只展示官方来源中带明确 A/W 单位的运行、睡眠或待机测量值，并同时显示已披露的主频、电压、温度等条件；条件缺失时标为“条件未完整披露”，不把不同测量口径直接混排成高低结论。
+
+1.5pre2 预览页面默认显示立创查询入口；没有授权配置时只显示“尚未配置”提示，不会显示虚假价格。Worker 已加入云汉芯城和立创商城两种供应商适配器，但必须先取得对应开放平台或授权 API 网关参数，完成真实接口验证后才能返回报价。两者都只接受完整订货号，不会把开发板、相似后缀或搜索摘要当成芯片报价。
+
+页面“数据”页提供立创接口地址输入框。用户可以填写自己的 HTTPS Worker / 授权网关，地址仅存储在当前设备的浏览器本地存储中；API Key 必须保留在服务端。
+
+器件详情会显示来源中的封装名称和引脚数，并生成 QFP、QFN、BGA、LGA、SOP、DIP 等封装示意图；同时列出厂商页面、数据手册和 CMSIS Pack 文档。在线 HTTPS 文档可以直接打开，Pack 内相对路径会保留原路径并提供来源 Pack 链接，精确焊盘尺寸和引脚定义仍以对应手册为准。
 
 可直接发布的成品位于 `staticfiles` 文件夹。把该文件夹内的全部文件上传到 Cloudflare Pages、Workers Static Assets 或任意静态服务器即可，不需要后端接口。目录已经拆为多个小型 JavaScript 分片，避免单个大文件在上传时被遗漏或拒绝。
 
@@ -27,3 +41,31 @@ npx wrangler deploy
 ```
 
 `wrangler.toml` 使用 Workers Static Assets，Worker 提供 `/health` 健康检查，其余页面请求交给 `staticfiles` 静态资源，并启用 SPA 回退。目录与参数数据均为随包离线快照。每次 Android 目录更新后重新运行 `sync_assets.ps1`。
+
+## 云汉芯城询价试接
+
+先在 [云汉芯城数据对接申请页](https://www.ickey.cn/api) 申请接口。云汉会提供实际请求域名、`appid` 和 `appkey`；文档中的 `{domain_name}` 不是可直接调用的地址。接口协议只允许为询价、购买目的使用数据，并限制擅自存储、展示和传播，因此还必须取得云汉对“在 MCUS 中向终端用户展示实时报价”的明确书面许可。
+
+取得参数后，把它们保存为 Worker Secret：
+
+```powershell
+npx wrangler secret put ICKEY_API_BASE
+npx wrangler secret put ICKEY_APP_ID
+npx wrangler secret put ICKEY_APP_KEY
+npx wrangler secret put MCUS_QUOTES_ENABLED
+```
+
+获得展示授权后，才能把 `MCUS_QUOTES_ENABLED` 设为 `true`。Worker 的 `/api/quotes?part=STM32F103C8T6&quantity=20` 会使用完整订货号精确匹配，并返回最多三条云汉货源，包含人民币阶梯价、库存、MOQ、包装、批次、交期和详情链接。报价响应使用 `Cache-Control: no-store`，不建立价格数据库。正式启用页面入口前，还需把 `quote-config.js` 中的 `MCUS_QUOTES_ENABLED` 改为 `true` 并重新生成静态包。
+
+### 立创商城实时价格
+
+立创商城部分需要官方开放接口或经授权的 API 网关。MCUS 不抓取立创商城网页，也不在客户端保存密钥。Worker 需要配置 `LCSC_API_BASE`、`LCSC_API_KEY`（以及可选的 `LCSC_API_PATH`，默认 `/v1/quotes`），并将 `MCUS_LCSC_QUOTES_ENABLED` 设为 `true`。网关接收 `GET ?part=<完整订货号>&quantity=<数量>&exact=1`，返回 `{quotes:[...]}`、`{data:[...]}`、`{results:[...]}` 或数组；每条记录至少应包含 `mpn`（完整订货号）和 `price`/`unitPrice`，可选库存、MOQ、阶梯价和详情链接。Worker 会再次执行大小写不敏感的完整 MPN 精确匹配，最多返回三条货源。详情页的“官方完整订货号”与参数对比页都会显示立创查询入口。
+
+立创授权网关的 Worker Secret 配置示例：
+
+```powershell
+npx wrangler secret put LCSC_API_BASE
+npx wrangler secret put LCSC_API_KEY
+npx wrangler secret put LCSC_API_PATH
+npx wrangler secret put MCUS_LCSC_QUOTES_ENABLED
+```

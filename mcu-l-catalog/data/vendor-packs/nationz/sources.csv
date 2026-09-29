@@ -1,0 +1,2 @@
+﻿source_id,source_type,publisher,title,url,version,observed_at,verification_scope
+nationz:official-selector:b2a75b5a829a0a3c,manufacturer_product_selector_api,Nationz Technologies,国民技术官方 MCU 选型表（6 类别）,https://www.nationstech.com/product/general/,sha256:b2a75b5a829a0a3c2e84321984a2bcd1c569b2bc6b23b8c1a551ab3f3eecc1f2,2026-09-18T10:09:45+00:00,Exact model rows. NSING/Nationz sites cross-link; current Chinese selector takes precedence over conflicting PDSC fields.

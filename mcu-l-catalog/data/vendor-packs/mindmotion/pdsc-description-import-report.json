@@ -5,7 +5,7 @@
   "records_with_parsed_features": 151,
   "records_with_device_number_caveats": 24,
   "unmatched_devices": [],
-  "observed_at": "2026-08-12T09:13:48+00:00",
+  "observed_at": "2026-09-07T08:57:27+00:00",
   "accuracy_policy": [
     "Every device is mapped through its explicit enclosing PDSC subFamily element.",
     "Only numeric counts written in the official description are imported.",

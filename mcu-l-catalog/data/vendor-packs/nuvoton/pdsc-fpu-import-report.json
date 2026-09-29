@@ -8,7 +8,7 @@
     "Nuvoton.NuMicroM4_DFP.pdsc": 197,
     "Nuvoton.NuMicro_DFP.pdsc": 197
   },
-  "observed_at": "2026-08-12T17:22:48+00:00",
+  "observed_at": "2026-09-07T04:06:09+00:00",
   "accuracy_policy": [
     "Only explicit FPU/Cortex-MxF/floating-point wording in the official Nuvoton PDSC is accepted.",
     "No FPU state is copied from sibling product lines or inferred from a generic Cortex-M4/M33 name."

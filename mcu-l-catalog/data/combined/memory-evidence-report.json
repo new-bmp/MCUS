@@ -1,0 +1,151 @@
+{
+  "documents": 840,
+  "facts": 9527,
+  "diagrams": 471,
+  "coverage": {
+    "Allwinner": {
+      "total": 8,
+      "documents": 0,
+      "flash_devices": 0,
+      "ram_devices": 0,
+      "diagram_devices": 0
+    },
+    "Artery": {
+      "total": 222,
+      "documents": 39,
+      "flash_devices": 222,
+      "ram_devices": 222,
+      "diagram_devices": 126
+    },
+    "Espressif": {
+      "total": 319,
+      "documents": 10,
+      "flash_devices": 276,
+      "ram_devices": 276,
+      "diagram_devices": 0
+    },
+    "Geehy": {
+      "total": 153,
+      "documents": 0,
+      "flash_devices": 0,
+      "ram_devices": 0,
+      "diagram_devices": 0
+    },
+    "GigaDevice": {
+      "total": 388,
+      "documents": 32,
+      "flash_devices": 372,
+      "ram_devices": 372,
+      "diagram_devices": 372
+    },
+    "HPMicro": {
+      "total": 74,
+      "documents": 16,
+      "flash_devices": 66,
+      "ram_devices": 66,
+      "diagram_devices": 66
+    },
+    "Infineon": {
+      "total": 1734,
+      "documents": 0,
+      "flash_devices": 0,
+      "ram_devices": 0,
+      "diagram_devices": 0
+    },
+    "MicroPy MCU": {
+      "total": 9,
+      "documents": 0,
+      "flash_devices": 0,
+      "ram_devices": 0,
+      "diagram_devices": 0
+    },
+    "Microchip": {
+      "total": 767,
+      "documents": 85,
+      "flash_devices": 86,
+      "ram_devices": 86,
+      "diagram_devices": 86
+    },
+    "MindMotion": {
+      "total": 286,
+      "documents": 108,
+      "flash_devices": 162,
+      "ram_devices": 148,
+      "diagram_devices": 132
+    },
+    "Nationz": {
+      "total": 273,
+      "documents": 136,
+      "flash_devices": 243,
+      "ram_devices": 243,
+      "diagram_devices": 134
+    },
+    "Nuvoton": {
+      "total": 1058,
+      "documents": 17,
+      "flash_devices": 199,
+      "ram_devices": 169,
+      "diagram_devices": 98
+    },
+    "Puya": {
+      "total": 87,
+      "documents": 12,
+      "flash_devices": 16,
+      "ram_devices": 43,
+      "diagram_devices": 42
+    },
+    "Qinheng": {
+      "total": 90,
+      "documents": 12,
+      "flash_devices": 51,
+      "ram_devices": 51,
+      "diagram_devices": 36
+    },
+    "Renesas": {
+      "total": 5461,
+      "documents": 118,
+      "flash_devices": 4904,
+      "ram_devices": 3907,
+      "diagram_devices": 778
+    },
+    "STC": {
+      "total": 9,
+      "documents": 0,
+      "flash_devices": 0,
+      "ram_devices": 0,
+      "diagram_devices": 0
+    },
+    "STMicroelectronics": {
+      "total": 2778,
+      "documents": 251,
+      "flash_devices": 2519,
+      "ram_devices": 2517,
+      "diagram_devices": 2029
+    },
+    "Texas Instruments": {
+      "total": 75,
+      "documents": 4,
+      "flash_devices": 4,
+      "ram_devices": 4,
+      "diagram_devices": 3
+    }
+  },
+  "errors": [
+    {
+      "url": "https://www.ti.com/lit/ds/symlink/tms320f28335.pdf",
+      "error": "Failed to open file 'C:\\\\Users\\\\confl\\\\Desktop\\\\alice blue\\\\mcu-l-catalog\\\\cache\\\\memory-evidence\\\\6feeb70302658595.pdf' as type pdf."
+    },
+    {
+      "url": "https://www.ti.com/lit/ds/symlink/tms320f28035.pdf",
+      "error": "Failed to open file 'C:\\\\Users\\\\confl\\\\Desktop\\\\alice blue\\\\mcu-l-catalog\\\\cache\\\\memory-evidence\\\\7f886035cfc9012c.pdf' as type pdf."
+    },
+    {
+      "url": "https://www.ti.com/lit/ds/symlink/tms320f2800137.pdf",
+      "error": "Failed to open file 'C:\\\\Users\\\\confl\\\\Desktop\\\\alice blue\\\\mcu-l-catalog\\\\cache\\\\memory-evidence\\\\5b1e6f265541ca8d.pdf' as type pdf."
+    },
+    {
+      "url": "https://www.ti.com/lit/ds/symlink/tms320f28075.pdf",
+      "error": "Failed to open file 'C:\\\\Users\\\\confl\\\\Desktop\\\\alice blue\\\\mcu-l-catalog\\\\cache\\\\memory-evidence\\\\ab06ae6edbe018b4.pdf' as type pdf."
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+{
+  "status": "ok",
+  "selected_packs": 19,
+  "successful_packs": 19,
+  "failed_packs": 0,
+  "augmented_device_records": 157,
+  "unique_svd_payloads": 25,
+  "errors": 0,
+  "proxy_mode": "environment_or_direct",
+  "packs": [
+    {
+      "source_id": "cmsis:MindMotion.MM32F0010_DFP@1.0.6",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F0010_DFP.1.0.6.pack",
+      "sha256": "06a58af769772755d9a5643a430b2bbad85208b1cd8b327f0aa0a1034e78eeaa",
+      "archive_bytes": 636245,
+      "devices": 2,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F003_DFP@1.0.5",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F003_DFP.1.0.5.pack",
+      "sha256": "20b1efb70fa5dd5aca4783fbb1987c70ca88db5efd3f1cca8fa30bb13df7c495",
+      "archive_bytes": 956477,
+      "devices": 2,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F0130_DFP@1.0.3",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F0130_DFP.1.0.3.pack",
+      "sha256": "e23ec6cf3707384cfffbdded3d0f1219b050a30b6c4e6b7adb10078023d5002d",
+      "archive_bytes": 795611,
+      "devices": 14,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F0140_DFP@0.0.6",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F0140_DFP.0.0.6.pack",
+      "sha256": "d2c296f68134706315f5f8c257194f658e28a64580b10cab45caa1e55accf664",
+      "archive_bytes": 28524,
+      "devices": 6,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F0270_DFP@0.1.1",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F0270_DFP.0.1.1.pack",
+      "sha256": "bd05d38ecd2827036457a59d371eb708f8a79a09291ed140c1db6591893b07b4",
+      "archive_bytes": 712273,
+      "devices": 9,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F031_DFP@1.4.3",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F031_DFP.1.4.3.pack",
+      "sha256": "2460888b759e7d367993cc2634e86b0cbb53e6eb09ba7c9c1556730f24b71b99",
+      "archive_bytes": 742264,
+      "devices": 13,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F032_DFP@1.0.4",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F032_DFP.1.0.4.pack",
+      "sha256": "b1f41850541df063d6933dc7ea0ebc54f069be827611358063ad5693310071c6",
+      "archive_bytes": 719743,
+      "devices": 8,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F103x8xB_DFP@1.4.8",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F103x8xB_DFP.1.4.8.pack",
+      "sha256": "18fd92061808061a2791dcf58846268e42416e18419fa10214ea8246f6be3b70",
+      "archive_bytes": 1104209,
+      "devices": 8,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F103xCxE_DFP@1.0.6",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F103xCxE_DFP.1.0.6.pack",
+      "sha256": "55a1b0f65c8639ffdf1bb5b43c82795456597900c88318e93f006fd441150454",
+      "archive_bytes": 711996,
+      "devices": 10,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32F3270_DFP@1.0.5",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32F3270_DFP.1.0.5.pack",
+      "sha256": "37afc8df222420e55c36605e98922a6226df65bcc8e2d6aa446b6a433444e70e",
+      "archive_bytes": 862320,
+      "devices": 12,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32L0xx_DFP@1.1.3",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32L0xx_DFP.1.1.3.pack",
+      "sha256": "c2dc6711980440dbf146362e9586aed7d427c6729d8dc14e658df530a0db830f",
+      "archive_bytes": 1173078,
+      "devices": 24,
+      "unique_svd_files": 3,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32L3xx_DFP@1.0.8",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32L3xx_DFP.1.0.8.pack",
+      "sha256": "17987c87b48d9e0f8894aeb3685eee3224387ac66ee9b2fd551e3660c19c7a21",
+      "archive_bytes": 929515,
+      "devices": 8,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32P0xx_DFP@1.0.9",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32P0xx_DFP.1.0.9.pack",
+      "sha256": "a9cac994519f2a8a3e3e6643b3f6c813612c6f2cce15ff00dc60b40627c086fd",
+      "archive_bytes": 2436967,
+      "devices": 6,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32SPIN0280_DFP@0.0.1",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32SPIN0280_DFP.0.0.1.pack",
+      "sha256": "c5059a452a0bcb0066592b246850fcd99cebbc63335ce480382ee1c08889c7b0",
+      "archive_bytes": 38553,
+      "devices": 6,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32SPIN0x_DFP@1.0.8",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32SPIN0x_DFP.1.0.8.pack",
+      "sha256": "f75a6c7c8309a258ead143410bd7c689db055423257c5518956d207db6553510",
+      "archive_bytes": 929237,
+      "devices": 8,
+      "unique_svd_files": 2,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32SPIN2x_DFP@1.1.6",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32SPIN2x_DFP.1.1.6.pack",
+      "sha256": "799aeb71398dc8e63319523ab6c0079ca0972a29563103ea91361a6cc42bb90d",
+      "archive_bytes": 576108,
+      "devices": 9,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32W0130_DFP@1.0.1",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32W0130_DFP.1.0.1.pack",
+      "sha256": "71143ff6fe144ab0f6c8442710277721ff765043eb0eec1e852ce2de257764b4",
+      "archive_bytes": 797258,
+      "devices": 2,
+      "unique_svd_files": 1,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32W0xxB_DFP@1.0.6",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32W0xxB_DFP.1.0.6.pack",
+      "sha256": "c003e06e36e686c7c30fcb934043d269c3276d0cde65d3e2d5bf758e0152daa5",
+      "archive_bytes": 1915411,
+      "devices": 6,
+      "unique_svd_files": 3,
+      "status": "ok"
+    },
+    {
+      "source_id": "cmsis:MindMotion.MM32W3xxB_DFP@1.0.9",
+      "pack_url": "https://www.mindmotion.com.cn/Download/MDK_KEIL/MindMotion.MM32W3xxB_DFP.1.0.9.pack",
+      "sha256": "23fe6654e4c316d6a13883295958378d744511383615f5029de2833e7b04c023",
+      "archive_bytes": 1091945,
+      "devices": 4,
+      "unique_svd_files": 1,
+      "status": "ok"
+    }
+  ]
+}

@@ -266,6 +266,27 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
     default_ram = re.search(r"(?m)^\s+default:\s*[^\n]*r(\d+)\s*$", source)
     if default_ram and "RAM" not in memory_map:
         memory_map["RAM"] = int(default_ram.group(1)) * 1024
+    include_memory_match = re.search(r"(?m)^include_memory:\s*([^\n]+)", source)
+    include_memory = yaml_scalar(include_memory_match.group(1)) if include_memory_match else ""
+    # CH32H4 keeps the common RAM map in an included family file and selects
+    # user flash capacity through DBMODE0/DBMODE1. Preserve those official
+    # regions here so downstream selection never treats the H4 parts as blank.
+    if "CH32H4_DBMODE0" in include_memory.upper():
+        memory_map.setdefault("USR_1", 480 * 1024)
+    elif "CH32H4_DBMODE1" in include_memory.upper():
+        memory_map.setdefault("USR_1", 960 * 1024)
+    if "CH32H4.YAML" in source.upper() or "CH32H4" in include_memory.upper():
+        memory_map.setdefault("ITCM", 128 * 1024)
+        memory_map.setdefault("DTCM", 256 * 1024)
+        memory_map.setdefault("SRAM_SHARED", 512 * 1024)
+    ram_total = memory_map.get("RAM")
+    if ram_total is None:
+        ram_total = sum(
+            size for key, size in memory_map.items()
+            if size and key.upper() not in {"USR_1", "SYS_1", "OPT", "VND"}
+        ) or None
+    if ram_total is not None:
+        memory_map["RAM"] = ram_total
     raw: dict[str, str] = {}
     raw_match = re.search(r"(?ms)^_raw:\s*\n(.*?)(?=^\S|\Z)", source)
     if raw_match:
@@ -287,7 +308,7 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
             raw["GPIO"] = gpio_match.group(1)
     if not raw.get("Package") and packages:
         raw["Package"] = "/".join(yaml_scalar(code) for _, code in packages if code)
-    include_paths = re.findall(r"(?m)^\s+- \"?(?:\.\./)+peripherals/([^\"\n]+)", source)
+    include_paths = re.findall(r"(?m)^\s+- \"?(?:\.\./)+(?:family|peripherals)/([^\"\n]+)", source)
     include_text = " ".join(include_paths)
     keyword_text = " ".join(re.findall(r"(?m)^\s+-\s*([^\n]+)$", source[source.find("keywords:"):source.find("packages:")]))
     inferred: dict[str, str] = {}
@@ -295,11 +316,17 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
         return len(re.findall(pattern, include_text, re.I))
     usart_tokens = re.findall(r"USART(\d+|678|8)", include_text, re.I)
     if usart_tokens:
-        inferred["UART"] = str(7 if "678" in usart_tokens else len(usart_tokens))
+        # USART8 is the H4 extension for the common USART1..7 bank;
+        # USART678 denotes the shared 6/7/8 definition.
+        numeric_tokens = [int(token) for token in usart_tokens if token.isdigit()]
+        inferred["UART"] = str(8 if 8 in numeric_tokens or "678" in usart_tokens else max(numeric_tokens))
     for field, pattern in (("SPI", r"SPI\d+"), ("IIC", r"I2C\d+"), ("ADC", r"ADC\d+"), ("CAN", r"CAN\d+")):
-        count = infer_count(pattern)
-        if count:
-            inferred[field] = str(count)
+        tokens = re.findall(pattern, include_text, re.I)
+        if tokens:
+            inferred[field] = str(len(set(token.upper() for token in tokens)))
+    if re.search(r"CH32H4\.yaml", include_text, re.I):
+        inferred.update({"UART": "8", "SPI": "4", "IIC": "4", "ADC": "2", "CAN": "3", "DAC": "1"})
+        inferred["Advanced TM"] = "12"
     timer_count = len(re.findall(r"(?:ADV_TIM|GP\d+_TIM|BASIC_TIM|TIM)\d*[A-Z0-9]*", include_text, re.I))
     if timer_count:
         inferred["Advanced TM"] = str(timer_count)
@@ -319,7 +346,7 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
         inferred["Ethernet"] = "1"
     if re.search(r"USB", keyword_text + " " + subfamily, re.I):
         inferred["Other Features"] = (inferred.get("Other Features", "") + " USB").strip()
-    extras = [label for label, pattern in (("I3C", r"I3C"), ("SAI", r"SAI"), ("USB PD", r"USBPD")) if re.search(pattern, include_text, re.I)]
+    extras = [label for label, pattern in (("I3C", r"I3C"), ("SAI", r"SAI"), ("USB PD", r"USBPD"), ("HS ADC", r"HSADC"), ("LPTIM", r"LPTIM"), ("USB SuperSpeed", r"USBSS"), ("Gigabit Ethernet", r"Ethernet|ETH"), ("LTDC", r"LTDC")) if re.search(pattern, include_text + " " + keyword_text + " " + subfamily, re.I)]
     if extras:
         inferred["Other Features"] = " / ".join(extras)
     serial_parts = [part.strip() for part in raw.get("UART/SPI/IIC", "").split("/")]
@@ -343,7 +370,7 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
             "UART": raw.get("UART") or raw.get("USART") or serial_parts[0] or inferred.get("UART", ""),
             "SPI": raw.get("SPI") or serial_parts[1] or inferred.get("SPI", ""),
             "IIC": raw.get("IIC") or raw.get("I2C") or serial_parts[2] or inferred.get("IIC", ""),
-            "DAC": raw.get("DAC", ""), "OPA": raw.get("OPA", ""),
+            "DAC": raw.get("DAC") or inferred.get("DAC", ""), "OPA": raw.get("OPA", ""),
             "ADC": raw.get("ADC") or inferred.get("ADC", ""), "Touchkey": raw.get("TouchKey", ""),
             "Advanced TM": raw.get("Advanced TM") or raw.get("Timer") or inferred.get("Advanced TM", ""),
             "RTC": raw.get("RTC", rtc_parts[0]), "WDOG": raw.get("WDOG", rtc_parts[1]),
@@ -356,6 +383,10 @@ def parse_yaml_chip(payload: bytes) -> list[dict[str, str]]:
             "USB": raw.get("USB", ""), "SERDES/HSPI/DVP": raw.get("SERDES/HSPI/DVP", ""),
             "ETH/SATA": raw.get("ETH/SATA", ""), "Timer": raw.get("Timer", ""), "Core": raw.get("Core", ""),
             "url": docs_url, "_core": ";".join(cores), "_family": family, "_product_type": product_type,
+            "_memory_regions": json.dumps(
+                [{"name": key, "size": size} for key, size in memory_map.items() if size and key.upper() not in {"SYS_1", "OPT", "VND"}],
+                ensure_ascii=False,
+            ),
         })
     return rows
 
@@ -423,7 +454,7 @@ def features_from_row(row: dict[str, str], part: str) -> list[dict[str, str]]:
     touch = first_number(row.get("Touchkey", ""))
     if touch is not None and text(row.get("Touchkey")) not in {"-", "0"}:
         bits.append(feature("TouchKey channels", "Touch", touch))
-    gpio = first_number(row.get("GPIO", ""))
+    gpio = first_number(row.get("GPIO", "") or row.get("I/O", ""))
     if gpio is not None:
         bits.append(feature("GPIO", "IOs", gpio))
     wdt = first_number(row.get("WDOG", ""))
@@ -457,11 +488,25 @@ def features_from_row(row: dict[str, str], part: str) -> list[dict[str, str]]:
     if yes(data_flash):
         bits.append(feature(f"Data Flash / EEPROM ({data_flash})", "DataFlash", 1, data_flash))
     other = text(row.get("Other Features", ""))
-    for token in re.split(r"[/,;<>]+|\s+", other.replace("<br>", "/")):
+    # Keep multi-word capabilities intact (for example USB SuperSpeed and
+    # Gigabit Ethernet). Splitting these on whitespace used to create false
+    # standalone features such as ``WCH GIGABIT`` and ``WCH ETHERNET``.
+    phrase_features = (
+        ("USB SuperSpeed", "USBSS"), ("Gigabit Ethernet", "ETH"),
+        ("USB PD", "PowerOther"), ("HS ADC", "ADC"),
+        ("USB OTG", "USBOTG"), ("Chrom-ART", "Accelerator"),
+        ("NeoChrom VG", "Accelerator"), ("HSP1", "VendorCapability"),
+    )
+    consumed = other
+    for label, kind in phrase_features:
+        if re.search(re.escape(label), consumed, re.I):
+            bits.append(feature(f"WCH {label}", kind, 1))
+            consumed = re.sub(re.escape(label), " ", consumed, flags=re.I)
+    for token in re.split(r"[/,;<>]+|\s+", consumed.replace("<br>", "/")):
         token = token.strip().upper()
         if not token or token in {"-", "OPA", "TRNG"}:
             continue
-        kind = {"DVP": "Camera", "FSMC": "ExtBus", "HSPI": "SPI", "QSPI": "ExtBus", "LEDC": "LEDPWM", "LCD": "LCD", "PARA": "ExtBus", "PIOC": "CoreOther", "USB": "USBD", "PD": "PowerOther"}.get(token, "VendorCapability")
+        kind = {"DVP": "Camera", "FSMC": "ExtBus", "HSPI": "SPI", "QSPI": "ExtBus", "LEDC": "LEDPWM", "LCD": "LCD", "PARA": "ExtBus", "PIOC": "CoreOther", "USB": "USBD", "PD": "PowerOther", "I3C": "I3C", "SAI": "Audio", "LPTIM": "Timer", "LTDC": "Display", "SERDES": "VendorCapability"}.get(token, "VendorCapability")
         bits.append(feature(f"WCH {token}", kind, 1))
     raw_bus = text(row.get("SERDES/HSPI/DVP", ""))
     if yes(raw_bus) and re.search(r"[1-9]|mhz|gb|uhs", raw_bus, re.I):
@@ -505,7 +550,7 @@ def make_rows(raw_rows: list[dict[str, str]], source_id: str, source_url: str, o
         elif "v3a" in yaml_core:
             core = "QingKe V3A"
         flash = memory_bytes(row.get("Flash", ""))
-        ram = memory_bytes(row.get("SRAM", ""))
+        ram = memory_bytes(row.get("SRAM", "") or row.get("RAM", ""))
         hz = first_number(row.get("Freq", ""))
         if hz and "MHZ" in text(row.get("Freq")).upper():
             hz *= 1_000_000
@@ -520,8 +565,9 @@ def make_rows(raw_rows: list[dict[str, str]], source_id: str, source_url: str, o
             "generic_device_name": name, "manufacturer_variant_code": name[len(series):],
             "processor_cores": json.dumps(([{"Darchitecture": architecture, "Dcore": "QingKe V3F", "DcoreCount": "1", "Dfpu": "FPU"}, {"Darchitecture": architecture, "Dcore": "QingKe V5F", "DcoreCount": "1", "Dfpu": "FPU"}] if " + " in core else [{"Darchitecture": architecture, "Dcore": core, "DcoreCount": "1", "Dfpu": "FPU" if has_fpu else "0"}]), ensure_ascii=False),
             "max_clock_hz": hz or "", "flash_bytes": flash or "", "ram_bytes": ram or "",
-            "package_types": text(row.get("Package")), "pin_counts": text(row.get("GPIO")),
-            "memory_regions_json": json.dumps([], ensure_ascii=False), "features_json": json.dumps(features, ensure_ascii=False),
+            "package_types": text(row.get("Package")), "pin_counts": text(row.get("GPIO") or row.get("I/O")),
+            "memory_regions_json": row.get("_memory_regions") or json.dumps([], ensure_ascii=False),
+            "features_json": json.dumps(features, ensure_ascii=False),
             "documents_json": json.dumps([{"title": f"WCH {series} product page", "url": docs_url}], ensure_ascii=False),
             "svd_files": "", "lifecycle": "unknown", "source_id": source_id, "source_url": docs_url,
             "source_version": "structured-snapshot", "observed_at": observed, "verification_status": verification_status,
